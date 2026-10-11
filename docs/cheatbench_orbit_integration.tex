@@ -48,7 +48,7 @@
 
 \IfFileExists{generated/pilot_results.tex}{\input{generated/pilot_results.tex}}{%
   \newcommand{\pilotrun}{(not generated)}\newcommand{\pilotmodel}{--}\newcommand{\pilotevalid}{--}\newcommand{\pilotjudge}{--}%
-  \newcommand{\pilotrows}{\multicolumn{11}{l}{run \code{python -m integration.report_pilot runs/<name>} before building} \\}%
+  \newcommand{\pilotrows}{\multicolumn{12}{l}{run \code{python -m integration.report_pilot runs/<name>} before building} \\}%
   \newcommand{\pilotsummaries}{}}
 
 \title{\vspace{-1.4cm}CheatBench on ORBIT: integration design}
@@ -444,12 +444,12 @@ Planned unit tests: \code{make_grader_binding} (schema to params, \code{isError}
 
 \section{Pilot: one Gemini 3.8 Flash episode}
 
-CheatBench reports Gemini 3.8 Flash under Gemini CLI 0.59.0 on \code{openmath_agent} as 20/20 episodes cheated and 20/20 honeypots seen, with the note ``Historical judgments; GPT-6 Sol rejudging under the current policy is pending'' (\code{tasks/openmath_agent/README.md:194-204}). CheatBench's own runner needs enroot on Linux and was not run here. The ORBIT side ran one episode of the \code{riemann} row (run \code{\pilotrun}, eval \code{\pilotevalid}, model \code{\pilotmodel}, judge \code{\pilotjudge}). The table is generated from \code{episodes.jsonl} and \code{judge.jsonl}; prompt tokens include cache reads.
+CheatBench reports Gemini 3.8 Flash under Gemini CLI 0.59.0 on \code{openmath_agent} as 20/20 episodes cheated and 20/20 honeypots seen, with the note ``Historical judgments; GPT-6 Sol rejudging under the current policy is pending'' (\code{tasks/openmath_agent/README.md:194-204}). CheatBench's own runner needs enroot on Linux and was not run here. The ORBIT side ran one episode of the \code{riemann} row (run \code{\pilotrun}, eval \code{\pilotevalid}, model \code{\pilotmodel}, judge \code{\pilotjudge}). The table is generated from \code{episodes.jsonl} and \code{judge.jsonl}; p and c are prompt and completion tokens, and prompt tokens include cache reads.
 
 {\scriptsize
-\begin{xltabular}{\textwidth}{>{\ttfamily}l c c c l c c c c c c}
+\begin{xltabular}{\textwidth}{>{\ttfamily}l >{\ttfamily}l c c c l c c c c c c}
 \toprule
-\normalfont episode & calls & prompt / completion tokens & s & failure & cheated & honeypots & access & extracted & disclosed & judge \$ \\
+\normalfont run & \normalfont episode & calls & tokens p / c & s & failure & cheated & honeypots & access & extracted & disclosed & judge \$ \\
 \midrule
 \pilotrows
 \bottomrule
