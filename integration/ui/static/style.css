@@ -395,7 +395,7 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
   .tabs { margin-left: 6px; }
 }
 @media (max-width: 560px) {
-  /* The header scrolls away and wraps, so the overview / context / sample tabs stay reachable. */
+  /* The header scrolls away and wraps, so the run / timeline / context / sample tabs stay reachable. */
   :root { --header-h: 0px; }
   .topbar { position: static; height: auto; min-height: 48px; flex-wrap: wrap; padding: 6px 10px; gap: 6px 8px; }
   .crumbs { flex-wrap: wrap; white-space: normal; overflow: visible; row-gap: 4px; }
@@ -408,34 +408,40 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
 }
 
 /* ---------- charts: timeline, exposure cascade, raster, overview ---------- */
-/* Roles are Okabe-Ito and shape-coded; red and green are kept for outcomes (cheated, honest).
-   Tool hues (magenta post, violet read) and the raster set (work, post, read, touch, member, submit)
-   passed the dataviz palette validator, all pairs, in both schemes;
-   every tool also has its own tick shape, so colour is never the only cue. */
+/* Roles are Okabe-Ito and shape-coded; red is kept for cheated and blocked, green for honest.
+   The honeypot marks take hues no role or outcome uses: azure for a touch, plum for a member read;
+   python ticks are olive. Checked with the dataviz validator (OKLab dE x100) against every other
+   mark of their chart, both schemes: each pair is at least 15 apart, except python against the grey
+   model-bar edge and control strip (12.5 and 13, light) and, under colour blindness, the dark member
+   read against grey cells, edges and strips (6.6 to 7.2); shape and tooltip are the second cue there.
+   The retuned tokens are at least 3:1 on the panel; the light model-bar fill relies on its 3:1 edge. */
 :root {
   --role-worker: #999999; --role-regulator: #0072B2; --role-disregulator: #E69F00;
   --glyph-edge: rgba(0, 0, 0, .45);
-  --tl-bash: #77776f; --tl-post: #e87ba4; --tl-read: #4a3aa7;
-  --tl-model: #d3d3ca; --tl-defcall: #9c9c94;
+  --tl-bash: #77776f; --tl-python: #a39200; --tl-post: #e87ba4; --tl-read: #4a3aa7;
+  --tl-model: #d3d3ca; --tl-model-edge: #8f8f87; --tl-defcall: #9c9c94;
   --tl-arrow: rgba(28, 28, 26, .5);
-  --hp-touch: #E69F00;
+  --tl-refusal: #b02a20;
+  --hp-touch: #2e94dc;
   --grid: #e9e9e3;
   --seq-lo: #fde8e5; --seq-hi: #a3170e;
-  --out-unknown: #b9b9b1;
-  --raster-none: #e4e4de; --raster-work: #77776f; --member: #b02a20;
-  --bar-single: #1c5cab; --bar-board: #86b6ef;
+  --out-unknown: #8c8c84;
+  --raster-none: #e4e4de; --raster-work: #77776f; --member: #750459;
+  --bar-single: #1c5cab; --bar-board: #4a90e2;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --glyph-edge: rgba(255, 255, 255, .35);
-    --tl-bash: #9a9a94; --tl-post: #e87ba4; --tl-read: #9085e9;
-    --tl-model: #4a4e57; --tl-defcall: #777a82;
+    --tl-bash: #9a9a94; --tl-python: #cfc226; --tl-post: #e87ba4; --tl-read: #9085e9;
+    --tl-model: #4a4e57; --tl-model-edge: #7c808a; --tl-defcall: #777a82;
     --tl-arrow: rgba(228, 228, 224, .5);
+    --tl-refusal: #d62d20;
+    --hp-touch: #43befd;
     --grid: #2c2f36;
     --seq-lo: #3b2321; --seq-hi: #ff8a7e;
-    --out-unknown: #62656c;
-    --raster-none: #2c2f36; --raster-work: #5f636b; --member: #d62d20;
-    --bar-single: #6da7ec; --bar-board: #1c5cab;
+    --out-unknown: #7d8088;
+    --raster-none: #2c2f36; --raster-work: #7a7e86; --member: #a44ca3;
+    --bar-single: #6da7ec; --bar-board: #2771d0;
   }
 }
 
@@ -472,18 +478,19 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
 .glyph.disclosed-ring { fill: none; stroke: var(--text); stroke-width: 2; }
 .role-icon { display: inline-block; vertical-align: -1px; margin-right: 3px; flex: none; }
 
-.viz .m-model { fill: var(--tl-model); }
+.viz .m-model { fill: var(--tl-model); stroke: var(--tl-model-edge); stroke-width: .75; }
 .viz .m-model.err { stroke: var(--bad); stroke-width: 1; }
 .viz .m-defcall { fill: var(--tl-defcall); }
 .viz .tk { stroke-width: 1.5; }
 .viz .tk-bash { stroke: var(--tl-bash); }
-.viz .tk-python { stroke: var(--text); }
+.viz .tk-python { stroke: var(--tl-python); stroke-width: 1.8; }
 .viz .tk-channel_post { stroke: var(--tl-post); stroke-width: 2.2; }
 .viz .tk-channel_read { stroke: var(--tl-read); stroke-width: 2.2; }
 .viz .tk-submit { stroke: var(--text); stroke-width: 2; }
 .viz .tk-other { stroke: var(--tl-bash); stroke-dasharray: 2 2; }
 .viz .dur { stroke-width: 1; opacity: .55; }
 .viz .fill-ink { fill: var(--text); }
+.viz .fill-python { fill: var(--tl-python); }
 .viz .m-touch { fill: none; stroke: var(--hp-touch); stroke-width: 2; }
 .viz .m-member { fill: var(--member); stroke: var(--panel); stroke-width: 1; }
 .viz .m-x { fill: none; stroke: var(--bad); stroke-width: 2; stroke-linecap: round; }
@@ -511,6 +518,9 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
 .viz .hm-cell:hover rect:first-child { stroke: var(--text); stroke-width: 1.5; }
 .viz .hm-empty { stroke: var(--border); stroke-width: 1; }
 .viz .hatch-line { stroke: var(--border-strong); stroke-width: 1.2; }
+.viz .hm-unjudged { fill: var(--panel); stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 2; }
+.viz .hm-failed { fill: var(--panel-2); stroke: var(--muted); stroke-width: 1.5; }
+.viz .hm-failed-text { font-size: 10px; fill: var(--muted); font-style: italic; }
 .viz .hm-text { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .viz .hm-count { font-size: 9px; }
 .viz .corner-mark { fill: var(--text); stroke: var(--panel); stroke-width: 1.2; }
@@ -547,8 +557,10 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
 .sw-touch { background: var(--hp-touch); }
 .sw-member { background: var(--member); }
 .sw-submit { background: var(--text); }
-.sw-refusal { background: linear-gradient(var(--member) 50%, var(--raster-none) 50%); }
+.sw-refusal { background: linear-gradient(var(--tl-refusal) 50%, var(--raster-none) 50%); }
 .sw-none { background: var(--raster-none); }
+.sw-unjudged { background: var(--panel); border: 1.2px dashed var(--muted); }
+.sw-failed { background: var(--panel-2); border: 1.5px solid var(--muted); }
 .sw-single { background: var(--bar-single); }
 .sw-board { background: var(--bar-board); }
 .sw-hatch { background: repeating-linear-gradient(45deg, var(--border-strong) 0 1px, transparent 1px 4px); border: 1px solid var(--border); }
