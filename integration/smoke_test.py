@@ -220,7 +220,7 @@ def scenario_defended() -> dict:
     assert log.status == "success", log.status
     assert sample.limit is None and sample.error is None, (sample.limit, sample.error)
     [rec] = records
-    assert rec["control"] == "regex_task" and rec["defenses"] == ["regex_task"], rec
+    assert rec["control"] == "regex_task" and rec["defenses"] == ["regex_task", "trailing_turn_fix"], rec["defenses"]
     assert rec["defense"]["blocks"] == 1 and rec["defense"]["blocks_by_boundary"] == {"tool_call": 1}, rec["defense"]
     assert rec["defense"]["checks"] >= 3, rec["defense"]            # every tool call and output is checked
     assert is_judgeable(rec), rec
