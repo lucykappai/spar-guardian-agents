@@ -115,6 +115,11 @@ class Store:
                 return self._logs[name]
         run = _json(self._dir(name) / "run.json") or {}
         path = run.get("eval_log")
+        if path and not Path(path).exists():
+            # a set-aside run: logs/<kind>/<old name>/x.eval was renamed with the run directory
+            candidate = Path(path).parent.parent / name / Path(path).name
+            if candidate.exists():
+                path = str(candidate)
         if not path or not Path(path).exists():
             raise KeyError(f"{name}: eval log not found at {path}")
         from inspect_ai.log import read_eval_log
