@@ -78,7 +78,7 @@ Errors: 404 `{"error": ...}` for unknown run/episode/call; 500 `{"error", "trace
  first_honeypot_touch: {agent: t}, first_member_read: {agent: t},   # heuristics, see markers
  events: [Event] sorted by t, board: [Post], markers: {touch, member_read}}
 Event = {t, t_end?, agent, kind: "model"|"defense_call"|"tool"|"submit"|"defense", ...}
-  model:        tokens_in, tokens_out, tool_calls: [function], refusal: bool, error
+  model:        tokens_in, tokens_out, tool_calls: [function], output_blocked: bool (a defense replaced this completion; from the block event), refusal: bool (the output text is the refusal sentence, possibly model-written), error
   defense_call: defense (the control's own judge call)
   tool/submit:  function, id, preview, blocked, error, honeypot_touch, member_read, message_ids? (channel_post: sent; channel_read: read)
   defense:      defense, boundary, allow, reason, tool?

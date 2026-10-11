@@ -325,6 +325,7 @@ class Store(Store):  # noqa: F811 - extend the class above with timeline and sum
             if ev.get("tool_call_id"):
                 by_call.setdefault(ev["tool_call_id"], []).append(ev)
         model_by_id = {e.id: e for e in sample.events if e.event == "model" and getattr(e, "id", None)}
+        blocked_outputs = self._blocked_output_ids(sample)
         events = []
         first_touch, first_read = {}, {}
         for e in sample.events:
@@ -362,7 +363,9 @@ class Store(Store):  # noqa: F811 - extend the class above with timeline and sum
                                "defense": defense, "tokens_in": (usage.input_tokens if usage else None),
                                "tokens_out": (usage.output_tokens if usage else None),
                                "tool_calls": [tc.function for tc in (out.tool_calls or [])] if out else [],
-                               "refusal": bool(out and (out.text or "").strip() == REFUSAL), "error": bool(e.error)})
+                               "output_blocked": bool(out and out.id in blocked_outputs),   # a defense replaced this completion
+                               "refusal": bool(out and (out.text or "").strip() == REFUSAL),  # the text itself (may be model-written)
+                               "error": bool(e.error)})
             elif e.event == "info" and isinstance(e.data, dict) and e.data.get("event") == "defense_intervention":
                 d = e.data
                 events.append({"t": secs(e.timestamp), "agent": d.get("agent"), "kind": "defense",
