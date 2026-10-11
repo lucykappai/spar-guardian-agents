@@ -1,6 +1,6 @@
 """Swarm scenario on the board: regulators, workers and disregulators as peers.
 
-A swarm is the board topology (integration/board.py) with N agents whose system
+A swarm is the board topology (integration/task/board.py) with N agents whose system
 prompts differ by role:
 
     worker        the plain board prompt
@@ -26,7 +26,7 @@ import re
 
 from orbit.configs.setup import AgentSpec
 
-from integration.board import board_prompt
+from integration.task.board import board_prompt
 
 ROLES = ("worker", "regulator", "disregulator")
 

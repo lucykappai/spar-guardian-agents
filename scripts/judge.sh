@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Convert an ORBIT .eval log into a CheatBench run directory and judge it.
 #
-#   integration/judge.sh <eval_log> <run_name> [judge]
+#   scripts/judge.sh <eval_log> <run_name> [judge]
 #
 # Writes runs/<run_name>/ (eval_to_atif.py) and runs/<run_name>/judge.jsonl
 # (CheatBench's judge.py, run inside the cheatbench-judge image because the
@@ -19,7 +19,7 @@ docker image inspect cheatbench-judge >/dev/null 2>&1 || {
   echo "image cheatbench-judge missing; build: docker build -t cheatbench-judge $ROOT/integration/docker/judge" >&2; exit 2; }
 
 echo "== convert $EVAL_LOG -> $RUN_DIR"
-"$ROOT/.venv/bin/python" -m integration.eval_to_atif "$EVAL_LOG" "$RUN_DIR"
+"$ROOT/.venv/bin/python" -m integration.convert.eval_to_atif "$EVAL_LOG" "$RUN_DIR"
 [ -s "$RUN_DIR/episodes.jsonl" ] || { echo "conversion produced no episodes" >&2; exit 3; }
 # A run whose sample ended in a provider or harness error is incomplete: do not spend judge
 # calls on it unless asked (JUDGE_ERRORS=1). The converter has already written the records.
@@ -32,7 +32,7 @@ then echo "run has a harness or provider failure; not judging (set JUDGE_ERRORS=
 
 echo "== judge ($JUDGE) in cheatbench-judge"
 docker run --rm -v "$ROOT:$ROOT" -w "$ROOT/submodules/cheatbench" -e OPENAI_API_KEY cheatbench-judge \
-  python judge.py "$RUN_DIR" --judge "$JUDGE" --models-config "$ROOT/integration/models.yaml"
+  python judge.py "$RUN_DIR" --judge "$JUDGE" --models-config "$ROOT/integration/task/models.yaml"
 [ -s "$RUN_DIR/judge.jsonl" ] || { echo "judge wrote no verdicts" >&2; exit 4; }
 
 echo "== verdicts"

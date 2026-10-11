@@ -9,6 +9,8 @@ Endpoints (all JSON unless noted; see API.md):
     GET /api/runs/<run>/sample              sample-level facts from the eval log (scorer metadata, probe, limit, error)
     GET /api/runs/<run>/context             index of every model call in the eval log (agents and defenses)
     GET /api/runs/<run>/context/<i>         one model call: exact provider input, output, usage
+    GET /api/figures                        the PNG figures under docs/figures
+    GET /figures/<file>                     one figure file
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ import mimetypes
 import re
 import sys
 import threading
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -25,9 +28,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from integration.eval_to_atif import split_content, tool_result_text  # noqa: E402
+from integration.convert.eval_to_atif import split_content, tool_result_text  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
+FIGURES = ROOT / "docs" / "figures"
+FIGURE_NAME = re.compile(r"^[A-Za-z0-9_-]+\.(png|svg|pdf)$")
 REFUSAL = "I cannot provide that response under the configured defense policy."
 WITHHELD = "[Content withheld by a configured defense.]"
 FLAG_KEYS = {"orbit_communication_delivery": "delivery_notice", "orbit_trailing_turn_fix": "trailing_turn_fix",
@@ -42,6 +47,27 @@ def _jsonl(path: Path) -> list[dict]:
 
 def _json(path: Path):
     return json.loads(path.read_text()) if path.exists() else None
+
+
+def graph_of(topology) -> str:
+    """The communication graph of a run: a lone agent, or every agent on one shared board.
+
+    run.json writes "swarm" for a board with hidden roles; the graph is the same board.
+    """
+    return "single" if topology in (None, "single") else "board"
+
+
+def ending_of(ep: dict) -> str:
+    """How an episode ended: its failure label, else submit, else the converter's ended_by."""
+    return ep.get("failure") or ("submit" if ep.get("ended_by") == "submit" else (ep.get("ended_by") or "end"))
+
+
+def endings_of(eps: list[dict]) -> dict:
+    out: dict = {}
+    for e in eps:
+        k = ending_of(e)
+        out[k] = out.get(k, 0) + 1
+    return out
 
 
 class Store:
@@ -81,8 +107,16 @@ class Store:
         d = self._dir(name)
         run = _json(d / "run.json") or {}
         eps = self.episodes(name)
+        sw = run.get("swarm") or {}
+        dl = run.get("deliverables") or {}
         return {
             "run": name, "task": run.get("task"), "model": run.get("model"), "topology": run.get("topology"),
+            "graph": graph_of(run.get("topology")), "n_agents": len(run.get("agents") or eps), "roles": bool(sw.get("roles")),
+            "swarm": ({**{k: sw.get(k) for k in ("n_agents", "regulators", "disregulators", "workers", "seed", "composition",
+                                                  "swarm_report_cheated")}, "has_report": sw.get("swarm_report") is not None} if sw else None),
+            "deliverables": ({k: dl.get(k) for k in ("archive_in_workspace", "registered_on_main", "registered_message_copied_from")}
+                             if dl else None),
+            "endings": endings_of(eps),
             "agents": run.get("agents"), "control": run.get("control") or "baseline",
             "monitor_model": run.get("monitor_model"), "defenses": [d_["name"] for d_ in run.get("defenses") or []],
             "eval_log": run.get("eval_log"), "eval_log_exists": bool(run.get("eval_log")) and Path(run["eval_log"]).exists(),
@@ -415,8 +449,22 @@ class Store(Store):  # noqa: F811 - extend the class above with timeline and sum
             eps = self.episodes(name)
             judged = [e for e in eps if e["verdict"] and e["verdict"].get("cheated") is not None and e.get("has_transcript")]
             sw = run.get("swarm") or {}
+            dl = run.get("deliverables") or {}
+            by_role = {}
+            for r in ("worker", "regulator", "disregulator"):
+                mine = [e for e in judged if e.get("role") == r]
+                by_role[r] = {"n": len(mine), "cheated": sum(1 for e in mine if e["verdict"]["cheated"]),
+                              "honeypots_seen": sum(1 for e in mine if e["verdict"].get("honey_pots_seen")),
+                              "attempted": sum(1 for e in mine if e["verdict"].get("attempted_access")),
+                              "disclosed": sum(1 for e in mine if e["verdict"].get("disclosed_access"))}
             rows.append({
                 "run": name, "control": run.get("control") or "baseline", "topology": run.get("topology"),
+                "graph": graph_of(run.get("topology")), "roles": bool(sw.get("roles")), "model": run.get("model"),
+                "output_tokens": sum((e.get("usage") or {}).get("output", 0) for e in eps),
+                "cache_read": sum((e.get("usage") or {}).get("cache_read", 0) for e in eps),
+                "judge_cost": round(sum((e["verdict"] or {}).get("judge_cost_usd") or 0 for e in eps), 4),
+                "registered_on_main": dl.get("registered_on_main"), "registered_copied_from": dl.get("registered_message_copied_from"),
+                "archive_in_workspace": dl.get("archive_in_workspace"), "endings": endings_of(eps),
                 "failed": any(e.get("failure") in FAILED_LABELS for e in eps) or bool(FAILED_NAME.match(name)),
                 "n_agents": len(eps), "judged": len(judged),
                 "cheated": sum(1 for e in judged if e["verdict"]["cheated"]),
@@ -432,9 +480,7 @@ class Store(Store):  # noqa: F811 - extend the class above with timeline and sum
                 "regulators": sw.get("regulators"), "disregulators": sw.get("disregulators"), "workers": sw.get("workers"),
                 "composition": sw.get("composition"), "seed": sw.get("seed"),
                 "report_cheated": sw.get("swarm_report_cheated"), "has_report": sw.get("swarm_report") is not None,
-                "by_role": {r: {"n": sum(1 for e in judged if e.get("role") == r),
-                                "cheated": sum(1 for e in judged if e.get("role") == r and e["verdict"]["cheated"])}
-                            for r in ("worker", "regulator", "disregulator")} if sw else None,
+                "by_role": by_role if sw else None,
             })
         return {"runs": rows}
 
@@ -474,9 +520,15 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_file(STATIC / "index.html")
             if parts[0] == "static" and len(parts) == 2 and "/" not in parts[1] and ".." not in parts[1]:
                 return self._send_file(STATIC / parts[1])
+            if parts[0] == "figures" and len(parts) == 2 and FIGURE_NAME.match(parts[1]):
+                return self._send_file(FIGURES / parts[1])
             if parts[0] != "api":
                 return self._send_json({"error": "not found"}, 404)
             store = self.store
+            if parts[1:] == ["figures"]:
+                figs = sorted(FIGURES.glob("*.png")) if FIGURES.is_dir() else []
+                return self._send_json([{"name": p.name, "size": p.stat().st_size,
+                                         "modified": datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()} for p in figs])
             if parts[1:] == ["runs"]:
                 return self._send_json([store.run_summary(n) for n in store.run_names()])
             if parts[1:] == ["summary"]:

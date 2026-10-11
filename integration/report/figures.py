@@ -1,6 +1,6 @@
 """Publication figures for lone-agent, board and swarm runs.
 
-    python -m integration.figures --runs runs --out docs/figures [--swimlane <run>]
+    python -m integration.report.figures --runs runs --out docs/figures [--swimlane <run>]
                                   [--arrows auto|all|exposure] [--format pdf,png]
 
 Reads run directories through the results server's data layer (no HTTP): ``Store.summary()``
@@ -55,7 +55,7 @@ from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import FancyArrowPatch, Patch, Polygon, Rectangle  # noqa: E402
 from matplotlib.transforms import blended_transform_factory  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -88,9 +88,9 @@ SUMMARY_KEY = {"honey_pots_seen": "honeypots_seen", "attempted_access": "attempt
                "disclosed_access": "disclosed"}
 LOST = "connection_closed"   # the provider ended the episode; judge.sh refuses such runs
 AUTO_ARROWS = 40             # --arrows auto draws every reader arrow up to this many
-SAVE_META = {"pdf": {"CreationDate": None, "Creator": "integration.figures"},
-             "png": {"Software": "integration.figures"},
-             "svg": {"Date": None, "Creator": "integration.figures"}}
+SAVE_META = {"pdf": {"CreationDate": None, "Creator": "integration.report.figures"},
+             "png": {"Software": "integration.report.figures"},
+             "svg": {"Date": None, "Creator": "integration.report.figures"}}
 
 plt.rcParams.update({
     "font.family": "DejaVu Sans", "font.size": 8.5, "axes.titlesize": 10, "axes.labelsize": 8.5,

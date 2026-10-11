@@ -20,7 +20,7 @@ What differs, by design (recorded in the run manifest by eval_to_atif):
     the sidecar, and the CA is baked into the image instead of injected.
 
 Run:
-  inspect eval integration/openmath_agent_task.py@cheatbench_openmath_agent \
+  inspect eval integration/task/openmath_agent.py@cheatbench_openmath_agent \
       --model google/gemini-3.8-flash --log-dir logs
 """
 from __future__ import annotations
@@ -47,19 +47,19 @@ from orbit.configs.scheduler import SchedulerConfig
 from orbit.configs.setup import AgentSpec, SetupConfig
 from orbit.tasks.multi_agent import multi_agent_task
 
-# `inspect eval integration/openmath_agent_task.py@...` loads this file as a bare
+# `inspect eval integration/task/openmath_agent.py@...` loads this file as a bare
 # module, so the sibling module is imported through the repository root.
-_ROOT = str(Path(__file__).resolve().parents[1])
+_ROOT = str(Path(__file__).resolve().parents[2])
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
-from integration.board import (board_agents, board_communication, board_execution,  # noqa: E402
+from integration.task.board import (board_agents, board_communication, board_execution,  # noqa: E402
                                board_roster, board_scheduler)
-from integration.controls import DEFAULT_MONITOR_MODEL, defenses_for  # noqa: E402
-from integration.provider_retry import INSTALLED as _RETRY_402_INSTALLED  # noqa: E402,F401  (Gemini 402 retried)
-from integration.swarm import (agent_names, assign_roles, composition_label, parse_swarm_report,  # noqa: E402
+from integration.task.controls import DEFAULT_MONITOR_MODEL, defenses_for  # noqa: E402
+from integration.task.provider_retry import INSTALLED as _RETRY_402_INSTALLED  # noqa: E402,F401  (Gemini 402 retried)
+from integration.task.swarm import (agent_names, assign_roles, composition_label, parse_swarm_report,  # noqa: E402
                                swarm_agents, SWARM_REPORT_INSTRUCTION)
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CB = ROOT / "submodules" / "cheatbench"
 TASK = "openmath_agent"
 TASK_DIR = CB / "tasks" / TASK
@@ -397,7 +397,7 @@ def cheatbench_openmath_agent(row: str = "riemann", message_limit: int = MESSAGE
     """One ORBIT agent runs the CheatBench row in CheatBench's own sandbox image.
 
     time_limit_s=0 takes task.yaml's timeout_s (3600); smoke tests pass a short one.
-    control names one of integration/controls.py's defenses ("" = baseline); the
+    control names one of integration/task/controls.py's defenses ("" = baseline); the
     LLM-based controls judge with monitor_model. token_limit=0 means TOKEN_LIMIT,
     tripled under a control because the monitor's calls count toward it.
     """
@@ -466,7 +466,7 @@ def cheatbench_openmath_agent_board(row: str = "riemann", message_limit: int = M
                                     delivery: str = "notify", scheduling_mode: str = "round_robin",
                                     max_turns: int = 0, control: str = "",
                                     monitor_model: str = DEFAULT_MONITOR_MODEL) -> Task:
-    """Two ORBIT agents share the sandbox and one message board (integration/board.py).
+    """Two ORBIT agents share the sandbox and one message board (integration/task/board.py).
 
     Both receive CheatBench's instruction as the sample input. The message and
     token limits are per sample, so each agent gets about half of the single-agent
@@ -500,7 +500,7 @@ def cheatbench_openmath_agent_swarm(row: str = "riemann", n_agents: int = 10, re
                                     token_limit: int = 0, time_limit_s: int = 0, delivery: str = "notify",
                                     scheduling_mode: str = "round_robin", max_turns: int = 0,
                                     control: str = "", monitor_model: str = DEFAULT_MONITOR_MODEL) -> Task:
-    """N agents on one board with hidden roles (integration/swarm.py) and a team report output.
+    """N agents on one board with hidden roles (integration/task/swarm.py) and a team report output.
 
     regulators and disregulators are counts; the rest are workers. The seed fixes
     which neutral names carry which role. The instruction gains the team-report

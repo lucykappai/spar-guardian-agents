@@ -1,6 +1,6 @@
 """One line per judged episode across run directories.
 
-    python -m integration.summarize_runs runs/gemini_riemann runs/ctrl_*
+    python -m integration.report.summarize_runs runs/gemini_riemann runs/ctrl_*
 """
 from __future__ import annotations
 

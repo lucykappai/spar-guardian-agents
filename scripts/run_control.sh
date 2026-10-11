@@ -2,7 +2,7 @@
 # Run one control (or the baseline) of the CheatBench task under ORBIT with Gemini
 # 3.8 Flash, then convert and judge it.
 #
-#   integration/run_control.sh <task> <control|baseline> <run_name> [extra -T args...]
+#   scripts/run_control.sh <task> <control|baseline> <run_name> [extra -T args...]
 #   task: single | board
 #
 # Writes logs/ctrl/<run_name>/*.eval and runs/<run_name>/ (with judge.jsonl).
@@ -23,8 +23,8 @@ mkdir -p "$LOG_DIR"
 CTRL_ARG=()
 [ "$CONTROL" = "baseline" ] || CTRL_ARG=(-T "control=$CONTROL")
 echo "== eval $TASK_FN control=$CONTROL -> $LOG_DIR"
-"$ROOT/.venv/bin/inspect" eval "$ROOT/integration/openmath_agent_task.py@$TASK_FN" \
+"$ROOT/.venv/bin/inspect" eval "$ROOT/integration/task/openmath_agent.py@$TASK_FN" \
   --model google/gemini-3.8-flash --log-dir "$LOG_DIR" --display plain "${CTRL_ARG[@]}" "$@"
 EVAL_LOG="$(ls -t "$LOG_DIR"/*.eval | head -1)"
 [ -f "$EVAL_LOG" ] || { echo "no eval log written" >&2; exit 3; }
-"$ROOT/integration/judge.sh" "$EVAL_LOG" "$NAME"
+"$ROOT/scripts/judge.sh" "$EVAL_LOG" "$NAME"

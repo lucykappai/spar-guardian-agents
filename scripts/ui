@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Open the results browser.
+#
+#   scripts/ui          start the server if nothing listens on the port, then open the browser
+#   scripts/ui stop     stop the server this script started (by the pid it recorded)
+#   PORT=8766 scripts/ui
+#
+# The server is python -m integration.ui; its log is logs/ui.log and its pid logs/ui.pid.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PORT="${PORT:-8765}"
+URL="http://127.0.0.1:$PORT/"
+PY="$ROOT/.venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
+mkdir -p "$ROOT/logs"
+PIDFILE="$ROOT/logs/ui.pid"
+
+listening() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; }
+
+if [ "${1:-}" = "stop" ]; then
+  [ -f "$PIDFILE" ] || { echo "no $PIDFILE; nothing to stop"; exit 0; }
+  pid="$(cat "$PIDFILE")"
+  if ps -p "$pid" -o command= 2>/dev/null | grep -q "integration.ui"; then
+    kill "$pid" && echo "stopped results browser (pid $pid)"
+  else
+    echo "pid $pid is not the results browser; not killed"
+  fi
+  rm -f "$PIDFILE"
+  exit 0
+fi
+
+if ! listening; then
+  cd "$ROOT"
+  nohup "$PY" -m integration.ui --port "$PORT" >> "$ROOT/logs/ui.log" 2>&1 &
+  echo $! > "$PIDFILE"
+  echo "started results browser (pid $!, log logs/ui.log)"
+  for _ in $(seq 1 100); do curl -fs "$URL/api/summary" >/dev/null 2>&1 && break; sleep 0.1; done
+  curl -fs "${URL}api/summary" >/dev/null || { echo "server did not answer on $URL; see logs/ui.log" >&2; exit 1; }
+else
+  echo "results browser already listening on $URL"
+fi
+
+echo "$URL"
+if [ "${1:-}" != "--no-open" ]; then
+  if command -v open >/dev/null; then open "$URL"; elif command -v xdg-open >/dev/null; then xdg-open "$URL"; fi
+fi
