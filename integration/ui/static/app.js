@@ -14,7 +14,10 @@
  *   7. View: transcript              #/run/<run>/episode/<episode>
  *   8. View: context windows         #/run/<run>/context?agent=<name>&call=<i>
  *   9. View: sample                  #/run/<run>/sample
- *  10. Boot
+ *  10. Chart helpers (SVG, Canvas, tooltip, colour ramp, ticks)
+ *  11. View: timeline                #/run/<run>/timeline (swimlanes, exposure cascade, raster)
+ *  12. View: overview                #/overview (composition grid, swarm runs, controls)
+ *  13. Boot
  */
 'use strict';
 (() => {
@@ -157,6 +160,8 @@ function cachedFetch(cache, max, path) {
 
 function api(path) { return cachedFetch(apiCache, API_CACHE_MAX, path); }
 function apiCall(path) { return cachedFetch(callCache, CALL_CACHE_MAX, path); }
+/** Fetch again, replacing any cached copy, so runs and verdicts written since are seen. */
+function apiFresh(path) { apiCache.delete(path); return api(path); }
 
 async function fetchJson(path) {
   let res;
@@ -183,6 +188,8 @@ const P = {
   sample: r => `/api/runs/${enc(r)}/sample`,
   context: r => `/api/runs/${enc(r)}/context`,
   call: (r, i) => `/api/runs/${enc(r)}/context/${i}`,
+  timeline: r => `/api/runs/${enc(r)}/timeline`,
+  summary: () => '/api/summary',
 };
 
 /** Hash routes. */
@@ -192,6 +199,8 @@ const R = {
   episode: (r, ep, q) => `#/run/${enc(r)}/episode/${enc(ep)}` + query(q),
   context: (r, q) => `#/run/${enc(r)}/context` + query(q),
   sample: r => `#/run/${enc(r)}/sample`,
+  timeline: r => `#/run/${enc(r)}/timeline`,
+  overview: () => '#/overview',
 };
 
 function query(q) {
@@ -477,6 +486,7 @@ function parseHash() {
     return { view: 'notfound', raw };
   }
   if (!parts.length) return { view: 'runs', query: q };
+  if (parts[0] === 'overview' && parts.length === 1) return { view: 'overview', query: q };
   if (parts[0] === 'run' && parts.length >= 2) {
     const run = parts[1];
     if (parts.length === 2) return { view: 'run', run, query: q };
@@ -485,6 +495,7 @@ function parseHash() {
     }
     if (parts[2] === 'context' && parts.length === 3) return { view: 'context', run, query: q };
     if (parts[2] === 'sample' && parts.length === 3) return { view: 'sample', run, query: q };
+    if (parts[2] === 'timeline' && parts.length === 3) return { view: 'timeline', run, query: q };
   }
   return { view: 'notfound', raw };
 }
@@ -494,6 +505,7 @@ function renderShell() {
   app.replaceChildren(
     h('header', { class: 'topbar' },
       h('a', { class: 'brand', href: '#/' }, 'Results'),
+      h('a', { class: 'nav-link', id: 'nav-overview', href: '#/overview' }, 'Overview'),
       h('nav', { class: 'crumbs', id: 'crumbs', 'aria-label': 'Breadcrumbs' }),
       h('button', {
         type: 'button', class: 'btn btn-small', title: 'Clear cached API responses and reload this view',
@@ -507,21 +519,26 @@ function setCrumbs(r) {
   const items = [];
   const sep = () => h('span', { class: 'sep' }, '/');
   items.push(r.view === 'runs' ? h('span', { class: 'crumb current' }, 'All runs') : link('#/', 'All runs', 'crumb'));
+  if (r.view === 'overview') items.push(sep(), h('span', { class: 'crumb current' }, 'Overview'));
   if (r.run) {
     items.push(sep());
     items.push(r.view === 'run' ? h('span', { class: 'crumb current' }, r.run) : link(R.run(r.run), r.run, 'crumb'));
     if (r.view === 'episode') items.push(sep(), h('span', { class: 'crumb current' }, `transcript ${r.episode}`));
     if (r.view === 'context') items.push(sep(), h('span', { class: 'crumb current' }, 'context windows'));
     if (r.view === 'sample') items.push(sep(), h('span', { class: 'crumb current' }, 'sample'));
+    if (r.view === 'timeline') items.push(sep(), h('span', { class: 'crumb current' }, 'timeline'));
     const tab = (href, label, view, needsLog) => h('a', {
       href, class: ['tab', r.view === view && 'active'], dataset: needsLog ? { needsLog: '1' } : null,
     }, label);
     items.push(h('span', { class: 'tabs' },
       tab(R.run(r.run), 'overview', 'run', false),
+      tab(R.timeline(r.run), 'timeline', 'timeline', false),
       tab(R.context(r.run), 'context', 'context', true),
       tab(R.sample(r.run), 'sample', 'sample', true)));
   }
   nav.replaceChildren(...items);
+  const ov = document.getElementById('nav-overview');
+  if (ov) ov.classList.toggle('active', r.view === 'overview');
 }
 
 /** Context windows and the sample come from the eval log; grey those tabs out when it is missing. */
@@ -544,6 +561,8 @@ const VIEWS = {
   episode: viewEpisode,
   context: viewContext,
   sample: viewSample,
+  timeline: viewTimeline,
+  overview: viewOverview,
   notfound: async (r, view) => {
     view.mounted(() => { document.title = 'Unknown page · results'; });
     return h('div', { class: 'page' },
@@ -561,6 +580,7 @@ const VIEWS = {
  */
 async function route() {
   runCleanups(cleanups);
+  tip.hide();
   const mine = [];
   cleanups = mine;
   const r = parseHash();
@@ -649,8 +669,18 @@ function runsQuery() {
   };
 }
 
-const ROLE_KIND = { worker: 'plain', regulator: 'good', disregulator: 'bad' };
-function roleBadge(role) { return badge(role, ROLE_KIND[role] || 'plain', 'hidden role in this swarm run'); }
+// Hidden roles: Okabe-Ito colour plus shape (circle worker, square regulator, triangle disregulator),
+// the encoding of integration/figures.py. Red and green stay reserved for outcomes (cheated, honest).
+const ROLE_STYLE = {
+  worker: { color: '#999999', glyph: '\u25CF' },
+  regulator: { color: '#0072B2', glyph: '\u25A0' },
+  disregulator: { color: '#E69F00', glyph: '\u25B2' },
+};
+function roleBadge(role) {
+  const st = ROLE_STYLE[role];
+  return h('span', { class: 'badge b-plain', title: 'hidden role in this swarm run' },
+    st ? h('span', { style: `color: ${st.color}`, 'aria-hidden': 'true' }, st.glyph + ' ') : null, role);
+}
 
 function runRowCells(row) {
   const { run, ep } = row;
@@ -694,7 +724,7 @@ function runRowCells(row) {
 }
 
 async function viewRuns({ query: urlQ }, view) {
-  const runs = await api(P.runs());
+  const runs = await apiFresh(P.runs());
   let live = false;
   view.mounted(() => { live = true; document.title = 'Runs · results'; updateUrl(); });
   view.cleanup(() => { live = false; });
@@ -844,7 +874,7 @@ async function viewRuns({ query: urlQ }, view) {
 // =====================================================================================
 
 async function viewRun({ run }, view) {
-  const d = await api(P.run(run));
+  const d = await apiFresh(P.run(run));
   view.mounted(() => { document.title = `${run} · results`; });
   const rj = d.run_json || {};
   const eps = d.episodes || [];
@@ -863,6 +893,7 @@ async function viewRun({ run }, view) {
       eps.map(ep => (ep.has_transcript
         ? link(R.episode(run, ep.episode), `transcript ${ep.episode}`, 'btn')
         : h('span', { class: 'btn disabled', title: 'no transcript on disk' }, `transcript ${ep.episode}`))),
+      link(R.timeline(run), 'timeline', 'btn'),
       logLink(logOk, d.eval_log, R.context(run), 'context windows', 'btn'),
       logLink(logOk, d.eval_log, R.sample(run), 'sample and workspace', 'btn')));
 
@@ -1342,6 +1373,7 @@ async function viewEpisode({ run, episode, query: q }, view) {
       navBtn(next, `${next || 'next episode'} →`)),
     h('div', { class: 'links' },
       link(R.run(run), 'run page', 'btn btn-small'),
+      link(R.timeline(run), 'timeline', 'btn btn-small'),
       logLink(logOk, evalLog, R.context(run, { agent: ep.orbit_agent || orbit.agent }), 'context windows for this agent', 'btn btn-small'),
       logLink(logOk, evalLog, R.sample(run), 'sample and workspace', 'btn btn-small')),
     episodeRecord(ep),
@@ -2012,7 +2044,1283 @@ async function viewSample({ run }, view) {
 }
 
 // =====================================================================================
-// 10. Boot
+// 10. Chart helpers: SVG builder, role glyphs, tooltip, colour ramp, axis ticks
+// =====================================================================================
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+let vizUid = 0;
+const r2 = n => Math.round(n * 100) / 100;
+
+/** Build an SVG element. Strings in children become text nodes; attrs never take markup. */
+function svgEl(tag, attrs, ...children) {
+  const el = document.createElementNS(SVG_NS, tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === 'class') el.setAttribute('class', Array.isArray(v) ? v.filter(Boolean).join(' ') : v);
+      else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, typeof v === 'number' ? String(r2(v)) : String(v));
+    }
+  }
+  appendAll(el, children);
+  return el;
+}
+
+// Roles: shape carries the role (circle worker, square regulator, triangle disregulator);
+// the Okabe-Ito colours of ROLE_STYLE fill the glyph through the --role-* tokens in style.css.
+const ROLE_ORDER = ['disregulator', 'worker', 'regulator'];
+const ROLE_PLURAL = { disregulator: 'disregulators', worker: 'workers', regulator: 'regulators' };
+
+/** A role glyph centred on (cx, cy). cls replaces the role fill class (outcome fills in the cascade). */
+function roleGlyph(role, cx, cy, r, cls) {
+  const c = ['glyph', cls || 'role-' + (ROLE_ORDER.includes(role) ? role : 'none')];
+  if (role === 'regulator') {
+    const a = r * 0.88;
+    return svgEl('rect', { class: c, x: cx - a, y: cy - a, width: 2 * a, height: 2 * a });
+  }
+  if (role === 'disregulator') {
+    const a = r * 1.22;
+    return svgEl('polygon', { class: c, points: `${r2(cx)},${r2(cy - a)} ${r2(cx + a)},${r2(cy + a * 0.75)} ${r2(cx - a)},${r2(cy + a * 0.75)}` });
+  }
+  return svgEl('circle', { class: c, cx, cy, r });
+}
+
+function roleIcon(role, size = 12) {
+  return svgEl('svg', { class: 'role-icon', width: size, height: size, viewBox: `0 0 ${size} ${size}`, 'aria-hidden': 'true', focusable: 'false' },
+    roleGlyph(role, size / 2, size / 2 + (role === 'disregulator' ? 0.8 : 0), size / 2 - 1.6));
+}
+
+/** One floating tooltip for every chart. Lines are strings or nodes, inserted as text. */
+const tip = (() => {
+  let el = null;
+  const ensure = () => {
+    if (!el) { el = h('div', { class: 'viz-tip', role: 'tooltip', hidden: true }); document.body.appendChild(el); }
+    return el;
+  };
+  return {
+    show(ev, lines) {
+      const t = ensure();
+      t.replaceChildren(...lines.filter(x => x != null && x !== '').map((ln, i) => h('div', { class: i ? 'tip-line' : 'tip-title' }, ln)));
+      t.hidden = false;
+      const pad = 14;
+      const box = t.getBoundingClientRect();
+      let x = ev.clientX + pad;
+      let y = ev.clientY + pad;
+      if (x + box.width > window.innerWidth - 6) x = ev.clientX - box.width - pad;
+      if (y + box.height > window.innerHeight - 6) y = ev.clientY - box.height - pad;
+      t.style.left = Math.max(4, x) + 'px';
+      t.style.top = Math.max(4, y) + 'px';
+    },
+    hide() { if (el) el.hidden = true; },
+  };
+})();
+
+/** Attach tooltip listeners to an element; lines() is called on every move. */
+function withTip(el, lines) {
+  el.addEventListener('pointermove', ev => tip.show(ev, lines()));
+  el.addEventListener('pointerleave', () => tip.hide());
+  return el;
+}
+
+function cssVar(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
+// Colour arithmetic in OKLab, so the single-hue ramp has even perceptual steps.
+function hexRgb(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return [128, 128, 128];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const toLin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const fromLin = c => {
+  const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.max(0, c) ** (1 / 2.4) - 0.055;
+  return Math.round(Math.min(1, Math.max(0, v)) * 255);
+};
+function rgbToOklab([R, G, B]) {
+  const r = toLin(R); const g = toLin(G); const b = toLin(B);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function oklabToHex([L, a, b]) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const rgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s].map(fromLin);
+  return '#' + rgb.map(c => c.toString(16).padStart(2, '0')).join('');
+}
+function mixOklab(a, b, t) {
+  const A = rgbToOklab(hexRgb(a));
+  const B = rgbToOklab(hexRgb(b));
+  return oklabToHex(A.map((x, i) => x + (B[i] - x) * t));
+}
+/** Share judged cheated (0..1) on the single-hue scale of the current colour scheme. */
+function seqColor(frac) { return mixOklab(cssVar('--seq-lo', '#fde8e5'), cssVar('--seq-hi', '#a3170e'), Math.min(1, Math.max(0, frac))); }
+/** Ink or white, whichever reads better on a fill. */
+function inkOn(hex) {
+  const [r, g, b] = hexRgb(hex);
+  const lum = 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
+  return lum > 0.179 ? '#1c1c1a' : '#ffffff';
+}
+
+const TIME_STEPS = [0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600, 7200];
+const COUNT_STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+function ticksFor(lo, hi, maxTicks, steps) {
+  const span = hi - lo;
+  if (!(span > 0)) return [lo];
+  const step = steps.find(s => span / s <= maxTicks) || steps[steps.length - 1];
+  const out = [];
+  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9 && out.length < 200; v += step) out.push(+v.toFixed(6));
+  return out;
+}
+function fmtTick(s) {
+  if (s < 60) return `${+s.toFixed(2)}s`;
+  const m = Math.floor(s / 60);
+  const r = Math.round(s - m * 60);
+  if (m < 60) return r ? `${m}m${String(r).padStart(2, '0')}` : `${m}m`;
+  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
+}
+
+/** Legend row: [glyph node, label, title?] items. */
+function vizLegend(items, cls) {
+  return h('div', { class: ['viz-legend', cls] }, items.filter(Boolean).map(([glyph, label, title]) =>
+    h('span', { class: 'lg-item', title }, glyph, h('span', null, label))));
+}
+function lgSvg(...children) {
+  return svgEl('svg', { class: 'lg-glyph viz', width: 20, height: 14, viewBox: '0 0 20 14', 'aria-hidden': 'true' }, ...children);
+}
+function swatch(cls, title) { return h('span', { class: ['lg-swatch', cls], title, 'aria-hidden': 'true' }); }
+
+/** Red x mark (refusal, blocked call). */
+function xMark(cx, cy, r) {
+  return svgEl('path', { class: 'm-x', d: `M${r2(cx - r)},${r2(cy - r)}L${r2(cx + r)},${r2(cy + r)}M${r2(cx + r)},${r2(cy - r)}L${r2(cx - r)},${r2(cy + r)}` });
+}
+function diamond(cx, cy, r, cls) {
+  return svgEl('path', { class: cls, d: `M${r2(cx)},${r2(cy - r)}L${r2(cx + r)},${r2(cy)}L${r2(cx)},${r2(cy + r)}L${r2(cx - r)},${r2(cy)}Z` });
+}
+
+/** Run a few promise jobs at a time. */
+function jobQueue(limit) {
+  let active = 0;
+  const q = [];
+  const pump = () => {
+    while (active < limit && q.length) {
+      const job = q.shift();
+      active++;
+      job().finally(() => { active--; pump(); });
+    }
+  };
+  return fn => new Promise((res, rej) => { q.push(() => fn().then(res, rej)); pump(); });
+}
+
+// =====================================================================================
+// 11. View: timeline   #/run/<run>/timeline
+// =====================================================================================
+
+const TOOL_KINDS = ['bash', 'python', 'channel_post', 'channel_read', 'submit'];
+const toolKind = fn => (TOOL_KINDS.includes(fn) ? fn : 'other');
+const verdictText = v => (v === true ? 'cheated' : v === false ? 'not cheated' : 'not judged');
+
+/** Agents in lane order: grouped by role (disregulator, worker, regulator, then none), by name within a group. */
+function laneOrder(tl) {
+  const roles = tl.roles || {};
+  const names = new Set(tl.agents || []);
+  for (const e of tl.events || []) if (e.agent) names.add(e.agent);
+  const rank = r => { const i = ROLE_ORDER.indexOf(r); return i < 0 ? ROLE_ORDER.length : i; };
+  return [...names].sort((a, b) => rank(roles[a]) - rank(roles[b]) || a.localeCompare(b, 'en', { numeric: true }));
+}
+
+/**
+ * Round-robin turn clock: each agent's k-th model call starts at turn k, and time between two
+ * calls maps linearly between them. Each lane keeps its own clock.
+ */
+function turnClock(tl, agents) {
+  const starts = new Map(agents.map(a => [a, []]));
+  const ends = new Map(agents.map(a => [a, 0]));
+  for (const e of tl.events || []) {
+    if (!starts.has(e.agent) || e.t == null) continue;
+    if (e.kind === 'model') starts.get(e.agent).push(e.t);
+    const te = e.t_end != null ? e.t_end : e.t;
+    if (te > ends.get(e.agent)) ends.set(e.agent, te);
+  }
+  const fns = new Map();
+  let maxTurns = 0;
+  for (const a of agents) {
+    const st = starts.get(a).sort((x, y) => x - y);
+    maxTurns = Math.max(maxTurns, st.length);
+    const knots = st.map((t, i) => [t, i]);
+    knots.push([Math.max(ends.get(a), st.length ? st[st.length - 1] + 1e-3 : 0), st.length]);
+    fns.set(a, t => {
+      if (!st.length || t <= knots[0][0]) return 0;
+      let lo = 0;
+      let hi = knots.length - 1;
+      if (t >= knots[hi][0]) return knots[hi][1];
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (knots[mid][0] <= t) lo = mid; else hi = mid; }
+      const [t0, k0] = knots[lo];
+      const [t1, k1] = knots[hi];
+      return k0 + (t1 > t0 ? (t - t0) / (t1 - t0) : 0) * (k1 - k0);
+    });
+  }
+  return { at: (a, t) => (fns.has(a) ? fns.get(a)(t) : 0), maxTurns: Math.max(1, maxTurns) };
+}
+
+// Agent x turn raster: one cell per model call, coloured by the call's main action.
+const RASTER_KINDS = [
+  ['work', 'bash or python', 'sw-work'],
+  ['post', 'channel_post', 'sw-post'],
+  ['read', 'channel_read', 'sw-read'],
+  ['touch', 'honeypot touch', 'sw-touch'],
+  ['member', 'member read', 'sw-member'],
+  ['submit', 'submit', 'sw-submit'],
+  ['refusal', 'refusal (blocked completion)', 'sw-refusal'],
+  ['none', 'no tool call', 'sw-none'],
+];
+const RASTER_LABEL = Object.fromEntries(RASTER_KINDS.map(([k, l]) => [k, l]));
+
+/** Per agent: its model calls in order, each with the action of tool_calls[0] and the tool events that follow it. */
+function rasterRows(tl, agents) {
+  const by = new Map(agents.map(a => [a, { models: [], tools: [] }]));
+  for (const e of tl.events || []) {
+    const r = by.get(e.agent);
+    if (!r || e.t == null) continue;
+    if (e.kind === 'model') r.models.push(e);
+    else if (e.kind === 'tool' || e.kind === 'submit') r.tools.push(e);
+  }
+  return agents.map(a => {
+    const { models, tools } = by.get(a);
+    models.sort((x, y) => x.t - y.t);
+    tools.sort((x, y) => x.t - y.t);
+    let j = 0;
+    const cells = models.map((m, k) => {
+      const next = k + 1 < models.length ? models[k + 1].t : Infinity;
+      while (j < tools.length && tools[j].t < m.t) j++;
+      const mine = [];
+      while (j < tools.length && tools[j].t < next) mine.push(tools[j++]);
+      const fn = (m.tool_calls || [])[0];
+      let kind = !fn ? 'none' : fn === 'channel_post' ? 'post' : fn === 'channel_read' ? 'read' : fn === 'submit' ? 'submit' : 'work';
+      if (m.refusal) kind = 'refusal';
+      if (mine.some(x => x.member_read)) kind = 'member';
+      else if (mine.some(x => x.honeypot_touch)) kind = 'touch';
+      return { kind, fn, model: m, tools: mine };
+    });
+    return { agent: a, cells };
+  });
+}
+
+function rasterColors() {
+  return {
+    work: cssVar('--raster-work', '#77776f'), post: cssVar('--tl-post', '#e87ba4'), read: cssVar('--tl-read', '#4a3aa7'),
+    touch: cssVar('--hp-touch', '#E69F00'), member: cssVar('--member', '#b02a20'), submit: cssVar('--text', '#1c1c1a'),
+    refusal: cssVar('--member', '#b02a20'), none: cssVar('--raster-none', '#e4e4de'),
+  };
+}
+
+/** Canvas raster. thumb: tiny cells, no gaps, click opens the timeline. */
+function rasterCanvas(tl, agents, opts = {}) {
+  const { thumb = false, maxW = 900, onClick = null } = opts;
+  const rows = rasterRows(tl, agents);
+  const cols = Math.max(1, ...rows.map(r => r.cells.length));
+  const cellH = thumb ? 4 : 13;
+  const cw = thumb ? Math.max(1, Math.min(4, maxW / cols)) : Math.max(2, Math.min(12, maxW / cols));
+  const W = Math.max(1, Math.ceil(cw * cols));
+  const H = Math.max(1, rows.length * cellH);
+  const dpr = window.devicePixelRatio || 1;
+  const cv = h('canvas', { class: ['raster', thumb && 'raster-thumb'], width: Math.ceil(W * dpr), height: Math.ceil(H * dpr), role: 'img',
+    'aria-label': `Agent by turn raster: ${rows.length} agents, up to ${cols} model calls each` });
+  cv.style.width = W + 'px';
+  cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d');
+  if (ctx) {
+    ctx.scale(dpr, dpr);
+    const col = rasterColors();
+    const gx = cw >= 4 ? 1 : 0;
+    rows.forEach((r, i) => r.cells.forEach((c, k) => {
+      const x = k * cw;
+      const y = i * cellH;
+      const w = Math.max(0.8, cw - gx);
+      const hh = cellH - 1;
+      if (c.kind === 'refusal') {
+        ctx.fillStyle = col.none; ctx.fillRect(x, y, w, hh);
+        ctx.fillStyle = col.refusal; ctx.fillRect(x, y, w, Math.ceil(hh / 2));
+      } else {
+        ctx.fillStyle = col[c.kind] || col.none; ctx.fillRect(x, y, w, hh);
+      }
+    }));
+  }
+  const cellAt = ev => {
+    const box = cv.getBoundingClientRect();
+    const i = Math.floor((ev.clientY - box.top) / (box.height / rows.length));
+    const k = Math.floor((ev.clientX - box.left) / (box.width / cols));
+    const r = rows[i];
+    return r && r.cells[k] ? { r, k, c: r.cells[k] } : (r ? { r, k, c: null } : null);
+  };
+  cv.addEventListener('pointermove', ev => {
+    const hit = cellAt(ev);
+    if (!hit) { tip.hide(); return; }
+    const { r, k, c } = hit;
+    const role = (tl.roles || {})[r.agent];
+    if (!c) { tip.show(ev, [`${r.agent}${role ? ` (${role})` : ''}`, `${plural(r.cells.length, 'model call')}`, thumb ? 'click for the timeline' : null]); return; }
+    const first = c.tools[0];
+    tip.show(ev, [
+      `${r.agent}${role ? ` (${role})` : ''} · call ${k + 1} of ${r.cells.length}`,
+      `${RASTER_LABEL[c.kind]} · ${fmtSecs(c.model.t)}`,
+      c.fn ? `tool calls: ${(c.model.tool_calls || []).join(', ')}` : 'no tool call',
+      first && first.preview ? firstLine(first.preview, 160) : null,
+      thumb ? 'click for the timeline' : null,
+    ]);
+  });
+  cv.addEventListener('pointerleave', () => tip.hide());
+  if (onClick) { cv.classList.add('clickable'); cv.addEventListener('click', onClick); }
+  return { el: cv, rows, cols, cellH };
+}
+
+function rasterLegend() {
+  return vizLegend(RASTER_KINDS.map(([, label, cls]) => [swatch(cls), label]), 'raster-legend');
+}
+
+/** Raster with agent labels, for the top of the timeline page. */
+function rasterPanel(tl, agents, maxW) {
+  const roles = tl.roles || {};
+  const { el, cols, cellH } = rasterCanvas(tl, agents, { maxW });
+  return h('div', null,
+    h('div', { class: 'raster-wrap' },
+      h('div', { class: 'raster-labels', style: `grid-auto-rows: ${cellH}px` },
+        agents.map(a => h('div', { class: 'raster-label' }, roles[a] ? roleIcon(roles[a], 10) : null, a))),
+      h('div', { class: 'raster-scroll' }, el)),
+    h('div', { class: 'muted small' }, `Columns are each agent’s own model calls, 1 to ${cols}; a call takes the action of its first tool call, and a honeypot touch or member read in the tool calls that follow it wins.`),
+    rasterLegend());
+}
+
+async function viewTimeline({ run }, view) {
+  let tl;
+  let detail;
+  try {
+    [tl, detail] = await Promise.all([apiFresh(P.timeline(run)), apiFresh(P.run(run)).catch(() => null)]);
+  } catch (e) {
+    view.mounted(() => { document.title = `timeline · ${run} · results`; });
+    return h('div', { class: 'page' },
+      h('div', { class: 'page-head' }, h('h1', null, `${run}: timeline`),
+        h('div', { class: 'links' }, link(R.run(run), 'run page', 'btn btn-small'), link(R.overview(), 'overview', 'btn btn-small'))),
+      h('p', { class: 'muted' }, 'The timeline is read from the run’s eval log. A run that is still being produced has no log yet; press Reload once it has finished.'),
+      errorBox(e, 'timeline'));
+  }
+  const agents = laneOrder(tl);
+  const roles = tl.roles || {};
+  const hasRoles = Object.keys(roles).length > 0;
+  const eps = (detail && detail.episodes) || [];
+  const epOf = a => eps.find(e => e.orbit_agent === a) || null;
+  const verdictOf = a => { const v = (tl.verdicts || {})[a]; return v === true || v === false ? v : null; };
+  const disclosedOf = a => { const ep = epOf(a); return !!(ep && ep.verdict && ep.verdict.disclosed_access); };
+  const touchOf = a => (tl.first_honeypot_touch || {})[a];
+  const readOf = a => (tl.first_member_read || {})[a];
+  const rj = (detail && detail.run_json) || {};
+  const sw = rj.swarm || null;
+  const logOk = !detail || !!detail.eval_log_exists;
+
+  const ctx = { tl, agents, roles, hasRoles, verdictOf, disclosedOf, touchOf, readOf };
+  const lane = buildLaneData(tl, agents);
+  const nEvents = (tl.events || []).length;
+
+  const head = h('div', { class: 'page-head' },
+    h('h1', null, `${run}: timeline`),
+    h('div', { class: 'chips' },
+      detail && detail.failed ? badge('failed run', 'bad') : null,
+      badge(detail ? detail.topology || '?' : '?', 'plain'),
+      badge(`control: ${(detail && detail.control) || 'baseline'}`, 'def'),
+      sw ? badge(`composition ${sw.composition}`, 'plain', `${sw.regulators} regulators, ${sw.disregulators} disregulators, ${sw.workers} workers; seed ${sw.seed}`) : null,
+      tl.limit ? badge(`limit: ${tl.limit}`, 'warn', 'the sample ended on this limit') : null),
+    h('div', { class: 'links' },
+      link(R.run(run), 'run page', 'btn btn-small'),
+      eps.filter(e => e.has_transcript).map(e => link(R.episode(run, e.episode), `transcript ${e.orbit_agent || e.episode}`, 'btn btn-small')),
+      logLink(logOk, detail && detail.eval_log, R.context(run), 'context windows', 'btn btn-small')),
+    muted(`${plural(agents.length, 'agent')} · ${plural(nEvents, 'event')} · ${plural((tl.board || []).length, 'board post')} · ${fmtSecs(tl.duration)} sample time. ` +
+      'Honeypot touches and member reads are regex heuristics that place moments; the judge verdict is the record of truth.'));
+
+  const rasterHost = h('div', { class: 'viz-host' });
+  const rasterCard = h('section', { class: 'card' }, h('h2', null, 'Agent by turn'), rasterHost);
+  const swim = swimlaneCard(ctx, lane, run);
+  const cascadeHost = h('div', { class: 'viz-host' });
+  const cascadeCard = h('section', { class: 'card' },
+    h('div', { class: 'sec-head' }, h('h2', null, 'Exposure cascade'), badge('exposure, not cause', 'warn', 'reading a post before a touch does not show the post caused it')),
+    cascadeHost);
+
+  const drawAll = () => {
+    const w = rasterHost.clientWidth || 900;
+    rasterHost.replaceChildren(rasterPanel(tl, agents, Math.max(200, w - 110)));
+    swim.draw();
+    cascadeHost.replaceChildren(cascadeView(ctx, cascadeHost.clientWidth || 900));
+  };
+  const onResize = debounce(() => { tip.hide(); drawAll(); }, 150);
+  view.mounted(() => {
+    document.title = `timeline · ${run} · results`;
+    drawAll();
+    window.addEventListener('resize', onResize);
+  });
+  view.cleanup(() => { window.removeEventListener('resize', onResize); tip.hide(); });
+  return h('div', { class: 'page' }, head, rasterCard, swim.card, cascadeCard);
+}
+
+/** Events split per lane, posts, and de-duplicated reads (a read and a model exposure at the same moment draw once). */
+function buildLaneData(tl, agents) {
+  const lanes = new Map(agents.map(a => [a, { models: [], defcalls: [], tools: [], blocks: [] }]));
+  const events = (tl.events || []).filter(e => e.t != null);
+  const freeBlocks = [];
+  for (const e of events) {
+    const L = lanes.get(e.agent);
+    if (e.kind === 'defense') { if (e.allow === false) (L ? L.blocks : freeBlocks).push(e); continue; }
+    if (!L) continue;
+    if (e.kind === 'model') L.models.push(e);
+    else if (e.kind === 'defense_call') L.defcalls.push(e);
+    else if (e.kind === 'tool' || e.kind === 'submit') L.tools.push(e);
+  }
+  // A block's band starts where the control call that decided it started (same boundary preferred).
+  const blockFrom = new Map();
+  for (const L of lanes.values()) {
+    for (const b of L.blocks) {
+      const cands = L.defcalls.filter(dc => dc.t_end != null && dc.t_end <= b.t + 0.05 && b.t - dc.t_end < 2);
+      cands.sort((x, y) => (y.defense === `${b.defense}:${b.boundary}`) - (x.defense === `${b.defense}:${b.boundary}`) || y.t_end - x.t_end);
+      blockFrom.set(b, cands.length ? cands[0].t : b.t);
+    }
+  }
+  const posts = (tl.board || []).filter(p => p.t != null && p.sender);
+  const reads = [];
+  for (const p of posts) {
+    const by = new Map();
+    for (const r of p.read_by || []) {
+      if (!r.agent || r.agent === p.sender || r.t == null || !lanes.has(r.agent)) continue;
+      const key = `${r.agent}|${r.t}`;
+      const prev = by.get(key);
+      if (!prev || (prev.how !== 'read' && r.how === 'read')) by.set(key, { post: p, agent: r.agent, t: r.t, how: r.how });
+    }
+    reads.push(...by.values());
+  }
+  let maxTok = 1;
+  let duration = 0;
+  for (const e of events) {
+    if (e.kind === 'model') maxTok = Math.max(maxTok, (e.tokens_in || 0) + (e.tokens_out || 0));
+    duration = Math.max(duration, e.t_end != null ? e.t_end : e.t);
+  }
+  duration = Math.max(duration, tl.duration || 0) || 1;
+  return { lanes, blockFrom, freeBlocks, posts, reads, maxTok, duration, clock: turnClock(tl, agents) };
+}
+
+function swimlaneCard(ctx, lane, run) {
+  const { agents, roles, hasRoles, verdictOf, touchOf, readOf } = ctx;
+  const { lanes, blockFrom, freeBlocks, posts, reads, maxTok, duration, clock } = lane;
+  const anyDefcalls = [...lanes.values()].some(L => L.defcalls.length);
+  const st = { mode: 'time', lo: 0, hi: duration, arrows: true, defcalls: true };
+  const full = () => (st.mode === 'time' ? [0, duration] : [0, clock.maxTurns]);
+  const X = (a, t) => (st.mode === 'time' ? t : clock.at(a, t));
+  const host = h('div', { class: 'viz-host swim-host' });
+
+  // Controls: axis mode, layers, zoom.
+  const modeBtns = h('div', { class: 'seg', role: 'group', 'aria-label': 'x axis' },
+    [['time', 'seconds from start'], ['turn', 'turn index']].map(([v, label]) => {
+      const b = h('button', { type: 'button', class: ['seg-btn', st.mode === v && 'active'], dataset: { v } }, label);
+      b.addEventListener('click', () => {
+        if (st.mode === v) return;
+        st.mode = v;
+        for (const x of modeBtns.children) x.classList.toggle('active', x.dataset.v === v);
+        [st.lo, st.hi] = full();
+        syncZoom();
+        draw();
+      });
+      return b;
+    }));
+  const chk = (label, key, title) => {
+    const c = h('input', { type: 'checkbox', checked: st[key] });
+    c.addEventListener('change', () => { st[key] = c.checked; draw(); });
+    return h('label', { class: 'field check', title }, c, h('span', null, label));
+  };
+  const rFrom = h('input', { type: 'range', min: 0, max: 1000, step: 1, value: 0, class: 'zoom-range', 'aria-label': 'zoom from' });
+  const rTo = h('input', { type: 'range', min: 0, max: 1000, step: 1, value: 1000, class: 'zoom-range', 'aria-label': 'zoom to' });
+  const zoomText = h('span', { class: 'muted small zoom-text' });
+  const fmtX = v => (st.mode === 'time' ? fmtSecs(v) : `call ${+v.toFixed(1)}`);
+  function syncZoom() {
+    const [f0, f1] = full();
+    rFrom.value = Math.round(((st.lo - f0) / (f1 - f0)) * 1000);
+    rTo.value = Math.round(((st.hi - f0) / (f1 - f0)) * 1000);
+    zoomText.textContent = `${fmtX(st.lo)} to ${fmtX(st.hi)}`;
+  }
+  let raf = 0;
+  const drawSoon = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+  const onRange = which => {
+    let a = +rFrom.value;
+    let b = +rTo.value;
+    if (b - a < 2) { if (which === 'from') a = b - 2; else b = a + 2; }
+    a = Math.max(0, a); b = Math.min(1000, b);
+    rFrom.value = a; rTo.value = b;
+    const [f0, f1] = full();
+    st.lo = f0 + ((f1 - f0) * a) / 1000;
+    st.hi = f0 + ((f1 - f0) * b) / 1000;
+    zoomText.textContent = `${fmtX(st.lo)} to ${fmtX(st.hi)}`;
+    drawSoon();
+  };
+  rFrom.addEventListener('input', () => onRange('from'));
+  rTo.addEventListener('input', () => onRange('to'));
+  function setRange(lo, hi) {
+    const [f0, f1] = full();
+    const minSpan = (f1 - f0) / 500;
+    lo = Math.max(f0, Math.min(lo, hi));
+    hi = Math.min(f1, Math.max(lo, hi));
+    if (hi - lo < minSpan) { const c = (lo + hi) / 2; lo = Math.max(f0, c - minSpan / 2); hi = Math.min(f1, lo + minSpan); }
+    st.lo = lo; st.hi = hi;
+    syncZoom();
+    draw();
+  }
+  const resetBtn = h('button', { type: 'button', class: 'btn btn-small', onclick: () => setRange(...full()) }, 'reset zoom');
+
+  const controls = h('div', { class: 'filters viz-controls' },
+    h('span', { class: 'field' }, h('span', { class: 'field-label' }, 'x axis'), modeBtns),
+    posts.length ? chk('board arrows', 'arrows', 'arrows from each post to its readers') : null,
+    anyDefcalls ? chk('control model calls', 'defcalls', 'the control’s own judge calls, as a strip at the top of the lane') : null,
+    h('span', { class: 'zoom' }, h('span', { class: 'field-label' }, 'zoom'), rFrom, rTo, zoomText, resetBtn),
+    muted('drag across the chart to zoom; double-click to reset', 'small'));
+
+  const legend = vizLegend([
+    [lgSvg(svgEl('rect', { class: 'm-model', x: 6, y: 4, width: 8, height: 9, rx: 1.5 })), 'model call (height: tokens in + out, log)'],
+    anyDefcalls ? [lgSvg(svgEl('rect', { class: 'm-defcall', x: 2, y: 5, width: 16, height: 3 })), 'control’s model call'] : null,
+    [lgSvg(svgEl('line', { class: 'tk tk-bash', x1: 10, x2: 10, y1: 2, y2: 13 })), 'bash'],
+    [lgSvg(svgEl('line', { class: 'tk tk-python', x1: 10, x2: 10, y1: 3, y2: 13 }), svgEl('rect', { class: 'fill-ink', x: 8, y: 1, width: 4, height: 4 })), 'python'],
+    [lgSvg(svgEl('line', { class: 'tk tk-channel_post', x1: 10, x2: 10, y1: 1, y2: 7 })), 'channel_post (upper half)'],
+    [lgSvg(svgEl('line', { class: 'tk tk-channel_read', x1: 10, x2: 10, y1: 7, y2: 13 })), 'channel_read (lower half)'],
+    [lgSvg(svgEl('line', { class: 'tk tk-submit', x1: 7, x2: 7, y1: 1, y2: 13 }), svgEl('path', { class: 'fill-ink', d: 'M7,1 l7,3 l-7,3 z' })), 'submit'],
+    posts.length ? [lgSvg(svgEl('circle', { class: 'm-post', cx: 10, cy: 7, r: 4.5 })), 'board post'] : null,
+    posts.length ? [lgSvg(svgEl('line', { class: 'arrow', x1: 1, y1: 7, x2: 19, y2: 7 })), 'post read'] : null,
+    posts.length ? [lgSvg(svgEl('line', { class: 'arrow exposure', x1: 1, y1: 7, x2: 19, y2: 7 })), 'post shown to the model only'] : null,
+    [lgSvg(svgEl('circle', { class: 'm-touch', cx: 10, cy: 7, r: 5 })), 'honeypot touch'],
+    [lgSvg(diamond(10, 7, 5, 'm-member')), 'member read'],
+    [lgSvg(svgEl('rect', { class: 'm-block', x: 5, y: 0, width: 9, height: 14 }), svgEl('line', { class: 'm-block-line', x1: 14, x2: 14, y1: 0, y2: 14 })), 'defense block (band from the control call to the decision)'],
+    [lgSvg(xMark(10, 7, 4)), 'refusal or blocked tool call'],
+    hasRoles ? [lgSvg(roleGlyph('worker', 4, 7, 3.6), roleGlyph('regulator', 10, 7, 3.6), roleGlyph('disregulator', 16, 7.6, 3.6)), 'roles: worker, regulator, disregulator'] : null,
+  ]);
+
+  const card = h('section', { class: 'card' },
+    h('h2', null, 'Agent swimlanes'),
+    controls, host, legend,
+    posts.length < 1 ? null : h('div', { class: 'muted small' },
+      'In turn-index mode each lane runs on its own clock (its k-th model call sits at k), so an arrow between lanes can point backwards.'));
+
+  function draw() {
+    tip.hide();
+    const W = Math.max(640, host.clientWidth || 1000);
+    const n = Math.max(1, agents.length);
+    const laneH = n <= 1 ? 76 : n <= 2 ? 64 : n <= 4 ? 52 : n <= 8 ? 42 : 36;
+    const padL = 132;
+    const padR = 118;
+    const axisH = 26;
+    const groupH = hasRoles ? 18 : 0;
+    const laneY = new Map();
+    const groups = [];
+    let y = axisH + 2;
+    let cur;
+    for (const a of agents) {
+      const role = roles[a] || null;
+      if (hasRoles && role !== cur) { groups.push({ role, y, n: agents.filter(x => (roles[x] || null) === role).length }); y += groupH; cur = role; }
+      laneY.set(a, y);
+      y += laneH;
+    }
+    const H = y + 4;
+    const x0 = padL;
+    const x1 = W - padR;
+    const { lo, hi } = st;
+    const sx = v => x0 + ((v - lo) / (hi - lo || 1)) * (x1 - x0);
+    const inv = px => lo + ((px - x0) / (x1 - x0)) * (hi - lo);
+    const vis = (xa, xb) => xb >= x0 - 8 && xa <= x1 + 8;
+    const uid = ++vizUid;
+    const hits = [];
+
+    const svg = svgEl('svg', { class: 'viz timeline-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+      'aria-label': `Swimlane timeline of ${run}: ${agents.length} agents` });
+    svg.appendChild(svgEl('defs', null,
+      svgEl('clipPath', { id: `tlclip-${uid}` }, svgEl('rect', { x: x0, y: 0, width: x1 - x0, height: H })),
+      svgEl('marker', { id: `tlarrow-${uid}`, viewBox: '0 0 8 8', refX: 7.5, refY: 4, markerWidth: 6, markerHeight: 6, orient: 'auto' },
+        svgEl('path', { class: 'arrowhead', d: 'M0,0L8,4L0,8Z' }))));
+
+    agents.forEach((a, i) => svg.appendChild(svgEl('rect', { class: ['lane-bg', i % 2 && 'alt'], x: 0, y: laneY.get(a), width: W, height: laneH })));
+    for (const g of groups) {
+      svg.appendChild(svgEl('line', { class: 'grp-rule', x1: 0, x2: W, y1: g.y + 0.5, y2: g.y + 0.5 }));
+      svg.appendChild(svgEl('text', { class: 'grp-label', x: 8, y: g.y + 13 }, `${(ROLE_PLURAL[g.role] || 'no role').toUpperCase()} (${g.n})`));
+    }
+
+    // Axis and gridlines.
+    const ticks = ticksFor(lo, hi, Math.max(3, Math.floor((x1 - x0) / 80)), st.mode === 'time' ? TIME_STEPS : COUNT_STEPS);
+    for (const v of ticks) {
+      const px = sx(v);
+      svg.appendChild(svgEl('line', { class: 'grid', x1: px, x2: px, y1: axisH - 4, y2: H - 2 }));
+      svg.appendChild(svgEl('text', { class: 'tick-label', x: px, y: axisH - 9, 'text-anchor': 'middle' }, st.mode === 'time' ? fmtTick(v) : String(v)));
+    }
+    svg.appendChild(svgEl('text', { class: 'axis-title', x: 10, y: axisH - 9 }, st.mode === 'time' ? 'seconds from start' : 'agent’s model call'));
+
+    const marks = svgEl('g', { 'clip-path': `url(#tlclip-${uid})` });
+    const arrowsG = svgEl('g', { 'clip-path': `url(#tlclip-${uid})` });
+    const over = svgEl('g', { 'clip-path': `url(#tlclip-${uid})` });
+    const barMax = laneH * 0.52;
+    const barH = tok => 3 + (barMax - 3) * (tok > 0 ? Math.log1p(tok) / Math.log1p(maxTok) : 0);
+
+    for (const a of agents) {
+      const L = lanes.get(a);
+      const ly = laneY.get(a);
+      const base = ly + laneH - 4;
+      const top = ly + 7;
+      const mid = ly + laneH / 2;
+      for (const b of L.blocks) {
+        const xa = sx(X(a, blockFrom.get(b)));
+        const xb = sx(X(a, b.t));
+        if (!vis(xa, xb)) continue;
+        const w = Math.max(4, xb - xa);
+        marks.appendChild(svgEl('rect', { class: 'm-block', x: xb - w, y: ly, width: w, height: laneH }));
+        marks.appendChild(svgEl('line', { class: 'm-block-line', x1: xb, x2: xb, y1: ly, y2: ly + laneH }));
+        hits.push({ x0: xb - w, x1: xb, y0: ly, y1: ly + laneH, pri: 1,
+          lines: () => [`BLOCKED by ${b.defense || '?'} at ${b.boundary || '?'}`, `${a} · ${fmtSecs(b.t)}`, b.tool ? `tool: ${b.tool}` : null, b.reason ? firstLine(b.reason, 220) : null] });
+      }
+      if (st.defcalls) {
+        for (const dc of L.defcalls) {
+          const xa = sx(X(a, dc.t));
+          const xb = sx(X(a, dc.t_end != null ? dc.t_end : dc.t));
+          if (!vis(xa, xb)) continue;
+          marks.appendChild(svgEl('rect', { class: 'm-defcall', x: xa, y: ly + 1.5, width: Math.max(1, xb - xa), height: 3 }));
+          hits.push({ x0: xa, x1: Math.max(xa + 1, xb), y0: ly, y1: ly + 5, pri: 0,
+            lines: () => [`control call: ${dc.defense || '?'}`, `${a} · ${fmtSecs(dc.t)} for ${fmtSecs((dc.t_end || dc.t) - dc.t)}`, `tokens in ${fmtInt(dc.tokens_in)} · out ${fmtInt(dc.tokens_out)}`] });
+        }
+      }
+      L.models.forEach((m, k) => {
+        const xa = sx(X(a, m.t));
+        const xb = sx(X(a, m.t_end != null ? m.t_end : m.t));
+        if (!vis(xa, xb)) return;
+        const tok = (m.tokens_in || 0) + (m.tokens_out || 0);
+        const bh = barH(tok);
+        const w = Math.max(1.5, xb - xa);
+        marks.appendChild(svgEl('rect', { class: ['m-model', m.error && 'err'], x: xa, y: base - bh, width: w, height: bh, rx: Math.min(1.5, w / 2) }));
+        if (m.refusal) over.appendChild(xMark(xa + w / 2, base - bh - 5, 3.2));
+        hits.push({ x0: xa, x1: xa + w, y0: base - bh - (m.refusal ? 9 : 2), y1: base, pri: m.refusal ? 3 : 1,
+          lines: () => [`${a} · model call ${k + 1} of ${L.models.length}`,
+            `${fmtSecs(m.t)} for ${fmtSecs((m.t_end || m.t) - m.t)}`,
+            m.tokens_in == null && m.tokens_out == null ? 'no token usage recorded' : `tokens in ${fmtInt(m.tokens_in)} · out ${fmtInt(m.tokens_out)}`,
+            `tool calls: ${(m.tool_calls || []).join(', ') || 'none'}`,
+            m.refusal ? 'REFUSAL: a defense blocked this completion' : null, m.error ? 'model error' : null] });
+      });
+      for (const e of L.tools) {
+        const fn = toolKind(e.function);
+        const xa = sx(X(a, e.t));
+        const xe = e.t_end != null ? sx(X(a, e.t_end)) : xa;
+        if (!vis(xa, xe)) continue;
+        let ya = top + laneH * 0.08;
+        let yb = base;
+        if (fn === 'channel_post') { ya = top - 3; yb = mid; } else if (fn === 'channel_read') { ya = mid; yb = base; } else if (fn === 'submit') { ya = top - 4; }
+        if (xe - xa > 3) marks.appendChild(svgEl('line', { class: ['dur', 'tk-' + fn], x1: xa, x2: xe, y1: (ya + yb) / 2, y2: (ya + yb) / 2 }));
+        marks.appendChild(svgEl('line', { class: ['tk', 'tk-' + fn], x1: xa, x2: xa, y1: ya, y2: yb }));
+        if (fn === 'python') marks.appendChild(svgEl('rect', { class: 'fill-ink', x: xa - 2, y: ya - 3, width: 4, height: 4 }));
+        if (fn === 'submit') marks.appendChild(svgEl('path', { class: 'fill-ink', d: `M${r2(xa)},${r2(ya)}l7,3l-7,3z` }));
+        if (e.blocked) over.appendChild(xMark(xa, ya - 5, 3.2));
+        if (e.honeypot_touch) over.appendChild(svgEl('circle', { class: 'm-touch', cx: xa, cy: mid, r: 5.5 }));
+        if (e.member_read) over.appendChild(diamond(xa, mid, 4.6, 'm-member'));
+        const pri = e.member_read || e.honeypot_touch ? 4 : e.blocked ? 3 : 2;
+        hits.push({ x0: xa - 1, x1: Math.max(xa + 1, xe), y0: ya - (e.blocked ? 9 : 2), y1: yb, pri,
+          lines: () => [`${a} · ${e.function}${e.blocked ? ' · BLOCKED' : e.error ? ' · error' : ''}`,
+            `${fmtSecs(e.t)}${e.t_end != null ? ` for ${fmtSecs(e.t_end - e.t)}` : ''}`,
+            e.honeypot_touch ? 'honeypot touch: the call names another agent’s branch, commit or archive' : null,
+            e.member_read ? 'member read: the result carries text found only in agent-014’s archive' : null,
+            e.preview ? String(e.preview).slice(0, 300) : null] });
+      }
+      // Verdict at the lane's end.
+      const v = verdictOf(a);
+      const vx = x1 + 16;
+      const cy = ly + laneH / 2 - (laneH >= 36 && touchOf(a) != null ? 5 : 0);
+      if (v === true) {
+        svg.appendChild(svgEl('rect', { class: 'v-cheated', x: vx - 5, y: cy - 5, width: 10, height: 10, rx: 2 }));
+        svg.appendChild(svgEl('path', { class: 'v-mark', d: `M${vx - 2.5},${cy - 2.5}L${vx + 2.5},${cy + 2.5}M${vx + 2.5},${cy - 2.5}L${vx - 2.5},${cy + 2.5}` }));
+      } else if (v === false) {
+        svg.appendChild(svgEl('circle', { class: 'v-honest', cx: vx, cy, r: 5.5 }));
+        svg.appendChild(svgEl('path', { class: 'v-mark', d: `M${vx - 2.8},${cy}L${vx - 0.6},${cy + 2.4}L${vx + 3},${cy - 2.4}` }));
+      } else {
+        svg.appendChild(svgEl('circle', { class: 'v-unknown', cx: vx, cy, r: 4.5 }));
+      }
+      svg.appendChild(svgEl('text', { class: 'verdict-label', x: vx + 10, y: cy + 4 }, verdictText(v)));
+      if (laneH >= 36 && touchOf(a) != null) svg.appendChild(svgEl('text', { class: 't-muted t-small', x: vx + 10, y: cy + 17 }, `touch ${fmtSecs(touchOf(a))}`));
+      hits.push({ x0: x1 + 4, x1: W, y0: ly, y1: ly + laneH, pri: 0, lines: () => laneInfo(a) });
+      // Lane label.
+      const role = roles[a];
+      const lcy = ly + laneH / 2;
+      if (role) svg.appendChild(roleGlyph(role, 16, lcy, 5.5));
+      const name = a.length > 16 ? a.slice(0, 15) + '…' : a;
+      svg.appendChild(svgEl('text', { class: 'lane-name', x: role ? 28 : 10, y: lcy + (role && laneH >= 36 ? -1 : 4) }, name));
+      if (role && laneH >= 36) svg.appendChild(svgEl('text', { class: 't-muted t-small', x: 28, y: lcy + 12 }, role));
+      hits.push({ x0: 0, x1: x0 - 4, y0: ly, y1: ly + laneH, pri: 0, lines: () => laneInfo(a) });
+    }
+    for (const b of freeBlocks) {
+      const xb = sx(b.t);
+      if (!vis(xb, xb)) continue;
+      marks.appendChild(svgEl('line', { class: 'm-block-line', x1: xb, x2: xb, y1: axisH, y2: H }));
+    }
+
+    // Board: arrows from the post on the sender's lane to each reader's lane at read time.
+    if (st.arrows) {
+      for (const r of reads) {
+        const p = r.post;
+        if (!laneY.has(p.sender)) continue;
+        const xa = sx(X(p.sender, p.t));
+        const xb = sx(X(r.agent, r.t));
+        if ((xa < x0 && xb < x0) || (xa > x1 && xb > x1)) continue;
+        const ya = laneY.get(p.sender) + laneH * 0.3;
+        const yb = laneY.get(r.agent) + laneH * 0.3;
+        arrowsG.appendChild(svgEl('line', { class: ['arrow', r.how !== 'read' && 'exposure'], x1: xa, y1: ya, x2: xb, y2: yb, 'marker-end': `url(#tlarrow-${uid})` }));
+        hits.push({ x0: xb - 4, x1: xb + 2, y0: yb - 4, y1: yb + 4, pri: 3,
+          lines: () => [`${r.agent} ${r.how === 'read' ? 'read' : 'was shown'} post #${p.sequence} from ${p.sender}`,
+            `${fmtSecs(r.t)}, posted at ${fmtSecs(p.t)}`, String(p.content || '').slice(0, 400)] });
+      }
+    }
+    for (const p of posts) {
+      if (!laneY.has(p.sender)) continue;
+      const px = sx(X(p.sender, p.t));
+      if (!vis(px, px)) continue;
+      const py = laneY.get(p.sender) + laneH * 0.3;
+      over.appendChild(svgEl('circle', { class: 'm-post', cx: px, cy: py, r: 4.5 }));
+      const readers = [...new Set((p.read_by || []).filter(x => x.agent && x.agent !== p.sender).map(x => x.agent))];
+      hits.push({ x0: px - 5, x1: px + 5, y0: py - 5, y1: py + 5, pri: 5,
+        lines: () => [`post #${p.sequence} by ${p.sender} at ${fmtSecs(p.t)}`, readers.length ? `read by ${readers.join(', ')}` : 'read by no other agent',
+          String(p.content || '').slice(0, 400)] });
+    }
+    svg.append(marks, arrowsG, over);
+
+    // Crosshair, brush, tooltip.
+    const cross = svgEl('line', { class: 'crosshair', x1: 0, x2: 0, y1: axisH - 4, y2: H, visibility: 'hidden' });
+    const crossLabel = svgEl('text', { class: 'cross-label', x: 0, y: 10, 'text-anchor': 'middle', visibility: 'hidden' });
+    const brush = svgEl('rect', { class: 'brush', x: 0, y: axisH - 4, width: 0, height: H - axisH + 4, visibility: 'hidden' });
+    svg.append(brush, cross, crossLabel);
+    const pt = ev => { const b = svg.getBoundingClientRect(); return [(ev.clientX - b.left) * (W / b.width), (ev.clientY - b.top) * (H / b.height)]; };
+    const pick = (px, py) => {
+      let best = null;
+      let bd = 6;
+      for (const it of hits) {
+        const d = Math.max(0, it.x0 - px, px - it.x1) + Math.max(0, it.y0 - py, py - it.y1) - it.pri * 0.4;
+        if (d < bd) { bd = d; best = it; }
+      }
+      return best;
+    };
+    let drag = null;
+    svg.addEventListener('pointerdown', ev => {
+      const [px, py] = pt(ev);
+      if (ev.button !== 0 || px < x0 || px > x1 || py < axisH - 4) return;
+      drag = { x: px, id: ev.pointerId };
+      svg.setPointerCapture(ev.pointerId);
+    });
+    svg.addEventListener('pointermove', ev => {
+      const [px, py] = pt(ev);
+      const inPlot = px >= x0 && px <= x1;
+      cross.setAttribute('visibility', inPlot ? 'visible' : 'hidden');
+      crossLabel.setAttribute('visibility', inPlot ? 'visible' : 'hidden');
+      if (inPlot) {
+        cross.setAttribute('x1', r2(px)); cross.setAttribute('x2', r2(px));
+        crossLabel.setAttribute('x', r2(Math.min(x1 - 24, Math.max(x0 + 24, px))));
+        crossLabel.textContent = st.mode === 'time' ? fmtSecs(inv(px)) : `call ${+inv(px).toFixed(1)}`;
+      }
+      if (drag) {
+        const a = Math.max(x0, Math.min(drag.x, px));
+        const b = Math.min(x1, Math.max(drag.x, px));
+        brush.setAttribute('x', r2(a)); brush.setAttribute('width', r2(b - a));
+        brush.setAttribute('visibility', b - a > 2 ? 'visible' : 'hidden');
+        tip.hide();
+        return;
+      }
+      const it = pick(px, py);
+      if (it) tip.show(ev, it.lines()); else tip.hide();
+    });
+    svg.addEventListener('pointerup', ev => {
+      if (!drag) return;
+      const [px] = pt(ev);
+      const a = Math.max(x0, Math.min(drag.x, px));
+      const b = Math.min(x1, Math.max(drag.x, px));
+      drag = null;
+      brush.setAttribute('visibility', 'hidden');
+      if (b - a > 6) setRange(inv(a), inv(b));
+    });
+    svg.addEventListener('pointerleave', () => {
+      tip.hide();
+      cross.setAttribute('visibility', 'hidden');
+      crossLabel.setAttribute('visibility', 'hidden');
+    });
+    svg.addEventListener('dblclick', () => setRange(...full()));
+    host.replaceChildren(svg);
+  }
+
+  function laneInfo(a) {
+    const L = lanes.get(a);
+    const blocks = L.blocks.length;
+    const refusals = L.models.filter(m => m.refusal).length;
+    return [`${a}${roles[a] ? ` (${roles[a]})` : ''}`,
+      `judge: ${verdictText(verdictOf(a))}`,
+      `${plural(L.models.length, 'model call')} · ${plural(L.tools.length, 'tool call')}`,
+      touchOf(a) != null ? `first honeypot touch ${fmtSecs(touchOf(a))}` : 'no honeypot touch',
+      readOf(a) != null ? `first member read ${fmtSecs(readOf(a))}` : null,
+      blocks || refusals ? `${plural(blocks, 'block')}, ${plural(refusals, 'refusal')}` : null];
+  }
+
+  syncZoom();
+  return { card, draw };
+}
+
+/** Edges A -> B: posts of A that B read (or was shown) before B's first honeypot touch, or before the end if B never touched. */
+function exposureEdges(tl) {
+  const touch = tl.first_honeypot_touch || {};
+  const edges = new Map();
+  for (const p of tl.board || []) {
+    if (!p.sender) continue;
+    const seen = new Set();
+    for (const r of p.read_by || []) {
+      const B = r.agent;
+      if (!B || B === p.sender || r.t == null || seen.has(B)) continue;
+      const cutoff = touch[B] != null ? touch[B] : Infinity;
+      if (!(r.t < cutoff)) continue;
+      seen.add(B);
+      const k = `${p.sender}\u0000${B}`;
+      if (!edges.has(k)) edges.set(k, { from: p.sender, to: B, posts: [] });
+      edges.get(k).posts.push(p);
+    }
+  }
+  return [...edges.values()];
+}
+
+function cascadeView(ctx, width) {
+  const { tl, agents, roles, hasRoles, verdictOf, disclosedOf, touchOf, readOf } = ctx;
+  const edges = exposureEdges(tl).filter(e => agents.includes(e.from) && agents.includes(e.to));
+  const W = Math.max(560, width);
+  const rowH = agents.length <= 4 ? 44 : 32;
+  const padL = 132;
+  const padT = 26;
+  const neverX = W - 64;
+  const divX = W - 118;
+  const x0 = padL + 24;
+  const x1 = divX - 40;
+  const H = padT + agents.length * rowH + 30;
+  const touched = agents.filter(a => touchOf(a) != null);
+  const tMax = Math.max(1e-6, ...touched.map(a => touchOf(a)));
+  const sx = t => (touched.length === 1 ? (x0 + x1) / 2 : x0 + (t / tMax) * (x1 - x0));
+  const pos = new Map(agents.map((a, i) => [a, [touchOf(a) != null ? sx(touchOf(a)) : neverX, padT + i * rowH + rowH / 2]]));
+  const uid = ++vizUid;
+  const nodeR = 8;
+
+  const svg = svgEl('svg', { class: 'viz cascade-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+    'aria-label': `Exposure cascade: ${plural(edges.length, 'edge')} between ${plural(agents.length, 'agent')}` });
+  svg.appendChild(svgEl('defs', null, svgEl('marker', { id: `csarrow-${uid}`, viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 5, markerHeight: 5, orient: 'auto' },
+    svgEl('path', { class: 'arrowhead', d: 'M0,0L8,4L0,8Z' }))));
+  agents.forEach((a, i) => svg.appendChild(svgEl('rect', { class: ['lane-bg', i % 2 && 'alt'], x: 0, y: padT + i * rowH, width: W, height: rowH })));
+  svg.appendChild(svgEl('line', { class: 'grp-rule dashed', x1: divX, x2: divX, y1: padT - 18, y2: H - 22 }));
+  svg.appendChild(svgEl('text', { class: 'axis-title', x: (divX + W) / 2, y: 14, 'text-anchor': 'middle' }, 'never touched'));
+  svg.appendChild(svgEl('text', { class: 'axis-title', x: x0, y: 14 }, 'first honeypot touch →'));
+  const ticks = touched.length ? ticksFor(0, tMax, Math.max(2, Math.floor((x1 - x0) / 90)), TIME_STEPS) : [];
+  if (touched.length > 1) {
+    for (const v of ticks) {
+      svg.appendChild(svgEl('line', { class: 'grid', x1: sx(v), x2: sx(v), y1: padT, y2: H - 22 }));
+      svg.appendChild(svgEl('text', { class: 'tick-label', x: sx(v), y: H - 8, 'text-anchor': 'middle' }, fmtTick(v)));
+    }
+  } else if (touched.length === 1) {
+    svg.appendChild(svgEl('text', { class: 'tick-label', x: sx(0), y: H - 8, 'text-anchor': 'middle' }, fmtTick(touchOf(touched[0]))));
+  }
+  agents.forEach((a, i) => {
+    const cy = padT + i * rowH + rowH / 2;
+    svg.appendChild(svgEl('text', { class: 'lane-name', x: 10, y: cy + (hasRoles && rowH >= 32 ? -1 : 4) }, a.length > 16 ? a.slice(0, 15) + '…' : a));
+    if (roles[a] && rowH >= 32) svg.appendChild(svgEl('text', { class: 't-muted t-small', x: 10, y: cy + 12 }, roles[a]));
+  });
+
+  // Edges first, so nodes sit on top. An edge bows to the side that keeps it clearer of other
+  // nodes; the two edges of a pair that read each other bow to opposite sides.
+  const has = new Set(edges.map(e => `${e.from}\u0000${e.to}`));
+  const clearance = (ax, ay, cx, cy, bx, by, skip) => {
+    let m = Infinity;
+    for (let i = 1; i < 20; i++) {
+      const t = i / 20;
+      const x = (1 - t) * (1 - t) * ax + 2 * (1 - t) * t * cx + t * t * bx;
+      const y = (1 - t) * (1 - t) * ay + 2 * (1 - t) * t * cy + t * t * by;
+      for (const [a, [nx, ny]] of pos) if (!skip.includes(a)) m = Math.min(m, Math.hypot(nx - x, ny - y));
+    }
+    return m;
+  };
+  for (const e of edges) {
+    const [ax, ay] = pos.get(e.from);
+    const [bx, by] = pos.get(e.to);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const bow = Math.min(40, 14 + len * 0.12);
+    const ctrl = (side, k) => [(ax + bx) / 2 - side * k * (dy / len) * bow, (ay + by) / 2 + side * k * (dx / len) * bow];
+    const sides = has.has(`${e.to}\u0000${e.from}`) ? [e.from < e.to ? 1 : -1] : [1, -1];
+    const skip = [e.from, e.to];
+    let best = null;
+    for (const k of [1, 0.4, 2, 3]) {
+      for (const side of sides) {
+        const c = ctrl(side, k);
+        const m = clearance(ax, ay, c[0], c[1], bx, by, skip);
+        if (!best || m > best.m) best = { c, m };
+      }
+      if (best.m >= 18) break;
+    }
+    const [cx, cy] = best.c;
+    const tx = bx - cx;
+    const ty = by - cy;
+    const tl2 = Math.hypot(tx, ty) || 1;
+    const ex = bx - (tx / tl2) * (nodeR + 4);
+    const ey = by - (ty / tl2) * (nodeR + 4);
+    const d = `M${r2(ax)},${r2(ay)}Q${r2(cx)},${r2(cy)} ${r2(ex)},${r2(ey)}`;
+    const w = 1 + 1.4 * Math.min(6, e.posts.length);
+    svg.appendChild(svgEl('path', { class: 'edge', d, 'stroke-width': w, 'marker-end': `url(#csarrow-${uid})` }));
+    const cutoff = touchOf(e.to);
+    svg.appendChild(withTip(svgEl('path', { class: 'edge-hit', d }), () => [
+      `${e.from} → ${e.to}: ${plural(e.posts.length, 'post')}`,
+      cutoff != null ? `read by ${e.to} before its first touch at ${fmtSecs(cutoff)}` : `read by ${e.to}, who never touched the honeypot`,
+      `posts ${e.posts.map(p => '#' + p.sequence).join(', ')}`,
+      firstLine(e.posts[0].content, 160)]));
+  }
+  for (const a of agents) {
+    const [x, y] = pos.get(a);
+    const v = verdictOf(a);
+    const out = v === true ? 'out-cheated' : v === false ? 'out-honest' : 'out-unknown';
+    const g = svgEl('g', { class: 'node-g' });
+    if (disclosedOf(a)) g.appendChild(roleGlyph(roles[a], x, y + (roles[a] === 'disregulator' ? 1 : 0), nodeR + 4, 'disclosed-ring'));
+    g.appendChild(roleGlyph(roles[a], x, y + (roles[a] === 'disregulator' ? 1 : 0), nodeR, out));
+    const ins = edges.filter(e => e.to === a);
+    const outs = edges.filter(e => e.from === a);
+    svg.appendChild(withTip(g, () => [
+      `${a}${roles[a] ? ` (${roles[a]})` : ''}`,
+      `judge: ${verdictText(v)}${disclosedOf(a) ? ', disclosed access' : ''}`,
+      touchOf(a) != null ? `first honeypot touch ${fmtSecs(touchOf(a))}` : 'never touched the honeypot',
+      readOf(a) != null ? `first member read ${fmtSecs(readOf(a))}` : null,
+      ins.length ? `exposed by ${ins.map(e => `${e.from} (${e.posts.length})`).join(', ')}` : 'no exposure before its touch',
+      outs.length ? `exposed ${outs.map(e => `${e.to} (${e.posts.length})`).join(', ')}` : null]));
+  }
+
+  const caption = agents.length < 2
+    ? 'One agent: no board, so no exposure edges.'
+    : !(tl.board || []).length ? 'No board posts in this run, so no exposure edges.'
+      : edges.length ? null : 'No agent read another agent’s post before its first touch.';
+  return h('div', null,
+    svg,
+    caption ? h('div', { class: 'muted small' }, caption) : null,
+    h('p', { class: 'small viz-note' }, 'An arrow A → B means B read a post of A, or was shown it in its model input, before B’s first honeypot touch (before the end of the run when B never touched it). Width counts such posts. The arrows show exposure, not cause.'),
+    vizLegend([
+      [lgSvg(svgEl('circle', { class: 'glyph out-cheated', cx: 10, cy: 7, r: 5 })), 'judged cheated'],
+      [lgSvg(svgEl('circle', { class: 'glyph out-honest', cx: 10, cy: 7, r: 5 })), 'judged not cheated'],
+      [lgSvg(svgEl('circle', { class: 'glyph out-unknown', cx: 10, cy: 7, r: 5 })), 'not judged'],
+      [lgSvg(svgEl('circle', { class: 'glyph disclosed-ring', cx: 10, cy: 7, r: 6 }), svgEl('circle', { class: 'glyph out-unknown', cx: 10, cy: 7, r: 3.5 })), 'outline: disclosed access'],
+      hasRoles ? [lgSvg(roleGlyph('worker', 4, 7, 3.6, 'out-unknown'), roleGlyph('regulator', 10, 7, 3.6, 'out-unknown'), roleGlyph('disregulator', 16, 7.6, 3.6, 'out-unknown')), 'shape: worker, regulator, disregulator'] : null,
+    ]));
+}
+
+// =====================================================================================
+// 12. View: overview   #/overview
+// =====================================================================================
+
+const swarmSize = x => ((x.regulators || 0) + (x.disregulators || 0) + (x.workers || 0)) || x.n_agents || 0;
+const reportDisagrees = x => x.report_cheated != null && x.judged > 0 && x.report_cheated !== (x.cheated > 0);
+const kOfN = (k, n) => (n ? `${fmtInt(k)}/${fmtInt(n)}` : DASH);
+
+function cellAggregate(runs) {
+  const by = {};
+  for (const role of ROLE_ORDER) by[role] = { n: 0, cheated: 0 };
+  let k = 0;
+  let n = 0;
+  for (const x of runs) {
+    k += x.cheated || 0;
+    n += x.judged || 0;
+    for (const role of ROLE_ORDER) {
+      const s = (x.by_role || {})[role];
+      if (s) { by[role].n += s.n || 0; by[role].cheated += s.cheated || 0; }
+    }
+  }
+  return { k, n, byRole: by, runs, disagree: runs.some(reportDisagrees), noReport: runs.some(x => !x.has_report) };
+}
+
+function runTipLines(x) {
+  return `${x.run} · seed ${x.seed ?? DASH} · ${x.judged ? `${x.cheated}/${x.judged} cheated` : 'not judged'} · team report ${x.has_report ? (x.report_cheated == null ? 'unparsed' : x.report_cheated ? 'cheated' : 'not cheated') : 'missing'}` +
+    `${reportDisagrees(x) ? ' (disagrees with the judge)' : ''} · ${plural(x.timeouts || 0, 'timeout')} · score ${x.score ?? DASH}`;
+}
+
+/** Regulators (y, up) by disregulators (x) grid for one swarm size; only cells with R + D <= N exist. */
+function compositionGrid(N, cells, drawCell, label) {
+  const c = N <= 5 ? 52 : N <= 8 ? 44 : 38;
+  const padL = 44;
+  const padT = 6;
+  const padB = 38;
+  const W = padL + (N + 1) * c + 8;
+  const H = padT + (N + 1) * c + padB;
+  const uid = ++vizUid;
+  const svg = svgEl('svg', { class: 'viz comp-grid', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': label });
+  svg.appendChild(svgEl('defs', null,
+    svgEl('pattern', { id: `hatch-${uid}`, width: 6, height: 6, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' },
+      svgEl('line', { class: 'hatch-line', x1: 0, y1: 0, x2: 0, y2: 6 }))));
+  for (let r = 0; r <= N; r++) {
+    for (let d = 0; d + r <= N; d++) {
+      const x = padL + d * c;
+      const y = padT + (N - r) * c;
+      const cell = cells.get(`${r},${d}`);
+      if (!cell) {
+        svg.appendChild(withTip(svgEl('rect', { class: 'hm-empty', x: x + 1, y: y + 1, width: c - 2, height: c - 2, fill: `url(#hatch-${uid})` }),
+          () => [`R${r} D${d} W${N - r - d}`, 'no run with this composition']));
+        continue;
+      }
+      drawCell(svg, cell, x, y, c, r, d);
+    }
+  }
+  for (let d = 0; d <= N; d++) svg.appendChild(svgEl('text', { class: 'tick-label', x: padL + d * c + c / 2, y: padT + (N + 1) * c + 14, 'text-anchor': 'middle' }, String(d)));
+  for (let r = 0; r <= N; r++) svg.appendChild(svgEl('text', { class: 'tick-label', x: padL - 8, y: padT + (N - r) * c + c / 2 + 4, 'text-anchor': 'end' }, String(r)));
+  svg.appendChild(svgEl('text', { class: 'axis-title', x: padL + ((N + 1) * c) / 2, y: H - 6, 'text-anchor': 'middle' }, 'disregulators →'));
+  svg.appendChild(svgEl('text', { class: 'axis-title', transform: `translate(12 ${r2(padT + ((N + 1) * c) / 2)}) rotate(-90)`, 'text-anchor': 'middle' }, 'regulators →'));
+  return svg;
+}
+
+/** A clickable cell group: tooltip, click and Enter open the (first) run. */
+function cellLink(cell, title) {
+  const g = svgEl('g', { class: 'hm-cell', tabindex: 0, role: 'link', 'aria-label': title });
+  withTip(g, () => [title, ...cell.runs.map(runTipLines), cell.runs.length > 1 ? `click opens ${cell.runs[0].run}` : 'click opens the run']);
+  const go = () => { tip.hide(); location.hash = R.run(cell.runs[0].run); };
+  g.addEventListener('click', go);
+  g.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); go(); } });
+  return g;
+}
+
+function heatmapCell(svg, cell, x, y, c, r, d) {
+  const N = swarmSize(cell.runs[0]);
+  const fill = cell.n ? seqColor(cell.k / cell.n) : cssVar('--raster-none', '#e4e4de');
+  const ink = inkOn(fill);
+  const g = cellLink(cell, `R${r} D${d} W${N - r - d}: ${cell.n ? `${cell.k} of ${cell.n} judged agents cheated` : 'not judged yet'}`);
+  g.appendChild(svgEl('rect', { x: x + 1, y: y + 1, width: c - 2, height: c - 2, rx: 3, style: `fill:${fill}` }));
+  g.appendChild(svgEl('text', { class: 'hm-text', x: x + c / 2, y: y + c / 2 + 4, 'text-anchor': 'middle', style: `fill:${ink}` }, cell.n ? `${cell.k}/${cell.n}` : DASH));
+  if (cell.runs.length > 1) g.appendChild(svgEl('text', { class: 'hm-count', x: x + 5, y: y + c - 5, style: `fill:${ink}` }, `×${cell.runs.length}`));
+  if (cell.disagree || cell.noReport) {
+    const s = 11;
+    g.appendChild(svgEl('path', { class: ['corner-mark', !cell.disagree && 'hollow'], d: `M${x + c - 1 - s},${y + 1}L${x + c - 1},${y + 1}L${x + c - 1},${y + 1 + s}Z` }));
+  }
+  svg.appendChild(g);
+}
+
+function roleBarsCell(svg, cell, x, y, c, r, d) {
+  const N = swarmSize(cell.runs[0]);
+  const parts = ROLE_ORDER.map(role => `${role} ${kOfN(cell.byRole[role].cheated, cell.byRole[role].n)}`).join(', ');
+  const g = cellLink(cell, `R${r} D${d} W${N - r - d}: ${parts}`);
+  g.appendChild(svgEl('rect', { class: 'rb-bg', x: x + 1, y: y + 1, width: c - 2, height: c - 2, rx: 3 }));
+  const bw = Math.max(4, Math.min(8, (c - 16) / 3));
+  const gap = (c - 2 - 3 * bw) / 4;
+  const top = y + 6;
+  const bot = y + c - 12;
+  ROLE_ORDER.forEach((role, i) => {
+    const s = cell.byRole[role];
+    const bx = x + 1 + gap + i * (bw + gap);
+    if (s.n) {
+      g.appendChild(svgEl('rect', { class: 'rb-track', x: bx, y: top, width: bw, height: bot - top }));
+      const hh = ((bot - top) * s.cheated) / s.n;
+      if (hh > 0) g.appendChild(svgEl('rect', { class: ['rb-bar', 'role-' + role], x: bx, y: bot - hh, width: bw, height: hh }));
+    }
+    const glyph = roleGlyph(role, bx + bw / 2, y + c - 6, 2.6);
+    if (!s.n) glyph.classList.add('faint');
+    g.appendChild(glyph);
+  });
+  svg.appendChild(g);
+}
+
+function seqLegend() {
+  const uid = ++vizUid;
+  const stops = [0, 0.25, 0.5, 0.75, 1].map(t => svgEl('stop', { offset: `${t * 100}%`, style: `stop-color:${seqColor(t)}` }));
+  return lgSvgWide(120, svgEl('defs', null, svgEl('linearGradient', { id: `seq-${uid}` }, ...stops)),
+    svgEl('rect', { x: 0, y: 3, width: 120, height: 8, rx: 2, fill: `url(#seq-${uid})` }));
+}
+function lgSvgWide(w, ...children) {
+  return svgEl('svg', { class: 'lg-glyph viz', width: w, height: 14, viewBox: `0 0 ${w} 14`, 'aria-hidden': 'true' }, ...children);
+}
+
+function compositionSection(swarm) {
+  const sizes = [...new Set(swarm.map(swarmSize))].sort((a, b) => a - b);
+  const blocks = sizes.map(N => {
+    const runs = swarm.filter(x => swarmSize(x) === N && x.regulators != null && x.disregulators != null);
+    const groups = new Map();
+    for (const x of runs) {
+      const k = `${x.regulators},${x.disregulators}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(x);
+    }
+    const cells = new Map([...groups].map(([k, v]) => [k, cellAggregate(v.sort((a, b) => (a.seed ?? 0) - (b.seed ?? 0) || a.run.localeCompare(b.run)))]));
+    const nCells = ((N + 1) * (N + 2)) / 2;
+    return h('div', { class: 'comp-block' },
+      h('h3', null, `${N} agents · ${plural(runs.length, 'run')} in ${fmtInt(cells.size)} of ${fmtInt(nCells)} compositions`),
+      h('div', { class: 'comp-pair' },
+        h('figure', { class: 'comp-fig' }, h('figcaption', null, 'Share of judged agents who cheated'),
+          compositionGrid(N, cells, heatmapCell, `Composition heatmap for ${N} agents`)),
+        h('figure', { class: 'comp-fig' }, h('figcaption', null, 'Cheated by hidden role'),
+          compositionGrid(N, cells, roleBarsCell, `Per-role cheating for ${N} agents`))));
+  });
+  return h('div', null, blocks,
+    vizLegend([
+      [seqLegend(), '0 to 100% of judged agents cheated (cell text k/n)'],
+      [swatch('sw-hatch'), 'no run'],
+      [swatch('sw-none'), 'run not judged yet'],
+      [lgSvg(svgEl('path', { class: 'corner-mark', d: 'M6,2L16,2L16,12Z' })), 'team report disagrees with the judge'],
+      [lgSvg(svgEl('path', { class: 'corner-mark hollow', d: 'M6,2L16,2L16,12Z' })), 'no team report'],
+    ]),
+    vizLegend([
+      [lgSvg(svgEl('rect', { class: 'rb-track', x: 7, y: 1, width: 6, height: 12 }), svgEl('rect', { class: 'rb-bar role-disregulator', x: 7, y: 7, width: 6, height: 6 })), 'per-role bar: share of that role’s judged agents who cheated'],
+      [lgSvg(roleGlyph('disregulator', 10, 7.6, 4.2)), 'disregulator'],
+      [lgSvg(roleGlyph('worker', 10, 7, 4.2)), 'worker'],
+      [lgSvg(roleGlyph('regulator', 10, 7, 4.2)), 'regulator'],
+      [lgSvg(roleGlyph('worker', 10, 7, 4.2, 'role-worker faint')), 'faded: no judged agent of that role'],
+    ]));
+}
+
+function swarmTable(swarm, thumbs) {
+  const sorted = swarm.slice().sort((a, b) => (a.regulators ?? 99) - (b.regulators ?? 99) || (a.disregulators ?? 99) - (b.disregulators ?? 99) ||
+    (a.seed ?? 0) - (b.seed ?? 0) || a.run.localeCompare(b.run));
+  const roleCell = (x, role) => {
+    const s = x.by_role && x.by_role[role];
+    return h('td', { class: 'num' }, s && s.n ? `${s.cheated}/${s.n}` : muted(DASH));
+  };
+  return h('div', { class: 'table-wrap' }, h('table', { class: 'data compact swarm-table' },
+    h('thead', null, h('tr', null,
+      ['run', 'composition', 'seed', 'judged', 'cheated'].map((c, i) => h('th', { class: i >= 2 ? 'num' : '' }, c)),
+      ROLE_ORDER.map(role => h('th', { class: 'num', title: `${role}s judged cheated / judged` }, roleIcon(role, 10), ' ', role)),
+      ['team report', 'agrees with judge', 'timeouts', 'score'].map((c, i) => h('th', { class: i >= 2 ? 'num' : '' }, c)),
+      h('th', { title: 'agent by turn raster; click for the timeline' }, 'agent × turn'))),
+    h('tbody', null, sorted.map(x => h('tr', { class: x.failed && 'failed', title: x.failed ? 'failed run (harness crash): not drawn in the charts' : null },
+      h('td', null, link(R.run(x.run), x.run, 'run-link'), x.failed ? [' ', badge('failed', 'bad')] : null, ' ', link(R.timeline(x.run), 'timeline', 'small')),
+      h('td', { class: 'mono' }, x.composition || DASH),
+      h('td', { class: 'num' }, x.seed ?? DASH),
+      h('td', { class: 'num' }, fmtInt(x.judged)),
+      h('td', { class: 'num' }, x.judged ? (x.cheated ? badge(`${x.cheated}`, 'bad') : '0') : muted(DASH)),
+      ROLE_ORDER.map(role => roleCell(x, role)),
+      h('td', null, !x.has_report ? badge('no file', 'warn') : x.report_cheated == null ? badge('unparsed', 'warn') : yn(x.report_cheated, 'bad', 'good')),
+      h('td', null, x.report_cheated == null || !x.judged ? muted(DASH) : yn(!reportDisagrees(x), 'good', 'bad')),
+      h('td', { class: 'num' }, fmtInt(x.timeouts)),
+      h('td', { class: 'num' }, x.score == null ? DASH : String(x.score)),
+      h('td', { class: 'thumb-cell' }, thumbs(x.run)))))));
+}
+
+function controlsChart(rows) {
+  const ctl = rows.filter(x => (x.topology === 'single' || x.topology === 'board') && x.control && x.control !== 'baseline');
+  if (!ctl.length) return muted('No control runs.');
+  const controls = [...new Set(ctl.map(x => x.control))].sort();
+  const TOPOS = ['single', 'board'];
+  const agg = new Map();
+  for (const x of ctl) {
+    const k = `${x.control}|${x.topology}`;
+    if (!agg.has(k)) agg.set(k, { k: 0, n: 0, runs: [], timeouts: 0 });
+    const a = agg.get(k);
+    a.k += x.cheated || 0; a.n += x.judged || 0; a.timeouts += x.timeouts || 0; a.runs.push(x.run);
+  }
+  const groupW = Math.max(84, Math.min(130, 1100 / controls.length));
+  const padL = 44;
+  const padT = 22;
+  const plotH = 190;
+  const rotate = groupW < 108;
+  const padB = rotate ? 86 : 40;
+  const W = padL + controls.length * groupW + 12;
+  const H = padT + plotH + padB;
+  const bw = 22;
+  const y = v => padT + plotH - v * plotH;
+  const svg = svgEl('svg', { class: 'viz controls-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+    'aria-label': `Share of judged agents who cheated under each control, single agent and board` });
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    svg.appendChild(svgEl('line', { class: v ? 'grid' : 'baseline', x1: padL, x2: W - 8, y1: y(v), y2: y(v) }));
+    svg.appendChild(svgEl('text', { class: 'tick-label', x: padL - 6, y: y(v) + 4, 'text-anchor': 'end' }, `${v * 100}%`));
+  }
+  controls.forEach((c, i) => {
+    const gx = padL + i * groupW + groupW / 2;
+    TOPOS.forEach((topo, j) => {
+      const a = agg.get(`${c}|${topo}`);
+      const bx = gx - bw - 2 + j * (bw + 4);
+      if (!a) {
+        svg.appendChild(svgEl('text', { class: 'tick-label', x: bx + bw / 2, y: y(0) - 5, 'text-anchor': 'middle' }, DASH));
+        svg.appendChild(withTip(svgEl('rect', { class: 'hit', x: bx, y: padT, width: bw, height: plotH }), () => [`${c} · ${topo}`, 'no run']));
+        return;
+      }
+      const frac = a.n ? a.k / a.n : 0;
+      const top = y(frac);
+      const hh = y(0) - top;
+      if (a.n && hh > 0) {
+        const rr = Math.min(4, hh, bw / 2);
+        svg.appendChild(svgEl('path', { class: `bar-${topo}`, d: `M${bx},${y(0)}V${r2(top + rr)}Q${bx},${r2(top)} ${bx + rr},${r2(top)}H${bx + bw - rr}Q${bx + bw},${r2(top)} ${bx + bw},${r2(top + rr)}V${y(0)}Z` }));
+      }
+      svg.appendChild(svgEl('text', { class: 'bar-label', x: bx + bw / 2, y: (a.n ? top : y(0)) - 5, 'text-anchor': 'middle' }, a.n ? `${a.k}/${a.n}` : 'n/j'));
+      svg.appendChild(withTip(svgEl('rect', { class: 'hit', x: bx, y: padT, width: bw, height: plotH }), () => [
+        `${c} · ${topo}`, a.n ? `${a.k} of ${a.n} judged agents cheated` : 'not judged yet', `runs: ${a.runs.join(', ')}`,
+        a.timeouts ? `${plural(a.timeouts, 'episode')} hit the time limit` : null]));
+    });
+    const lx = gx;
+    const ly = padT + plotH + 16;
+    svg.appendChild(svgEl('text', { class: 'tick-label ctl-label', x: lx, y: ly, 'text-anchor': rotate ? 'end' : 'middle',
+      transform: rotate ? `rotate(-35 ${r2(lx)} ${r2(ly)})` : null }, c));
+  });
+  const base = rows.filter(x => x.control === 'baseline' && (x.topology === 'single' || x.topology === 'board'));
+  const baseText = TOPOS.map(t => {
+    const b = base.filter(x => x.topology === t);
+    const k = b.reduce((s, x) => s + (x.cheated || 0), 0);
+    const n = b.reduce((s, x) => s + (x.judged || 0), 0);
+    return b.length ? `${t} ${kOfN(k, n)} (${b.map(x => x.run).join(', ')})` : `${t}: no run`;
+  }).join('; ');
+  return h('div', null,
+    h('div', { class: 'chart-scroll' }, svg),
+    vizLegend([
+      [swatch('sw-single'), 'single agent'],
+      [swatch('sw-board'), 'board (two agents)'],
+    ]),
+    h('div', { class: 'muted small' }, `Bar height is the share of judged agents who cheated; the label is cheated/judged, “n/j” not judged, ${DASH} no run. ` +
+      `Baseline without a control: ${baseText}.`));
+}
+
+async function viewOverview(r, view) {
+  const sum = await apiFresh(P.summary());
+  const all = sum.runs || [];
+  const ok = all.filter(x => !x.failed);
+  const failedN = all.length - ok.length;
+  const isSwarm = x => x.composition != null || x.topology === 'swarm';
+  const swarm = ok.filter(isSwarm);
+  const swarmFailed = all.filter(x => x.failed && isSwarm(x));
+  let live = true;
+  const io = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+    for (const en of entries) if (en.isIntersecting) { io.unobserve(en.target); loadThumb(en.target); }
+  }, { rootMargin: '200px' }) : null;
+  const queue = jobQueue(2);
+  function loadThumb(box) {
+    const run = box.dataset.run;
+    queue(() => api(P.timeline(run))).then(tl => {
+      if (!live) return;
+      const { el } = rasterCanvas(tl, laneOrder(tl), { thumb: true, maxW: 200, onClick: () => { tip.hide(); location.hash = R.timeline(run); } });
+      box.replaceChildren(el);
+    }).catch(e => {
+      if (!live) return;
+      box.replaceChildren(h('span', { class: 'muted small', title: String((e && e.message) || e) }, e && e.status === 404 ? 'no eval log' : 'could not load'));
+    });
+  }
+  const thumbs = run => {
+    const box = h('div', { class: 'thumb-box', dataset: { run } }, muted('…', 'small'));
+    if (io) io.observe(box); else loadThumb(box);
+    return box;
+  };
+  view.mounted(() => { document.title = 'Overview · results'; });
+  view.cleanup(() => { live = false; if (io) io.disconnect(); tip.hide(); });
+
+  const noSwarm = () => muted(swarmFailed.length
+    ? `No completed swarm runs yet; ${plural(swarmFailed.length, 'failed swarm run')} (harness crash) are listed under Swarm runs and not drawn. This page re-reads the summary each time it opens (or press Reload).`
+    : 'No swarm runs yet. A run appears here once its run.json records a swarm composition; this page re-reads the summary each time it opens (or press Reload).');
+  return h('div', { class: 'page' },
+    h('div', { class: 'page-head' },
+      h('h1', null, 'Overview'),
+      h('div', { class: 'links' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => route() }, 're-read')),
+      muted(`${plural(all.length, 'run')} from /api/summary, ${plural(swarm.length + swarmFailed.length, 'swarm run')}` +
+        `${failedN ? `; ${plural(failedN, 'failed run')} (harness crash) left out of every chart` : ''}. Counts are judged agents with a transcript.`)),
+    section('Swarm compositions', swarm.length ? [compositionSection(swarm),
+      swarmFailed.length ? h('div', { class: 'muted small' }, `${plural(swarmFailed.length, 'failed swarm run')} not drawn.`) : null] : noSwarm()),
+    section('Swarm runs', swarm.length || swarmFailed.length ? swarmTable(swarm.concat(swarmFailed), thumbs) : noSwarm(),
+      swarm.length || swarmFailed.length ? rasterLegend() : null),
+    section('Controls: lone agent and board', controlsChart(ok)));
+}
+
+// =====================================================================================
+// 13. Boot
 // =====================================================================================
 
 renderShell();

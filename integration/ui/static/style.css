@@ -406,3 +406,169 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
   .search { width: 100%; }
   .brand { display: none; }
 }
+
+/* ---------- charts: timeline, exposure cascade, raster, overview ---------- */
+/* Roles are Okabe-Ito and shape-coded; red and green are kept for outcomes (cheated, honest).
+   Tool hues (magenta post, violet read) and the raster set (work, post, read, touch, member, submit)
+   passed the dataviz palette validator, all pairs, in both schemes;
+   every tool also has its own tick shape, so colour is never the only cue. */
+:root {
+  --role-worker: #999999; --role-regulator: #0072B2; --role-disregulator: #E69F00;
+  --glyph-edge: rgba(0, 0, 0, .45);
+  --tl-bash: #77776f; --tl-post: #e87ba4; --tl-read: #4a3aa7;
+  --tl-model: #d3d3ca; --tl-defcall: #9c9c94;
+  --tl-arrow: rgba(28, 28, 26, .5);
+  --hp-touch: #E69F00;
+  --grid: #e9e9e3;
+  --seq-lo: #fde8e5; --seq-hi: #a3170e;
+  --out-unknown: #b9b9b1;
+  --raster-none: #e4e4de; --raster-work: #77776f; --member: #b02a20;
+  --bar-single: #1c5cab; --bar-board: #86b6ef;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --glyph-edge: rgba(255, 255, 255, .35);
+    --tl-bash: #9a9a94; --tl-post: #e87ba4; --tl-read: #9085e9;
+    --tl-model: #4a4e57; --tl-defcall: #777a82;
+    --tl-arrow: rgba(228, 228, 224, .5);
+    --grid: #2c2f36;
+    --seq-lo: #3b2321; --seq-hi: #ff8a7e;
+    --out-unknown: #62656c;
+    --raster-none: #2c2f36; --raster-work: #5f636b; --member: #d62d20;
+    --bar-single: #6da7ec; --bar-board: #1c5cab;
+  }
+}
+
+.nav-link { font-size: 13px; padding: 2px 8px; border-radius: 6px; color: var(--muted); white-space: nowrap; }
+.nav-link:hover { color: var(--text); text-decoration: none; background: var(--hover); }
+.nav-link.active { color: var(--text); background: var(--panel-2); font-weight: 600; }
+
+.viz-host { width: 100%; min-width: 0; overflow-x: auto; }
+.viz { display: block; font: 11px var(--sans); user-select: none; -webkit-user-select: none; }
+.viz text { fill: var(--text); }
+.viz .t-muted, .viz .tick-label, .viz .axis-title { fill: var(--muted); }
+.viz .t-small { font-size: 10px; }
+.viz .axis-title { font-size: 11px; }
+.viz .grid { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+.viz .baseline { stroke: var(--border-strong); stroke-width: 1; shape-rendering: crispEdges; }
+.viz .lane-bg { fill: transparent; }
+.viz .lane-bg.alt { fill: var(--band); }
+.viz .grp-rule { stroke: var(--border); stroke-width: 1; }
+.viz .grp-rule.dashed { stroke-dasharray: 3 3; }
+.viz .grp-label { font-size: 10px; font-weight: 650; letter-spacing: .04em; fill: var(--muted); }
+.viz .lane-name { font-size: 12px; font-weight: 600; }
+.viz .verdict-label { font-size: 11.5px; }
+.timeline-svg { cursor: crosshair; }
+
+.glyph { stroke: var(--glyph-edge); stroke-width: 1; }
+.glyph.role-worker, .rb-bar.role-worker { fill: var(--role-worker); }
+.glyph.role-regulator, .rb-bar.role-regulator { fill: var(--role-regulator); }
+.glyph.role-disregulator, .rb-bar.role-disregulator { fill: var(--role-disregulator); }
+.glyph.role-none { fill: var(--muted); }
+.glyph.faint { opacity: .3; }
+.glyph.out-cheated { fill: var(--bad); stroke: var(--panel); stroke-width: 3; paint-order: stroke; }
+.glyph.out-honest { fill: var(--good); stroke: var(--panel); stroke-width: 3; paint-order: stroke; }
+.glyph.out-unknown { fill: var(--out-unknown); stroke: var(--panel); stroke-width: 3; paint-order: stroke; }
+.glyph.disclosed-ring { fill: none; stroke: var(--text); stroke-width: 2; }
+.role-icon { display: inline-block; vertical-align: -1px; margin-right: 3px; flex: none; }
+
+.viz .m-model { fill: var(--tl-model); }
+.viz .m-model.err { stroke: var(--bad); stroke-width: 1; }
+.viz .m-defcall { fill: var(--tl-defcall); }
+.viz .tk { stroke-width: 1.5; }
+.viz .tk-bash { stroke: var(--tl-bash); }
+.viz .tk-python { stroke: var(--text); }
+.viz .tk-channel_post { stroke: var(--tl-post); stroke-width: 2.2; }
+.viz .tk-channel_read { stroke: var(--tl-read); stroke-width: 2.2; }
+.viz .tk-submit { stroke: var(--text); stroke-width: 2; }
+.viz .tk-other { stroke: var(--tl-bash); stroke-dasharray: 2 2; }
+.viz .dur { stroke-width: 1; opacity: .55; }
+.viz .fill-ink { fill: var(--text); }
+.viz .m-touch { fill: none; stroke: var(--hp-touch); stroke-width: 2; }
+.viz .m-member { fill: var(--member); stroke: var(--panel); stroke-width: 1; }
+.viz .m-x { fill: none; stroke: var(--bad); stroke-width: 2; stroke-linecap: round; }
+.viz .m-block { fill: var(--bad); opacity: .16; }
+.viz .m-block-line { stroke: var(--bad); stroke-width: 1.5; }
+.viz .m-post { fill: var(--tl-post); stroke: var(--panel); stroke-width: 2; }
+.viz .arrow { stroke: var(--tl-arrow); stroke-width: 1.2; fill: none; }
+.viz .arrow.exposure { stroke-dasharray: 4 3; }
+.viz .arrowhead { fill: var(--tl-arrow); }
+.viz .crosshair { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; pointer-events: none; }
+.viz .cross-label { font-size: 10.5px; fill: var(--text); pointer-events: none; }
+.viz .brush { fill: var(--accent); fill-opacity: .12; stroke: var(--accent); stroke-width: 1; pointer-events: none; }
+.viz .v-cheated { fill: var(--bad); }
+.viz .v-honest { fill: var(--good); }
+.viz .v-unknown { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.viz .v-mark { fill: none; stroke: var(--panel); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.viz .edge { stroke: var(--tl-arrow); fill: none; stroke-linecap: round; }
+.viz .edge-hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; }
+.viz .node-g { cursor: default; }
+
+.viz .hm-cell { cursor: pointer; }
+.viz .hm-cell:focus { outline: none; }
+.viz .hm-cell:focus-visible rect:first-child { stroke: var(--accent); stroke-width: 2; }
+.viz .hm-cell:hover rect:first-child { stroke: var(--text); stroke-width: 1.5; }
+.viz .hm-empty { stroke: var(--border); stroke-width: 1; }
+.viz .hatch-line { stroke: var(--border-strong); stroke-width: 1.2; }
+.viz .hm-text { font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.viz .hm-count { font-size: 9px; }
+.viz .corner-mark { fill: var(--text); stroke: var(--panel); stroke-width: 1.2; }
+.viz .corner-mark.hollow { fill: var(--panel); stroke: var(--text); stroke-width: 1.2; }
+.viz .rb-bg { fill: var(--panel); stroke: var(--border); stroke-width: 1; }
+.viz .rb-track { fill: var(--grid); }
+.viz .hit { fill: transparent; }
+.viz .bar-single { fill: var(--bar-single); }
+.viz .bar-board { fill: var(--bar-board); }
+.viz .bar-label { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.viz .ctl-label { fill: var(--text); font-size: 11.5px; }
+
+.viz-tip {
+  position: fixed; z-index: 50; max-width: 440px; padding: 6px 9px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .16); font-size: 12px; line-height: 1.4;
+  pointer-events: none; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.tip-title { font-weight: 650; }
+.tip-line { color: var(--muted); }
+
+.viz-controls { margin: 0 0 8px; }
+.zoom { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.zoom-range { width: 130px; accent-color: var(--accent); }
+.zoom-text { min-width: 9em; font-variant-numeric: tabular-nums; }
+.viz-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
+.lg-item { display: inline-flex; align-items: center; gap: 5px; }
+.lg-glyph { display: inline-block; flex: none; }
+.lg-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; flex: none; }
+.viz-note { color: var(--muted); margin: 6px 0 2px; }
+.sw-work { background: var(--raster-work); }
+.sw-post { background: var(--tl-post); }
+.sw-read { background: var(--tl-read); }
+.sw-touch { background: var(--hp-touch); }
+.sw-member { background: var(--member); }
+.sw-submit { background: var(--text); }
+.sw-refusal { background: linear-gradient(var(--member) 50%, var(--raster-none) 50%); }
+.sw-none { background: var(--raster-none); }
+.sw-single { background: var(--bar-single); }
+.sw-board { background: var(--bar-board); }
+.sw-hatch { background: repeating-linear-gradient(45deg, var(--border-strong) 0 1px, transparent 1px 4px); border: 1px solid var(--border); }
+
+.raster-wrap { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 6px; }
+.raster-labels { display: grid; flex: none; font-size: 11px; line-height: 1; }
+.raster-label { display: flex; align-items: center; white-space: nowrap; color: var(--text); }
+.raster-scroll { overflow-x: auto; min-width: 0; }
+canvas.raster { display: block; }
+canvas.raster.clickable { cursor: pointer; }
+.thumb-cell { min-width: 120px; }
+.thumb-box { min-height: 14px; display: flex; align-items: center; }
+
+.comp-block + .comp-block { margin-top: 14px; }
+.comp-block h3 { margin-bottom: 6px; }
+.comp-pair { display: flex; flex-wrap: wrap; gap: 8px 28px; }
+.comp-fig { margin: 0; }
+.comp-fig figcaption { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+.chart-scroll { overflow-x: auto; max-width: 100%; }
+.swarm-table td { white-space: nowrap; }
+.swarm-table td { vertical-align: middle; }
+.swarm-table tr.failed td { color: var(--muted); }
+.swarm-table tr.failed td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
