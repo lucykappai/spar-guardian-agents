@@ -442,6 +442,7 @@ function episodeRecord(ep) {
     ['tokens cache read', h('span', { title: fmtInt(u.cache_read) }, fmtCompact(u.cache_read))],
     ['wall time', fmtSecs(ep.wall_time)],
     ['limit', ep.limit == null ? null : asText(ep.limit)],
+    ['ended by', ep.ended_by == null ? null : (ep.ended_by === 'submit' ? badge('submit', 'good', 'the agent called submit before the limit hit the others') : asText(ep.ended_by))],
     ['failure', ep.failure ? badge(ep.failure, 'bad') : null],
     ['ok', ep.ok == null ? null : yn(ep.ok, 'good', 'bad')],
     ['score', fmtScore(ep.score)],
@@ -718,7 +719,8 @@ function runRowCells(row) {
     td(fmtCompact(u.output), { num: true, title: fmtInt(u.output) }),
     td(fmtSecs(ep.wall_time), { num: true }),
     td(fmtScore(ep.score), { num: true }),
-    td(ep.failure ? badge(ep.failure, 'bad') : muted(DASH), { title: ep.error ? firstLine(ep.error, 300) : '' }),
+    td(ep.failure ? badge(ep.failure, 'bad') : muted(ep.ended_by === 'submit' ? 'submitted' : DASH),
+      { title: ep.error ? firstLine(ep.error, 300) : (ep.ended_by === 'submit' ? 'ended by its own submit call' : '') }),
     td(cheatCell),
     td(yn(v ? v.honey_pots_seen : null, 'warn')),
     td(yn(v ? v.attempted_access : null, 'bad', 'good')),
@@ -928,13 +930,18 @@ async function viewRun({ run }, view) {
 
   const boardSection = section('Board messages', communicationView(d.communication, run));
   const evidence = section('Defense evidence', defenseEvidence(d.defense, defs));
-  const swarmSection = rj.swarm ? section('Swarm', swarmView(rj.swarm, eps)) : null;
+  const swarmSection = rj.swarm ? section('Swarm', swarmView(rj.swarm, eps, rj.deliverables)) : null;
 
   return h('div', { class: 'page' }, head, meta, defSection, swarmSection, epSection, boardSection, evidence);
 }
 
-// Composition, hidden roles and the team's own report of a swarm run, beside the judge's verdicts.
-function swarmView(sw, eps) {
+// Composition, hidden roles and the team's own report of a swarm run, beside the judge's verdicts,
+// plus what the team registered (run.json deliverables, from the registry on main) and how each agent ended.
+function swarmView(sw, eps, deliverables) {
+  const del = deliverables || null;
+  const endings = {};
+  eps.forEach(e => { const k = e.failure || (e.ended_by === 'submit' ? 'submit' : (e.ended_by || 'unknown')); endings[k] = (endings[k] || 0) + 1; });
+  const endedText = Object.entries(endings).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${n} ${k}`).join(', ');
   const epOf = name => eps.find(e => e.orbit_agent === name) || null;
   const roles = Object.entries(sw.roles || {}).sort(([a], [b]) => a.localeCompare(b));
   // Counted verdicts follow /api/summary: judged episodes that have a transcript.
@@ -955,7 +962,11 @@ function swarmView(sw, eps) {
         : muted(blind ? `not counted: ${plural(blind, 'verdict')} on episodes without a transcript` : 'not judged')],
       ['team report says cheated', sw.swarm_report == null ? badge('no report file', 'warn') : yn(reportVerdict, 'bad', 'good')],
       ['report agrees with judge', agree == null ? muted(DASH) : yn(agree, 'plain', 'warn')],
+      ['registered on main', del == null ? muted('not recorded') : h('span', { title: `checkout ${del.checkout || DASH}; registry on main: ${(del.main_registry_agents || []).join(', ')}` }, yn(del.registered_on_main, 'good', 'warn'))],
+      ['archive in workspace at end', del == null ? muted('not recorded') : yn(del.archive_in_workspace, 'plain', 'warn')],
+      ['agents ended by', eps.length ? endedText : muted(DASH)],
     ], 'kv-grid'),
+    del && del.commits && del.commits.length ? h('div', null, h('h3', null, 'Commits at the end (git log --all)'), h('pre', { class: 'pre' }, del.commits.join('\n'))) : null,
     sw.swarm_report ? h('div', null, h('h3', null, 'swarm_report.txt'), h('pre', { class: 'pre' }, String(sw.swarm_report))) : null,
     h('h3', null, 'Roles'), table);
 }
