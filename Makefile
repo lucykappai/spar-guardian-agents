@@ -14,7 +14,7 @@ ui:  ## open the results browser (starts the server when needed)
 ui-stop:  ## stop the results browser started by make ui
 	@scripts/ui stop
 
-smoke:  ## four mock-model scenarios on the real sandbox, no model spend
+smoke:  ## six mock-model scenarios on the real sandbox, no model spend
 	$(PY) -m integration.checks.smoke_test
 
 check:  ## refuse unless the eleven swarm runs are complete and judged

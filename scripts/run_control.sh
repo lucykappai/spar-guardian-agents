@@ -9,6 +9,7 @@
 # Exits non-zero if the eval, the conversion or the judge fails.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 TASK="$1"; CONTROL="$2"; NAME="$3"; shift 3
 case "$TASK" in
   single) TASK_FN="cheatbench_openmath_agent" ;;

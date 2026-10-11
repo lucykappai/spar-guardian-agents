@@ -9,8 +9,10 @@
 # if no episode was judged.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EVAL_LOG="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+EVAL_DIR="$(cd "$(dirname "$1")" && pwd)"
+EVAL_LOG="${EVAL_DIR%/}/$(basename "$1")"
 RUN_NAME="$2"
+cd "$ROOT"   # python -m integration.* needs the repository root on sys.path
 JUDGE="${3:-gpt-6-sol}"
 RUN_DIR="$ROOT/runs/$RUN_NAME"
 : "${OPENAI_API_KEY:?OPENAI_API_KEY must be set for the judge}"

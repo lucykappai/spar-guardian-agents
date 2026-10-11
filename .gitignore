@@ -5,3 +5,10 @@ logs/
 runs/
 __pycache__/
 .DS_Store
+# latexmk byproducts
+docs/*.aux
+docs/*.fdb_latexmk
+docs/*.fls
+docs/*.log
+docs/*.out
+docs/latexmk.out

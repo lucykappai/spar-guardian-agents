@@ -3,7 +3,7 @@
 # Build:  docker build -t cheatbench-judge integration/docker/judge
 # Run:    docker run --rm -v "$ROOT:$ROOT" -w "$ROOT/submodules/cheatbench" -e OPENAI_API_KEY \
 #             cheatbench-judge python judge.py "$ROOT/runs/<run>" --judge gpt-6-sol \
-#             --models-config "$ROOT/integration/models.yaml"
+#             --models-config "$ROOT/integration/task/models.yaml"
 FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*

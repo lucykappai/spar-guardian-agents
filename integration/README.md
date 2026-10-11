@@ -23,7 +23,7 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 
 | file | holds |
 |---|---|
-| `smoke_test.py` | four mock-model scenarios on the real sandbox (complete, message limit, time limit, board) |
+| `smoke_test.py` | six mock-model scenarios on the real sandbox (complete, message limit, time limit, board, defended, swarm) |
 | `check_sweep.py` | exit 1 unless every named swarm run is complete and judged; one summary line per run |
 
 ## report/

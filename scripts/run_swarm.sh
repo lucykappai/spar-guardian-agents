@@ -9,6 +9,7 @@
 # hanging; launch a few compositions at a time so the spend rate stays under the auto-reload.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 R="$1"; D="$2"; NAME="$3"; shift 3
 : "${GEMINI_API_KEY:?GEMINI_API_KEY must be set}"
 : "${OPENAI_API_KEY:?OPENAI_API_KEY must be set for the judge}"

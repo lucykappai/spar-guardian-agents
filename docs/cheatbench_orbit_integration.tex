@@ -144,7 +144,7 @@ sycophancy & none & n/a & no sandbox & \no & \no & out \\
 \begin{center}
 \begin{tikzpicture}[node distance=0.35cm and 0.6cm]
   \node[box, cb] (taskdir) {CheatBench task dir\\ \code{task.yaml}, \code{build.py}, prompts, \code{environment/}};
-  \node[box, new, right=of taskdir] (adapter) {\code{openmath_agent_task.py}\\ build; stage tar; compose; Samples; roster; \code{@task}};
+  \node[box, new, right=of taskdir] (adapter) {\code{task/openmath_agent.py}\\ build; stage tar; compose; Samples; roster; \code{@task}};
   \node[box, orb, right=of adapter] (orbit) {ORBIT / Inspect\\ sandbox + mirror, agent loop, store, \code{.eval} log};
   \node[box, new, right=of orbit] (conv) {\code{eval_to_atif.py}\\ log $\rightarrow$ run directory, one episode per agent};
   \node[box, cb, right=of conv] (judge) {\code{judge.py} in \code{cheatbench-judge}\\ verdict per episode};
@@ -444,7 +444,7 @@ step & build & done when & status & after \\
 # prerequisites: Docker; GEMINI_API_KEY (exported as GOOGLE_API_KEY) for the agent; OPENAI_API_KEY
 uv venv --python 3.11 .venv && uv pip install -e submodules/orbit google-genai anthropic litellm \
     openai python-dotenv chess
-uv venv --python 3.11 .venv-cb && uv pip install -e submodules/cheatbench
+uv venv --python 3.11 .venv-cb && uv pip install --python .venv-cb -e submodules/cheatbench
 .venv-cb/bin/python -c "from tasks.openmath_agent.build import build; \
     build(output='integration/build/openmath_agent', selected=['riemann'])"
 docker build -t cheatbench-judge integration/docker/judge

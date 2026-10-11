@@ -698,7 +698,7 @@ const RUN_COLS = [
 
 /**
  * Runs-list state from the URL: #/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=desc.
- * A bare #/runs keeps the state from earlier in the session.
+ * A bare #/runs keeps the state from earlier in the session; #/runs?all=1 resets every filter.
  */
 function runsStateFromQuery(q, settings, controls) {
   if (!q || ![...q.keys()].length) return;
@@ -3563,8 +3563,8 @@ async function viewSummary(r, view) {
       muted('A judged agent has a verdict and a transcript. Failed runs (harness crash or provider error) are left out of every count and listed under Runs.' +
         (mock.length ? ` ${plural(mock.length, 'mock-model smoke run')} left out as well.` : ''))),
     headline([
-      [fmtInt(ok.length), `completed runs: ${nSingle} lone agent, ${nBoard} board, ${swarm.length} board with hidden roles`, R.runs()],
-      [fmtInt(judged), 'judged agents', R.runs()],
+      [fmtInt(ok.length), `completed runs: ${nSingle} lone agent, ${nBoard} board, ${swarm.length} board with hidden roles`, R.runs({ all: '1' })],
+      [fmtInt(judged), 'judged agents', R.runs({ all: '1' })],
       [fmtInt(cheated), 'agents judged cheated', R.runs({ cheated: 'yes' })],
       [fmtInt(failed.length), 'failed runs set aside', R.runs({ failed: '1' })],
     ]),
@@ -3673,7 +3673,7 @@ function adoptionCurves(curves, noLog) {
       svg.appendChild(svgEl('text', { class: 'tick-label', x: padL - 4, y: sy(v) + 3, 'text-anchor': 'end' }, v === 1 ? '1' : v ? '.5' : '0'));
     }
     for (const t of ticksFor(0, xmax, 3, TIME_STEPS)) {
-      svg.appendChild(svgEl('text', { class: 'tick-label', x: sx(t), y: H - 8, 'text-anchor': t === 0 ? 'start' : 'middle' }, fmtTick(t)));
+      svg.appendChild(svgEl('text', { class: 'tick-label', x: sx(t), y: H - 8, 'text-anchor': t === 0 ? 'start' : (sx(t) > W - padR - 16 ? 'end' : 'middle') }, fmtTick(t)));
     }
     for (const c of runs) {
       if (c.disPost != null) {

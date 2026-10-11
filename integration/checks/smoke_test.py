@@ -1,6 +1,6 @@
 """Mock-model smoke tests for the ORBIT <-> CheatBench seams. No model spend.
 
-    python -m integration.checks.smoke_test [--only complete,message_limit,time_limit,board]
+    python -m integration.checks.smoke_test [--only complete,message_limit,time_limit,board,defended,swarm]
 
 Every scenario starts the real sandbox (CheatBench's image plus the article
 mirror), drives ORBIT with Inspect's mockllm scripted to call tools, converts
