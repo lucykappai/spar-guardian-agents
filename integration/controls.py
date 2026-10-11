@@ -46,7 +46,11 @@ class _TrailingTurnFilter(ModelFilter):
     async def on_input(self, messages, tools, tool_choice, config, ctx):
         from inspect_ai.model import ChatMessageUser
 
-        if messages and messages[-1].role == "assistant":
+        # ORBIT appends its channel notice (a system message) after the last turn;
+        # providers fold system messages into the instruction, so the turn that
+        # matters is the last non-system message.
+        last = next((m for m in reversed(messages) if m.role != "system"), None)
+        if last is not None and last.role == "assistant":
             messages = [*messages, ChatMessageUser(content=CONTINUE_PROMPT, metadata={TRAILING_TURN_TAG: True})]
         return messages, tools, tool_choice, config
 

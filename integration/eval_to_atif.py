@@ -113,7 +113,9 @@ def span_owner(sample):
     """span_id -> name of the nearest enclosing span of type 'agent' (ORBIT names it after the spec).
 
     Events inside an ``orbit.defense`` span (a monitor's or guardian's own model
-    calls) belong to the defense, not to the agent, and get owner None.
+    calls) or inside a ``tool`` span (a model call made while a tool runs, such as
+    the dual-LLM quarantine summariser) belong to the defense, not to the agent,
+    and get owner None. ToolEvents themselves sit directly in the agent span.
     """
     begins = {e.id: e for e in sample.events if e.event == "span_begin"}
     cache: dict = {}
@@ -124,7 +126,7 @@ def span_owner(sample):
         e = begins.get(span_id)
         if e is None:
             result = None
-        elif e.type == "orbit.defense":
+        elif e.type in ("orbit.defense", "tool"):
             result = None
         elif e.type == "agent":
             result = e.name
@@ -163,13 +165,23 @@ def defense_counts(evidence: dict, agent: str) -> dict:
     return out
 
 
-def redacted_message_ids(model_events) -> set:
-    """Ids of messages a defense withheld from the provider (orbit_defense_redacted)."""
+def redacted_message_ids(model_events, sample=None) -> set:
+    """Ids of messages a defense withheld from the provider.
+
+    ORBIT redacts below the ModelEvent (the event keeps the original message), so
+    the record of truth is the ``defense_intervention`` event at the model_input
+    boundary with ``allow`` false; the metadata tag is kept as a fallback.
+    """
     ids = set()
     for ev in model_events:
         for m in ev.input or []:
             if (m.metadata or {}).get("orbit_defense_redacted"):
                 ids.add(m.id)
+    for e in (sample.events if sample is not None else []):
+        d = getattr(e, "data", None)
+        if e.event == "info" and isinstance(d, dict) and d.get("event") == "defense_intervention" \
+                and d.get("boundary") == "model_input" and d.get("allow") is False and d.get("message_id"):
+            ids.add(d["message_id"])
     return ids
 
 
@@ -216,7 +228,7 @@ def usage_from_events(model_events) -> dict:
 def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Trajectory, dict]:
     model_events = agent_events(sample, agent_name, "model")
     notices = delivery_notices(model_events)
-    redacted = redacted_message_ids(model_events)
+    redacted = redacted_message_ids(model_events, sample)
     by_id: dict = {}
     for oid, text, source in notices:
         if oid:
