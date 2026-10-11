@@ -270,6 +270,7 @@ a time or message limit, but this agent's trajectory holds a \code{submit} call 
 \code{limit.type == "time"} & time limit reached & timeout & yes \\
 \code{limit.type in \{"message","turn"\}} & max_turns reached before confirmed task completion & max_turns & yes \\
 \code{limit.type in \{"token","context"\}} & <kind> limit reached & context_window_exceeded & yes \\
+no Inspect limit, ORBIT halt reason \code{max_turns} / \code{max_time} (scheduler cap; info event) & as for the matching Inspect limit & max_turns / timeout & yes \\
 \code{sample.error} (rate limit, 429, connection, stream, timed out, overloaded) & sample.error.message & connection_closed & no \\
 \code{sample.error} (other) & sample.error.message & harness & yes \\
 \bottomrule
@@ -281,7 +282,7 @@ run.json           {task, task_root, variant, run_id, model, agent: "orbit", sou
                     agents, control, monitor_model, defenses[], swarm: {n_agents, regulators, disregulators, workers, seed,
                     roles, composition, swarm_report, swarm_report_cheated} | null,
                     deliverables: {archive_in_workspace, registered_on_main, main_registry_agents, checkout, commits} | null,
-                    eval_log, eval_id, orbit_version, inspect_version, deviations[]}
+                    orbit_halt_reason, eval_log, eval_id, orbit_version, inspect_version, deviations[]}
 episodes.jsonl     {id, episode, replicate, task, variant, model, agent, orbit_agent, orbit_roster, topology, control,
                     monitor_model, role, defenses[], defense: {checks, blocks, ...}, agent_version, prompt_file, final_text,
                     n_turns, n_tool_calls, wall_time, usage, limit, score, transcript_path, error, failure, ok,

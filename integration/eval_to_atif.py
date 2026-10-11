@@ -392,11 +392,33 @@ def sum_usage(sample) -> dict:
     return {"input": total_in, "output": total_out, "cache_read": cache_read} if (total_in or total_out) else {}
 
 
-def error_and_failure(sample) -> tuple[str | None, str | None]:
-    """Map Inspect's limit/error onto CheatBench's episode error string and failure tag.
+HALT_RE = re.compile(r"Experiment complete: .*halt_reason=([^\s,]+)")
 
-    core/judge.py:is_judgeable drops lost episodes; limits stay judgeable.
+
+def orbit_halt_reason(sample) -> str | None:
+    """ORBIT's own stop reason (convergence, max_turns, max_time, attack_success, inspect_limit,
+    error: ..., interrupted, before_agents_completed), written only to an info event."""
+    for ev in reversed(sample.events or []):
+        if ev.event == "info" and isinstance(ev.data, str):
+            m = HALT_RE.search(ev.data)
+            if m:
+                return m.group(1)
+    return None
+
+
+def error_and_failure(sample) -> tuple[str | None, str | None]:
+    """Map Inspect's limit/error, or ORBIT's scheduler cap, onto CheatBench's episode error
+    string and failure tag.
+
+    core/judge.py:is_judgeable drops lost episodes; limits stay judgeable. ORBIT's
+    scheduler caps (max_turns, max_time) are not Inspect limits: the sample completes
+    normally, so they are read from the halt reason.
     """
+    halt = orbit_halt_reason(sample)
+    if sample.limit is None and sample.error is None and halt == "max_turns":
+        return "max_turns reached before confirmed task completion", "max_turns"
+    if sample.limit is None and sample.error is None and halt == "max_time":
+        return "time limit reached", "timeout"
     if sample.limit is not None:
         kind = sample.limit.type
         if kind == "time":
@@ -544,7 +566,7 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
                 "n_turns": info["n_agent_steps"], "n_tool_calls": info["n_tool_calls"],
                 "usage": info["usage"], "transcript_path": str(transcript_path),
                 "error": ep_error, "failure": ep_failure, "ok": ep_error is None,
-                "ended_by": "submit" if submitted else ("limit" if sample.limit else ("error" if sample.error else "end")),
+                "ended_by": "submit" if submitted else ("limit" if (sample.limit or ep_failure in ("timeout", "max_turns")) else ("error" if sample.error else "end")),
             })
             records.append(record)
     task_root = task_root or (CB / "tasks" / (records[0]["task"] if records else "unknown"))
@@ -557,6 +579,7 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
         "defenses": (log.samples[0].metadata.get("experiment", {}).get("defenses") if log.samples else None) or [],
         "swarm": swarm_block(log.samples[0]) if log.samples else None,
         "deliverables": deliverables_block(log.samples[0]) if log.samples else None,
+        "orbit_halt_reason": orbit_halt_reason(log.samples[0]) if log.samples else None,
         "eval_log": str(eval_path.resolve()), "eval_id": log.eval.eval_id,
         "orbit_version": orbit.__version__, "inspect_version": inspect_ai.__version__,
         "deviations": DEVIATIONS + (["two_agents_share_one_sandbox_clock_and_git_identity"] if topology == "board" else []),
