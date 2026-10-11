@@ -165,6 +165,27 @@ def defense_counts(evidence: dict, agent: str) -> dict:
     return out
 
 
+REFUSAL_TEXT = "I cannot provide that response under the configured defense policy."   # orbit/defenses/boundaries.py
+WITHHELD_TEXT = "[Content withheld by a configured defense.]"
+
+
+def blocked_output_ids(sample) -> set:
+    """Ids of raw model outputs a defense replaced with the refusal (model_output blocks).
+
+    ORBIT keeps the raw output in the ModelEvent and substitutes a new assistant
+    message in the conversation, so the i-th assistant message of an agent is a
+    real substitution iff the i-th model call's output id is in this set. A
+    refusal sentence the model wrote itself is not a block.
+    """
+    ids = set()
+    for e in sample.events:
+        d = getattr(e, "data", None)
+        if e.event == "info" and isinstance(d, dict) and d.get("event") == "defense_intervention" \
+                and d.get("boundary") == "model_output" and d.get("allow") is False and d.get("message_id"):
+            ids.add(d["message_id"])
+    return ids
+
+
 def redacted_message_ids(model_events, sample=None) -> set:
     """Ids of messages a defense withheld from the provider.
 
@@ -229,6 +250,8 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
     model_events = agent_events(sample, agent_name, "model")
     notices = delivery_notices(model_events)
     redacted = redacted_message_ids(model_events, sample)
+    blocked_outputs = blocked_output_ids(sample)
+    output_ids = [ev.output.message.id if (ev.output and ev.output.choices) else None for ev in model_events]
     by_id: dict = {}
     for oid, text, source in notices:
         if oid:
@@ -246,8 +269,12 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
             steps.append({"source": "system", "message": text})
         elif isinstance(msg, ChatMessageUser):
             text, _ = split_content(msg.content)
-            steps.append({"source": "user", "message": text,
-                          **({"extra": {"withheld_from_model_by_defense": True}} if msg.id in redacted else {})})
+            if msg.id in redacted:
+                # the provider received the placeholder; the judge must see what the agent saw
+                steps.append({"source": "user", "message": WITHHELD_TEXT,
+                              "extra": {"withheld_from_model_by_defense": True, "withheld_text": text}})
+            else:
+                steps.append({"source": "user", "message": text})
         elif isinstance(msg, ChatMessageAssistant):
             items = by_id.get(msg.id)
             how = "message_id"
@@ -258,6 +285,7 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
                               "extra": {"orbit_delivery_notice": source == "system",
                                         "orbit_trailing_turn_fix": source == "user", "attached_by": how}})
                 attached_notices += 1
+            call_output_id = output_ids[assistant_seen] if assistant_seen < len(output_ids) else None
             assistant_seen += 1
             text, reasoning = split_content(msg.content)
             calls = [ToolCall(tool_call_id=tc.id, function_name=tc.function,
@@ -266,6 +294,10 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
             step = {"source": "agent", "message": text, "reasoning_content": reasoning,
                     "tool_calls": calls or None, "llm_call_count": 1,
                     "model_name": msg.model or None, "results": []}
+            if call_output_id is not None and call_output_id in blocked_outputs:
+                step["extra"] = {"defense_refusal": True, "blocked_output_message_id": call_output_id}
+            elif text.strip() == REFUSAL_TEXT:
+                step["extra"] = {"refusal_text_written_by_model": True}
             steps.append(step)
             for tc in calls:
                 issued[tc.tool_call_id] = len(steps) - 1
@@ -273,7 +305,8 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
             content = tool_result_text(msg.content)
             extra = {"is_error": True, "error": msg.error.message} if msg.error else None
             if msg.id in redacted:
-                extra = {**(extra or {}), "withheld_from_model_by_defense": True}
+                extra = {**(extra or {}), "withheld_from_model_by_defense": True, "withheld_text": content}
+                content = WITHHELD_TEXT
             idx = issued.get(msg.tool_call_id)
             if idx is None:
                 steps.append({"source": "user", "message": content,

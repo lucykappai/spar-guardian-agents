@@ -28,6 +28,7 @@ from integration.eval_to_atif import split_content, tool_result_text  # noqa: E4
 
 STATIC = Path(__file__).resolve().parent / "static"
 REFUSAL = "I cannot provide that response under the configured defense policy."
+WITHHELD = "[Content withheld by a configured defense.]"
 FLAG_KEYS = {"orbit_communication_delivery": "delivery_notice", "orbit_trailing_turn_fix": "trailing_turn_fix",
              "orbit_defense_redacted": "redacted"}
 
@@ -176,23 +177,52 @@ class Store:
                 ids.add(d["message_id"])
         return ids
 
-    def _msg(self, m, redacted: set = frozenset()) -> dict:
+    def _msg(self, m, redacted: set = frozenset(), blocked: set = frozenset(), own_output: bool = False) -> dict:
+        """One message as the provider saw it.
+
+        A withheld message carries the placeholder as text and the original under
+        withheld_text. A refusal sentence is flagged defense_refusal only when it is
+        a call's own raw output that a defense blocked (its id is in ``blocked``);
+        in an input history the same sentence is only ``refusal_in_history``, since
+        the substituted message carries a new id and the model may also write the
+        sentence itself.
+        """
         text, reasoning = split_content(m.content)
         meta = m.metadata or {}
-        d = {"role": m.role, "id": m.id, "text": text, "reasoning": reasoning,
-             "flags": {v for k, v in FLAG_KEYS.items() if meta.get(k)} | ({"redacted"} if m.id in redacted else set())}
-        d["flags"] = sorted(d["flags"])
+        flags = {v for k, v in FLAG_KEYS.items() if meta.get(k)}
+        d = {"role": m.role, "id": m.id, "text": text, "reasoning": reasoning}
+        if m.id in redacted:
+            flags.add("redacted")
+            d["withheld_text"] = text
+            d["text"] = WITHHELD
         if m.role == "assistant":
             d["tool_calls"] = [{"id": tc.id, "function": tc.function, "arguments": tc.arguments} for tc in (m.tool_calls or [])]
             d["model"] = getattr(m, "model", None)
-            if text.strip() == REFUSAL:
-                d["flags"].append("defense_refusal")
+            if own_output and m.id in blocked:
+                flags.add("output_blocked")
+            elif text.strip() == REFUSAL:
+                flags.add("refusal_in_history")
         if m.role == "tool":
             d["tool_call_id"] = m.tool_call_id
             d["function"] = m.function
-            d["text"] = tool_result_text(m.content)
+            content = tool_result_text(m.content)
             d["error"] = m.error.message if m.error else None
+            if m.id in redacted:
+                d["withheld_text"] = content
+                d["text"] = WITHHELD
+            else:
+                d["text"] = content
+        d["flags"] = sorted(flags)
         return d
+
+    def _blocked_output_ids(self, sample) -> set:
+        ids = set()
+        for e in sample.events:
+            d = getattr(e, "data", None)
+            if e.event == "info" and isinstance(d, dict) and d.get("event") == "defense_intervention" \
+                    and d.get("boundary") == "model_output" and d.get("allow") is False and d.get("message_id"):
+                ids.add(d["message_id"])
+        return ids
 
     def context_index(self, name: str) -> dict:
         with self._lock:
@@ -203,6 +233,7 @@ class Store:
         s = log.samples[0]
         owner = self._owner_fn(s)
         redacted = self._redacted_ids(s)
+        blocked = self._blocked_output_ids(s)
         calls = []
         for e in s.events:
             if e.event != "model":
@@ -222,9 +253,10 @@ class Store:
                 "output_tool_calls": [tc.function for tc in (msg.tool_calls or [])] if msg else [],
                 "stop_reason": out.choices[0].stop_reason if (out and out.choices) else None,
                 "error": str(e.error)[:500] if e.error else None,
+                "output_blocked": bool(msg and msg.id in blocked),
                 "flags": sorted({f for m in (e.input or []) for f in self._msg(m, redacted)["flags"]}
-                                | ({"defense_refusal"} if msg and (msg.text or "").strip() == REFUSAL else set())),
-                "_event": e, "_redacted": redacted,
+                                | ({"output_blocked"} if msg and msg.id in blocked else set())),
+                "_event": e, "_redacted": redacted, "_blocked": blocked,
             })
         with self._lock:
             self._calls[name] = calls
@@ -248,7 +280,7 @@ class Store:
         return {
             **{k: v for k, v in c.items() if not k.startswith("_")},
             "input": [self._msg(m, c["_redacted"]) for m in (e.input or [])],
-            "output": (self._msg(msg) if msg else None),
+            "output": (self._msg(msg, blocked=c["_blocked"], own_output=True) if msg else None),
             "output_error": str(out.error) if (out and out.error) else None,
             "tool_schemas": [{"name": t.name, "description": t.description} for t in (e.tools or [])],
         }

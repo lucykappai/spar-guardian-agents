@@ -1137,6 +1137,7 @@ const STEP_KINDS = [
 const FLAG_BADGE = {
   blocked: ['BLOCKED', 'blocked'],
   refusal: ['REFUSAL', 'refusal'],
+  'refusal-text': ['REFUSAL TEXT (model-written)', 'plain'],
   withheld: ['WITHHELD', 'withheld'],
   notice: ['NOTICE', 'notice'],
   trailing: ['TRAILING-TURN FIX', 'notice'],
@@ -1170,10 +1171,11 @@ function resultView(r, orphan) {
       blocked ? badge('BLOCKED', 'blocked') : null,
       isErr ? badge('ERROR', 'bad') : null,
       withheld ? badge('WITHHELD', 'withheld', 'withheld from the model by a defense') : null,
-      extraBadges(rx, ['is_error', 'error', 'withheld_from_model_by_defense']),
+      extraBadges(rx, ['is_error', 'error', 'withheld_from_model_by_defense', 'withheld_text']),
       h('span', { class: 'spacer' }),
       orphan && r.source_call_id ? h('span', { class: 'tc-id' }, r.source_call_id) : null),
     rx.error ? h('pre', { class: 'pre errtext' }, String(rx.error)) : null,
+    rx.withheld_text ? lazyDetails('original content (never reached the model)', () => longText(asText(rx.withheld_text), { lines: 30 }), { cls: 'sub' }) : null,
     content ? longText(content, { lines: 30 }) : muted('(empty output)', 'small block'));
 }
 
@@ -1199,7 +1201,8 @@ function renderStep(s) {
   if (ex.orbit_delivery_notice) flags.add('notice');
   if (ex.orbit_trailing_turn_fix) flags.add('trailing');
   if (ex.withheld_from_model_by_defense) flags.add('withheld');
-  if (src === 'agent' && msg.trim() === REFUSAL) flags.add('refusal');
+  if (ex.defense_refusal) flags.add('refusal');
+  else if (ex.refusal_text_written_by_model || (src === 'agent' && msg.trim() === REFUSAL)) flags.add('refusal-text');
   for (const r of results) {
     const rx = r.extra || {};
     if (isBlockedResult(rx)) flags.add('blocked');
@@ -1217,7 +1220,8 @@ function renderStep(s) {
     h('span', { class: 'step-src' }, src),
     s.model_name ? muted(s.model_name, 'small') : null,
     [...flags].map(f => badge(...FLAG_BADGE[f])),
-    extraBadges(ex, ['orbit_delivery_notice', 'orbit_trailing_turn_fix', 'withheld_from_model_by_defense']),
+    extraBadges(ex, ['orbit_delivery_notice', 'orbit_trailing_turn_fix', 'withheld_from_model_by_defense', 'withheld_text',
+      'defense_refusal', 'blocked_output_message_id', 'refusal_text_written_by_model']),
     h('span', { class: 'spacer' }),
     s.llm_call_count != null ? muted(plural(s.llm_call_count, 'model call'), 'small') : null));
   if (providerOnly) {
@@ -1227,12 +1231,16 @@ function renderStep(s) {
         : 'Provider-only: ORBIT delivery notice placed in the model input, not part of the agent conversation.'));
   }
   if (ex.withheld_from_model_by_defense) {
-    el.appendChild(h('div', { class: 'caption caption-withheld' }, 'WITHHELD: a defense withheld this message from the model.'));
+    el.appendChild(h('div', { class: 'caption caption-withheld' }, 'WITHHELD: a defense withheld this message from the model; the model received the placeholder shown below.'));
+    if (ex.withheld_text) el.appendChild(lazyDetails('original content (never reached the model)', () => longText(asText(ex.withheld_text), { lines: 30 }), { cls: 'sub' }));
   }
   if (s.reasoning_content) el.appendChild(reasoningView(s.reasoning_content, 60));
   if (flags.has('refusal')) {
     el.appendChild(h('div', { class: 'caption caption-refusal' },
       'A defense blocked this completion and substituted the refusal sentence.'));
+  } else if (flags.has('refusal-text')) {
+    el.appendChild(h('div', { class: 'caption caption-notice' },
+      'The model wrote the refusal sentence itself; no defense blocked this completion.'));
   }
   // Leading blank lines are dropped for display only.
   if (msg.trim()) el.appendChild(longText(msg.replace(/^\s*\n/, ''), { cls: 'msg-text' }));
@@ -1444,7 +1452,8 @@ const CALL_FLAG_LABEL = {
   delivery_notice: ['notice in input', 'notice', 'an ORBIT board delivery notice is in this call’s input'],
   trailing_turn_fix: ['continue prompt in input', 'notice', 'the integration appended a continue prompt (trailing-turn fix) to this input'],
   redacted: ['redacted input', 'withheld', 'a defense withheld a message of this input from the model'],
-  defense_refusal: ['refusal in history', 'plain', 'the input (or output) holds the refusal sentence that replaced an earlier blocked completion'],
+  refusal_in_history: ['refusal in history', 'plain', 'the input holds the refusal sentence: a substituted completion or the model’s own text'],
+  output_blocked: ['output blocked', 'blocked', 'a defense blocked this call’s completion and substituted the refusal sentence'],
 };
 const CALL_FILTERS = [
   ['', 'any'],
@@ -1452,14 +1461,15 @@ const CALL_FILTERS = [
   ['delivery_notice', 'notice in input'],
   ['trailing_turn_fix', 'continue prompt in input'],
   ['redacted', 'redacted input'],
-  ['defense_refusal', 'refusal in history'],
+  ['refusal_in_history', 'refusal in history'],
   ['error', 'has error'],
 ];
 const MSG_FLAG_BADGE = {
   delivery_notice: ['delivery notice', 'notice'],
   trailing_turn_fix: ['trailing-turn fix', 'notice'],
   redacted: ['REDACTED', 'withheld'],
-  defense_refusal: ['defense refusal', 'refusal'],
+  refusal_in_history: ['refusal in history', 'plain'],
+  output_blocked: ['BLOCKED OUTPUT', 'refusal'],
 };
 
 function msgFlagBadge(f) {
@@ -1496,38 +1506,20 @@ function blockReasons(ivs) {
  * only when the two counts agree. Opening a call checks the alignment against the real id.
  */
 function blockIndex(detail, calls) {
+  // Blocked outputs come from the API (call.output_blocked, matched by the raw output id on
+  // the server); interventions are kept by message id for the reasons shown inside a call.
   const outBlocks = new Map();   // completion message id -> blocking interventions
   const toolBlocks = new Map();  // tool call id -> blocking interventions
-  const checked = new Map();     // agent -> Set of completion ids checked at model_output, in order
   const add = (m, k, x) => { if (!m.has(k)) m.set(k, []); m.get(k).push(x); };
   for (const dv of Object.values((detail && detail.defense) || {})) {
     for (const x of (dv && dv.interventions) || []) {
-      if (x.boundary === 'model_output' && x.message_id) {
-        const a = x.agent || '';
-        if (!checked.has(a)) checked.set(a, new Set());
-        checked.get(a).add(x.message_id);
-        if (x.allow === false) add(outBlocks, x.message_id, x);
-      } else if (x.boundary === 'tool_call' && x.allow === false && x.tool_call_id) {
-        add(toolBlocks, x.tool_call_id, x);
-      }
+      if (x.boundary === 'model_output' && x.message_id && x.allow === false) add(outBlocks, x.message_id, x);
+      else if (x.boundary === 'tool_call' && x.allow === false && x.tool_call_id) add(toolBlocks, x.tool_call_id, x);
     }
   }
-  const agentCalls = new Map();
-  for (const c of calls) if (!c.defense) add(agentCalls, c.agent || '', c);
-  const callOut = new Map();     // call index -> completion id, by order alignment
-  const misaligned = [];
-  for (const [a, ids] of checked) {
-    const cs = agentCalls.get(a) || [];
-    // Calls past the last check are allowed only if they errored (e.g. cancelled at a time limit).
-    const aligned = ids.size <= cs.length && cs.slice(ids.size).every(c => c.error);
-    if (aligned) [...ids].forEach((id, k) => callOut.set(cs[k].index, id));
-    else if ([...ids].some(id => outBlocks.has(id))) {
-      misaligned.push(`${a || '(no agent)'}: ${plural(cs.length, 'call')}, ${plural(ids.size, 'checked completion')}`);
-    }
-  }
-  const blockedCalls = new Map(); // call index -> blocking interventions
-  for (const [i, id] of callOut) if (outBlocks.has(id)) blockedCalls.set(i, outBlocks.get(id));
-  return { outBlocks, toolBlocks, callOut, blockedCalls, misaligned, distrusted: false };
+  const blockedCalls = new Map(); // call index -> blocking interventions (unknown by id here)
+  for (const c of calls) if (c.output_blocked) blockedCalls.set(c.index, []);
+  return { outBlocks, toolBlocks, callOut: new Map(), blockedCalls, misaligned: [], distrusted: false };
 }
 
 function blockedToolResult(ivs) {
@@ -1544,7 +1536,7 @@ function messageView(m, i, status, opts = {}) {
   const notice = flags.includes('delivery_notice') || flags.includes('trailing_turn_fix');
   const el = h('div', {
     class: ['msg', 'role-' + m.role, status && 'st-' + status, notice && 'provider-only',
-      flags.includes('redacted') && 'is-redacted', flags.includes('defense_refusal') && 'is-refusal'],
+      flags.includes('redacted') && 'is-redacted', flags.includes('output_blocked') && 'is-refusal'],
     id: i != null ? `msg-${i}` : null,
   });
   el.appendChild(h('div', { class: 'msg-head' },
@@ -1566,7 +1558,8 @@ function messageView(m, i, status, opts = {}) {
         : 'Provider-only: ORBIT board delivery notice placed in the input.'));
   }
   if (flags.includes('redacted')) {
-    el.appendChild(h('div', { class: 'caption caption-withheld' }, 'REDACTED: a defense withheld this message’s content from the model.'));
+    el.appendChild(h('div', { class: 'caption caption-withheld' }, 'REDACTED: a defense withheld this message’s content from the model; the placeholder below is what the provider received.'));
+    if (m.withheld_text) el.appendChild(lazyDetails('original content (never reached the model)', () => longText(asText(m.withheld_text), { lines: 30 }), { cls: 'sub' }));
   }
   if (m.error) el.appendChild(h('pre', { class: 'pre errtext' }, String(m.error)));
   if (m.reasoning) el.appendChild(reasoningView(m.reasoning, 40));
@@ -1673,21 +1666,7 @@ async function viewContext({ run, query: q }, view) {
   }
 
   // If an opened call's real output id disagrees with the order alignment, drop the marks.
-  function checkAlignment(i, full) {
-    const expected = bi.callOut.get(i);
-    const actual = full && full.output && full.output.id;
-    if (bi.distrusted || !bi.outBlocks.size || !expected || !actual || expected === actual) return;
-    bi.distrusted = true;
-    bi.blockedCalls.clear();
-    for (const it of items) {
-      it.el.classList.remove('is-blocked-call');
-      const b = it.el.querySelector('.ci-blocked');
-      if (b) b.remove();
-    }
-    showNote(`Call #${i} has output id ${actual}, but its defense checks expected ${expected}. ` +
-      'The blocked-output marks in this list were removed; the blocks shown inside each call still match by id.');
-    applyFilter();
-  }
+  function checkAlignment() { /* blocked outputs are matched by id on the server */ }
 
   function scrollItemIntoList(it) {
     const e = it.el;
@@ -1850,7 +1829,7 @@ function callDetail(c, full, prev, prevFull, selectCall, ctx) {
       if (!m.id) return;
       if (m.id === prevOut) { status[i] = 'prev-out'; nOut++; }
       else if (prevIds.has(m.id)) { status[i] = 'kept'; nKept++; }
-      else if (prevBlocks && replacedAt < 0 && (m.flags || []).includes('defense_refusal')) { status[i] = 'replaced'; replacedAt = i; }
+      else if (prevBlocks && replacedAt < 0 && (m.flags || []).includes('refusal_in_history')) { status[i] = 'replaced'; replacedAt = i; }
       else { status[i] = 'new'; nNew++; }
     });
     const dropped = [...prevIds].filter(id => !cur.has(id)).length;
