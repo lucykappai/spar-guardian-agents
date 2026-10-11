@@ -112,6 +112,7 @@ class Store:
         return {
             "run": name, "task": run.get("task"), "model": run.get("model"), "topology": run.get("topology"),
             "graph": graph_of(run.get("topology")), "n_agents": len(run.get("agents") or eps), "roles": bool(sw.get("roles")),
+            "mock": str(run.get("model") or "").startswith("mockllm"),
             "swarm": ({**{k: sw.get(k) for k in ("n_agents", "regulators", "disregulators", "workers", "seed", "composition",
                                                   "swarm_report_cheated")}, "has_report": sw.get("swarm_report") is not None} if sw else None),
             "deliverables": ({k: dl.get(k) for k in ("archive_in_workspace", "registered_on_main", "registered_message_copied_from")}
@@ -460,6 +461,7 @@ class Store(Store):  # noqa: F811 - extend the class above with timeline and sum
             rows.append({
                 "run": name, "control": run.get("control") or "baseline", "topology": run.get("topology"),
                 "graph": graph_of(run.get("topology")), "roles": bool(sw.get("roles")), "model": run.get("model"),
+                "mock": str(run.get("model") or "").startswith("mockllm"),
                 "output_tokens": sum((e.get("usage") or {}).get("output", 0) for e in eps),
                 "cache_read": sum((e.get("usage") or {}).get("cache_read", 0) for e in eps),
                 "judge_cost": round(sum((e["verdict"] or {}).get("judge_cost_usd") or 0 for e in eps), 4),

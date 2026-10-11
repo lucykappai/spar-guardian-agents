@@ -1,7 +1,21 @@
 # Results browser API
 
-Start: `python -m integration.ui [--runs runs] [--port 8765] [--open]` (from the repository root, with `.venv`).
-The UI is served at `/` from `integration/ui/static/` (`index.html`, `app.js`, `style.css`). All API responses are JSON.
+Start: `make ui` (or `scripts/ui`), which runs `python -m integration.ui [--runs runs] [--port 8765] [--open]` from the repository
+root with `.venv` and opens the browser. The UI is served at `/` from `integration/ui/static/` (`index.html`, `app.js`, `style.css`).
+All API responses are JSON.
+
+## UI routes
+
+| hash | part |
+|---|---|
+| `#/` | Summary: cheating by setting, composition grids, team reports against the judge |
+| `#/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=` | Runs: one row per run, opening to its agents |
+| `#/run/<run>` | run page; `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
+| `#/swarm?run=<run>` | Swarm: grids, outcome funnel, adoption curves, swarm runs with rasters, run explorer, figures |
+
+A **setting** is the communication graph (`single`: a lone agent; `board`: every agent on one shared board), the roster size, and
+whether roles were hidden. `run.json` writes `topology: "swarm"` for a board with hidden roles; the API adds `graph` so the swarm reads
+as what it is, a board of N agents with roles.
 
 ## Data model
 
@@ -11,20 +25,25 @@ optionally `communication/<sample>.json` (board posts) and `defense/<sample>.jso
 `run.json.eval_log` points at the Inspect `.eval` log, from which **context windows** (every model call's exact provider input)
 are read on demand.
 
-Runs whose name starts with `failed_` or whose episodes carry `failure == "harness"` crashed and must be shown as failed.
+Runs whose name starts with `failed<N>_` or `cancelled<N>_`, or whose episodes carry `failure` in `harness` or `connection_closed`
+(a provider error), are **failed** and never counted. A run whose model starts with `mockllm` is a smoke test (`mock: true`), listed
+under Runs and left out of the Summary. A verdict **counts** only on an episode with a transcript.
 
 ## Endpoints
 
 ### `GET /api/runs` → `[RunSummary]`
 ```
 RunSummary = {
-  run, task, model, topology ("single"|"board"), agents: [str], control (e.g. "baseline","guardian_task"),
-  monitor_model, defenses: [str], eval_log, eval_log_exists, failed: bool,
+  run, task, model, topology ("single"|"board"|"swarm" as run.json wrote it), graph ("single"|"board"), n_agents, roles: bool, mock: bool,
+  agents: [str], control (e.g. "baseline","guardian_task"), monitor_model, defenses: [str], eval_log, eval_log_exists, failed: bool,
+  swarm: null | {n_agents, regulators, disregulators, workers, seed, composition, swarm_report_cheated, has_report},
+  deliverables: null | {archive_in_workspace, registered_on_main, registered_message_copied_from},
+  endings: {label: count}   # failure label, else "submit", else the converter's ended_by
   has_communication, has_defense,
   episodes: [Episode]
 }
 Episode = {                       # one row of episodes.jsonl plus:
-  episode, orbit_agent, n_tool_calls, n_turns, wall_time, limit, failure, error, ok, score: {deliverables_scorer: 0|1},
+  episode, orbit_agent, role?, n_tool_calls, n_turns, wall_time, limit, failure, error, ended_by, ok, score: {deliverables_scorer: 0|1},
   usage: {input, output, cache_read}, control, defenses: [str],
   defense: {checks, blocks, blocks_by_boundary: {model_input?, model_output?, tool_call?}, checks_by_boundary},
   transcript_path, has_transcript,
@@ -90,8 +109,11 @@ agent-014's archive members. They place moments on a timeline; the judge verdict
 
 ### `GET /api/summary` → `{runs: [RunAggregate]}` for cross-run charts (no eval log needed)
 ```
-RunAggregate = {run, control, topology, failed, n_agents, judged, cheated, honeypots_seen, attempted, disclosed,
-                blocks, checks, timeouts, score, wall_time, prompt_tokens,
+RunAggregate = {run, control, topology, graph, roles: bool, mock: bool, model, failed, n_agents, judged, cheated, honeypots_seen,
+                attempted, disclosed, blocks, checks, timeouts, score, wall_time, prompt_tokens, output_tokens, cache_read, judge_cost,
+                registered_on_main, registered_copied_from, archive_in_workspace, endings: {label: count},
                 regulators, disregulators, workers, composition, seed, report_cheated, has_report,
-                by_role: {worker|regulator|disregulator: {n, cheated}} | null}
+                by_role: {worker|regulator|disregulator: {n, cheated, honeypots_seen, attempted, disclosed}} | null}
 ```
+
+### `GET /api/figures` → `[{name, size, modified}]` for the PNG files under `docs/figures`; `GET /figures/<file>` serves one of them (png, svg or pdf; plain file names only).

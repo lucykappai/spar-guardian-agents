@@ -9,14 +9,15 @@
  *   2. API client
  *   3. Shared components
  *   4. Router, header and breadcrumbs
- *   5. View: runs table              #/
+ *   5. View: runs                    #/runs  (one row per run, opening to its agents)
  *   6. View: run page                #/run/<run>
  *   7. View: transcript              #/run/<run>/episode/<episode>
  *   8. View: context windows         #/run/<run>/context?agent=<name>&call=<i>
  *   9. View: sample                  #/run/<run>/sample
  *  10. Chart helpers (SVG, Canvas, tooltip, colour ramp, ticks)
  *  11. View: timeline                #/run/<run>/timeline (swimlanes, exposure cascade, raster)
- *  12. View: overview                #/overview (composition grid, swarm runs, controls)
+ *  12. Views: summary                #/        (cheating by setting, composition grids, team reports)
+ *      and swarm visualizations     #/swarm   (grids, funnel, adoption curves, run explorer, figures)
  *  13. Boot
  */
 'use strict';
@@ -190,17 +191,19 @@ const P = {
   call: (r, i) => `/api/runs/${enc(r)}/context/${i}`,
   timeline: r => `/api/runs/${enc(r)}/timeline`,
   summary: () => '/api/summary',
+  figures: () => '/api/figures',
 };
 
 /** Hash routes. */
 const R = {
-  runs: q => '#/' + query(q),
+  summary: () => '#/',
+  runs: q => '#/runs' + query(q),
+  swarm: q => '#/swarm' + query(q),
   run: r => `#/run/${enc(r)}`,
   episode: (r, ep, q) => `#/run/${enc(r)}/episode/${enc(ep)}` + query(q),
   context: (r, q) => `#/run/${enc(r)}/context` + query(q),
   sample: r => `#/run/${enc(r)}/sample`,
   timeline: r => `#/run/${enc(r)}/timeline`,
-  overview: () => '#/overview',
 };
 
 function query(q) {
@@ -314,8 +317,7 @@ function kv(pairs, cls) {
   const dl = h('dl', { class: ['kv', cls] });
   for (const [k, v] of pairs) {
     if (v === undefined) continue;
-    dl.appendChild(h('dt', null, k));
-    dl.appendChild(h('dd', null, v == null || v === '' ? muted(DASH) : v));
+    dl.appendChild(h('div', { class: 'kv-item' }, h('dt', null, k), h('dd', null, v == null || v === '' ? muted(DASH) : v)));
   }
   return dl;
 }
@@ -486,8 +488,10 @@ function parseHash() {
   } catch (e) {
     return { view: 'notfound', raw };
   }
-  if (!parts.length) return { view: 'runs', query: q };
-  if (parts[0] === 'overview' && parts.length === 1) return { view: 'overview', query: q };
+  if (!parts.length) return { view: 'summary', query: q };
+  if (parts[0] === 'runs' && parts.length === 1) return { view: 'runs', query: q };
+  if (parts[0] === 'swarm' && parts.length === 1) return { view: 'swarm', query: q };
+  if (parts[0] === 'overview' && parts.length === 1) return { view: 'summary', query: q };
   if (parts[0] === 'run' && parts.length >= 2) {
     const run = parts[1];
     if (parts.length === 2) return { view: 'run', run, query: q };
@@ -504,25 +508,34 @@ function parseHash() {
 function renderShell() {
   const app = document.getElementById('app');
   app.replaceChildren(
+    h('button', { type: 'button', class: 'skip-link', onclick: () => { const m = document.getElementById('main'); if (m) m.focus(); } }, 'Skip to content'),
     h('header', { class: 'topbar' },
-      h('a', { class: 'brand', href: '#/' }, 'Results'),
-      h('a', { class: 'nav-link', id: 'nav-overview', href: '#/overview' }, 'Overview'),
+      h('a', { class: 'brand', href: '#/' }, 'CheatBench × ORBIT'),
+      h('nav', { class: 'nav-tabs', 'aria-label': 'Sections' },
+        h('a', { class: 'nav-tab', id: 'nav-summary', href: '#/' }, 'Summary'),
+        h('a', { class: 'nav-tab', id: 'nav-runs', href: '#/runs' }, 'Runs'),
+        h('a', { class: 'nav-tab', id: 'nav-swarm', href: '#/swarm' }, 'Swarm')),
       h('nav', { class: 'crumbs', id: 'crumbs', 'aria-label': 'Breadcrumbs' }),
       h('button', {
         type: 'button', class: 'btn btn-small', title: 'Clear cached API responses and reload this view',
         onclick: () => { apiCache.clear(); callCache.clear(); route(); },
       }, 'Reload')),
-    h('main', { id: 'main' }));
+    h('main', { id: 'main', tabindex: '-1' }));
 }
 
 function setCrumbs(r) {
   const nav = document.getElementById('crumbs');
   const items = [];
   const sep = () => h('span', { class: 'sep' }, '/');
-  items.push(r.view === 'runs' ? h('span', { class: 'crumb current' }, 'All runs') : link('#/', 'All runs', 'crumb'));
-  if (r.view === 'overview') items.push(sep(), h('span', { class: 'crumb current' }, 'Overview'));
+  const sectionOf = { summary: 'summary', runs: 'runs', swarm: 'swarm' }[r.view] || (r.run ? 'runs' : null);
+  for (const [id, key] of [['nav-summary', 'summary'], ['nav-runs', 'runs'], ['nav-swarm', 'swarm']]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.toggle('active', sectionOf === key);
+    if (sectionOf === key) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+  }
   if (r.run) {
-    items.push(sep());
+    items.push(link(R.runs(), 'Runs', 'crumb'), sep());
     items.push(r.view === 'run' ? h('span', { class: 'crumb current' }, r.run) : link(R.run(r.run), r.run, 'crumb'));
     if (r.view === 'episode') items.push(sep(), h('span', { class: 'crumb current' }, `transcript ${r.episode}`));
     if (r.view === 'context') items.push(sep(), h('span', { class: 'crumb current' }, 'context windows'));
@@ -538,8 +551,6 @@ function setCrumbs(r) {
       tab(R.sample(r.run), 'sample', 'sample', true)));
   }
   nav.replaceChildren(...items);
-  const ov = document.getElementById('nav-overview');
-  if (ov) ov.classList.toggle('active', r.view === 'overview');
 }
 
 /** Context windows and the sample come from the eval log; grey those tabs out when it is missing. */
@@ -557,19 +568,20 @@ function markEvalLogTabs(r, token) {
 }
 
 const VIEWS = {
+  summary: viewSummary,
   runs: viewRuns,
+  swarm: viewSwarm,
   run: viewRun,
   episode: viewEpisode,
   context: viewContext,
   sample: viewSample,
   timeline: viewTimeline,
-  overview: viewOverview,
   notfound: async (r, view) => {
     view.mounted(() => { document.title = 'Unknown page · results'; });
     return h('div', { class: 'page' },
       h('h1', null, 'Unknown page'),
       h('p', null, 'No view matches ', mono('#' + (r.raw || '')), '. '),
-      link('#/', 'Back to all runs'));
+      link('#/', 'Back to the summary'));
   },
 };
 
@@ -606,10 +618,54 @@ async function route() {
 }
 
 // =====================================================================================
-// 5. View: runs table   #/
+// 5. View: runs   #/runs   (one row per run; a row opens to its agents)
 // =====================================================================================
 
-const runsState = { q: '', topology: '', control: '', cheated: '', hideFailed: true, sortKey: null, sortDir: 1 };
+const runsState = { q: '', setting: '', control: '', cheated: '', showFailed: false, sortKey: 'setting', sortDir: 1 };
+const openRuns = new Set();   // runs whose agent rows are open, kept across visits
+
+/**
+ * The arrangement a run was made in: the communication graph (a lone agent, or every agent on one
+ * shared board), the roster size, and whether roles were hidden. run.json calls a board with hidden
+ * roles a "swarm"; the graph is the same board, so the setting is read from graph, n_agents and swarm.
+ */
+function settingOf(run) {
+  const graph = run.graph || (run.topology === 'single' ? 'single' : 'board');
+  const n = run.n_agents || (run.agents || []).length || (run.episodes || []).length;
+  const sw = run.swarm || null;
+  if (graph === 'single') return { key: 'single', label: 'lone agent', order: 0, n: 1 };
+  if (sw && sw.composition) {
+    return { key: `roles-${n}`, label: `board of ${n}, hidden roles`, order: 2, n,
+      composition: sw.composition, R: sw.regulators, D: sw.disregulators, W: sw.workers };
+  }
+  return { key: `board-${n}`, label: `board of ${n}`, order: 1, n };
+}
+
+function settingSortKey(s, run) {
+  const pad = x => String(x == null ? 0 : x).padStart(3, '0');
+  return `${s.order}|${pad(s.n)}|${pad(s.R)}|${pad(s.D)}|${run}`;
+}
+
+/** Counts of one run from its episodes; a verdict counts only with a transcript (the rule of /api/summary). */
+function runAggregate(run) {
+  const eps = run.episodes || [];
+  const judged = eps.filter(e => e.verdict && e.verdict.cheated != null && e.has_transcript);
+  const n = k => judged.filter(e => e.verdict[k]).length;
+  const sum = f => eps.reduce((s, e) => s + (Number(f(e)) || 0), 0);
+  const endings = run.endings || {};
+  const d = run.deliverables || null;
+  return {
+    agents: eps.length, judged: judged.length, cheated: n('cheated'), seen: n('honey_pots_seen'),
+    attempted: n('attempted_access'), extracted: n('extracted_submission'), disclosed: n('disclosed_access'),
+    blocks: sum(e => (e.defense || {}).blocks), checks: sum(e => (e.defense || {}).checks), hasDefense: eps.some(e => e.defense),
+    calls: sum(e => e.n_tool_calls), wall: Math.max(0, ...eps.map(e => e.wall_time || 0)),
+    prompt: sum(e => (e.usage || {}).input), judgeCost: sum(e => (e.verdict || {}).judge_cost_usd),
+    endings,
+    ended: Object.entries(endings).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, c]) => `${c} ${k}`).join(', '),
+    registered: d ? d.registered_on_main : null, copied: d ? d.registered_message_copied_from : null,
+    report: run.swarm ? run.swarm.swarm_report_cheated : undefined, hasReport: run.swarm ? run.swarm.has_report : undefined,
+  };
+}
 
 function cmpNullsLast(a, b, dir) {
   const an = a == null || a === '';
@@ -623,56 +679,50 @@ function cmpNullsLast(a, b, dir) {
   return String(a).localeCompare(String(b), 'en', { numeric: true }) * dir;
 }
 
-const vget = k => row => (row.ep.verdict ? row.ep.verdict[k] : null);
-
 const RUN_COLS = [
   { key: 'run', label: 'Run', sort: r => r.run.run },
+  { key: 'setting', label: 'Setting', sort: r => settingSortKey(r.setting, r.run.run), title: 'graph, roster size and hidden roles' },
   { key: 'control', label: 'Control', sort: r => r.run.control },
-  { key: 'topology', label: 'Topology', sort: r => r.run.topology },
-  { key: 'agent', label: 'Agent', sort: r => r.ep.orbit_agent },
-  { key: 'role', label: 'Role', sort: r => r.ep.role, title: 'hidden role in a swarm run' },
-  { key: 'calls', label: 'Calls', num: true, sort: r => r.ep.n_tool_calls, title: 'tool calls (turns in the tooltip)' },
-  { key: 'blocks', label: 'Blocks / checks', num: true, sort: r => (r.ep.defense ? r.ep.defense.blocks : null) },
-  { key: 'prompt', label: 'Prompt tok', num: true, sort: r => (r.ep.usage || {}).input },
-  { key: 'completion', label: 'Compl. tok', num: true, sort: r => (r.ep.usage || {}).output },
-  { key: 'wall', label: 'Wall', num: true, sort: r => r.ep.wall_time },
-  { key: 'score', label: 'Score', num: true, sort: r => { const v = Object.values(r.ep.score || {}); return v.length ? v[0] : null; } },
-  { key: 'failure', label: 'Failure', sort: r => r.ep.failure },
-  { key: 'cheated', label: 'Cheated', sort: vget('cheated') },
-  { key: 'honeypots', label: 'Honeypots', sort: vget('honey_pots_seen'), title: 'verdict: honeypots seen' },
-  { key: 'attempted', label: 'Attempted', sort: vget('attempted_access'), title: 'verdict: attempted access' },
-  { key: 'disclosed', label: 'Disclosed', sort: vget('disclosed_access'), title: 'verdict: disclosed access' },
-  { key: 'judge', label: 'Judge $', num: true, sort: vget('judge_cost_usd') },
+  { key: 'agents', label: 'Agents', num: true, sort: r => r.agg.agents },
+  { key: 'cheated', label: 'Cheated', num: true, sort: r => (r.agg.judged ? r.agg.cheated / r.agg.judged : null), title: 'agents the judge found cheated, over judged agents' },
+  { key: 'seen', label: 'Saw honeypot', num: true, sort: r => r.agg.seen, title: 'judged agents that saw the honeypot' },
+  { key: 'attempted', label: 'Attempted', num: true, sort: r => r.agg.attempted, title: 'judged agents that attempted access' },
+  { key: 'report', label: 'Team report', sort: r => r.agg.report, title: 'what swarm_report.txt says' },
+  { key: 'registered', label: 'Registered', sort: r => r.agg.registered, title: 'a registry entry on main at the end' },
+  { key: 'ended', label: 'Ended', sort: r => r.agg.ended, title: 'how the agents’ episodes ended' },
+  { key: 'blocks', label: 'Blocks / checks', num: true, sort: r => (r.agg.hasDefense ? r.agg.blocks : null) },
+  { key: 'wall', label: 'Wall', num: true, sort: r => r.agg.wall },
+  { key: 'prompt', label: 'Prompt tok', num: true, sort: r => r.agg.prompt },
+  { key: 'judge', label: 'Judge $', num: true, sort: r => r.agg.judgeCost },
 ];
 
 /**
- * Runs-table state from the URL: #/?q=&topology=&control=&cheated=&failed=1&sort=&dir=desc.
- * A bare #/ keeps the state from earlier in the session.
+ * Runs-list state from the URL: #/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=desc.
+ * A bare #/runs keeps the state from earlier in the session.
  */
-function runsStateFromQuery(q, topologies, controls) {
+function runsStateFromQuery(q, settings, controls) {
   if (!q || ![...q.keys()].length) return;
   const pick = (v, allowed) => (allowed.includes(v) ? v : '');
   runsState.q = q.get('q') || '';
-  runsState.topology = pick(q.get('topology') || '', topologies);
+  runsState.setting = pick(q.get('setting') || '', settings);
   runsState.control = pick(q.get('control') || '', controls);
   runsState.cheated = pick(q.get('cheated') || '', ['yes', 'no', 'none']);
-  runsState.hideFailed = q.get('failed') !== '1';
+  runsState.showFailed = q.get('failed') === '1';
   const sk = q.get('sort');
-  runsState.sortKey = RUN_COLS.some(c => c.key === sk) ? sk : null;
+  runsState.sortKey = RUN_COLS.some(c => c.key === sk) ? sk : 'setting';
   runsState.sortDir = q.get('dir') === 'desc' ? -1 : 1;
 }
 
 function runsQuery() {
   const s = runsState;
   return {
-    q: s.q.trim() ? s.q : '', topology: s.topology, control: s.control, cheated: s.cheated,
-    failed: s.hideFailed ? '' : '1', sort: s.sortKey || '', dir: s.sortKey && s.sortDir < 0 ? 'desc' : '',
+    q: s.q.trim() ? s.q : '', setting: s.setting, control: s.control, cheated: s.cheated,
+    failed: s.showFailed ? '1' : '', sort: s.sortKey === 'setting' ? '' : s.sortKey, dir: s.sortDir < 0 ? 'desc' : '',
   };
 }
 
 // Hidden roles: Okabe-Ito colour plus shape (circle worker, square regulator, triangle disregulator),
-// the encoding of integration/figures.py. Red and green stay reserved for outcomes (cheated, honest).
-// The glyph is the chart glyph (roleIcon), filled from the --role-* tokens with an edge stroke.
+// the encoding of integration/report/figures.py. Red and green stay reserved for outcomes.
 function roleBadge(role) {
   return h('span', { class: 'badge b-plain', title: 'hidden role in this swarm run' },
     ROLE_ORDER.includes(role) ? roleIcon(role, 10) : null, role);
@@ -687,45 +737,82 @@ function verdictCell(ep, yesKind = 'bad', noKind = 'good') {
   return yn(v, yesKind, noKind);
 }
 
-function runRowCells(row) {
-  const { run, ep } = row;
-  const v = ep.verdict;
-  const d = ep.defense;
-  const u = ep.usage || {};
-  const td = (content, opts = {}) => h('td', { class: opts.num ? 'num' : opts.cls, title: opts.title }, content);
-  const agentName = ep.orbit_agent || ep.episode || DASH;
-  // A verdict on an episode with no transcript (harness crash or provider error) judged nothing: grey, not counted.
-  const blind = !!v && v.cheated != null && !ep.has_transcript && !row.noEp;
-  let cheatCell = blind
-    ? h('span', { title: 'verdict on an episode with no transcript (harness crash or provider error); not counted in the summary' }, yn(v.cheated, 'plain', 'plain'))
-    : yn(v ? v.cheated : null, 'bad', 'good');
-  if (v && (v.parse_ok === false || v.judge_error)) {
-    cheatCell = h('span', null, cheatCell, ' ', badge('judge issue', 'warn', String(v.judge_error || 'parse failed')));
+function endedCell(ep) {
+  if (ep.failure) {
+    const limit = ep.failure === 'timeout' || ep.failure === 'max_turns';
+    return badge(ep.failure, limit ? 'warn' : 'bad', limit ? 'the sample hit this limit before the agent submitted' : (ep.error ? firstLine(ep.error, 300) : ''));
   }
-  const bb = d ? Object.entries(d.blocks_by_boundary || {}).map(([b, n]) => `${b}: ${n}`).join(', ') : '';
+  if (ep.ended_by === 'submit') return badge('submit', 'good', 'the agent called submit');
+  return muted(ep.ended_by || DASH);
+}
+
+function registeredCell(agg) {
+  if (agg.registered == null) return muted(DASH, 'small');
+  if (!agg.registered) return badge('no', 'plain');
+  return h('span', null, badge('yes', 'good'),
+    agg.copied ? [' ', badge('copied', 'warn', `the registry entry carries ${agg.copied}’s message verbatim`)] : null);
+}
+
+function reportCell(agg) {
+  if (agg.hasReport === undefined) return muted(DASH, 'small');
+  if (!agg.hasReport) return badge('no file', 'warn');
+  if (agg.report == null) return badge('unparsed', 'warn');
+  const agrees = agg.judged ? (agg.report === (agg.cheated > 0)) : null;
+  return h('span', { title: agrees == null ? 'no judged agent to compare with' : agrees ? 'agrees with the judge' : 'disagrees with the judge' },
+    yn(agg.report, 'bad', 'good'), agrees === false ? [' ', badge('≠ judge', 'warn', 'the report disagrees with the judge')] : null);
+}
+
+/** The agents of one run, one row each. */
+function episodesTable(run) {
+  const eps = run.episodes || [];
+  const cols = [['agent'], ['role'], ['calls', 'num'], ['ended by'], ['cheated'], ['saw honeypot'], ['attempted'], ['extracted'], ['disclosed'],
+    ['prompt tok', 'num'], ['judge $', 'num'], ['']];
+  return h('table', { class: 'data compact eps-table' },
+    h('thead', null, h('tr', null, cols.map(([c, cls]) => h('th', { class: cls }, c)))),
+    h('tbody', null, eps.map(ep => {
+      const v = ep.verdict || null;
+      const u = ep.usage || {};
+      const name = ep.orbit_agent || ep.episode;
+      return h('tr', null,
+        h('td', null, ep.has_transcript ? link(R.episode(run.run, ep.episode), name, 'ep-link')
+          : h('span', { title: 'no transcript on disk' }, name, ' ', muted('(no transcript)', 'small'))),
+        h('td', null, ep.role ? roleBadge(ep.role) : muted(DASH)),
+        h('td', { class: 'num', title: `${fmtInt(ep.n_turns)} turns` }, fmtInt(ep.n_tool_calls)),
+        h('td', null, endedCell(ep)),
+        h('td', null, verdictCell(ep), v && (v.parse_ok === false || v.judge_error) ? [' ', badge('judge issue', 'warn', String(v.judge_error || 'parse failed'))] : null),
+        h('td', null, yn(v ? v.honey_pots_seen : null, 'warn')),
+        h('td', null, yn(v ? v.attempted_access : null, 'bad', 'good')),
+        h('td', null, yn(v ? v.extracted_submission : null, 'bad')),
+        h('td', null, yn(v ? v.disclosed_access : null, 'good')),
+        h('td', { class: 'num', title: `${fmtInt(u.input)} prompt, ${fmtInt(u.cache_read)} cache read, ${fmtInt(u.output)} completion` }, fmtCompact(u.input)),
+        h('td', { class: 'num' }, v ? fmtUsd(v.judge_cost_usd) : DASH),
+        h('td', { class: 'links-cell' },
+          ep.has_transcript ? link(R.episode(run.run, ep.episode), 'transcript', 'small') : null,
+          ep.orbit_agent ? [' ', link(R.context(run.run, { agent: ep.orbit_agent }), 'context', 'small')] : null));
+    })));
+}
+
+function runRowCells(row) {
+  const { run, setting, agg } = row;
+  const td = (content, opts = {}) => h('td', { class: [opts.num && 'num', opts.cls], title: opts.title }, content);
+  const frac = agg.judged ? agg.cheated / agg.judged : null;
   return [
-    td([link(R.run(run.run), run.run, 'run-link'), run.failed ? [' ', badge('failed', 'bad')] : null], { cls: 'wrap-cell' }),
+    td([link(R.run(run.run), run.run, 'run-link'), run.failed ? [' ', badge('failed', 'bad', 'harness crash or provider error; not counted')] : null,
+      run.mock ? [' ', badge('mock', 'plain', 'mock-model smoke test; not counted in the summary')] : null], { cls: 'wrap-cell' }),
+    td([setting.label, setting.composition ? [' ', mono(setting.composition)] : null], { cls: 'wrap-cell' }),
     td(run.control || DASH),
-    td(run.topology || DASH),
-    td(row.noEp ? muted('no episodes')
-      : ep.has_transcript ? link(R.episode(run.run, ep.episode), agentName, 'ep-link')
-        : h('span', { title: 'no transcript on disk' }, agentName, ' ', muted('(no transcript)', 'small')),
-    { title: ep.episode, cls: 'wrap-cell' }),
-    td(ep.role ? roleBadge(ep.role) : muted(DASH)),
-    td(fmtInt(ep.n_tool_calls), { num: true, title: `${fmtInt(ep.n_tool_calls)} tool calls, ${fmtInt(ep.n_turns)} turns` }),
-    td(d ? h('span', { class: d.blocks ? 'has-blocks' : '' }, `${fmtInt(d.blocks)} / ${fmtInt(d.checks)}`) : DASH,
-      { num: true, title: bb ? `blocks by boundary: ${bb}` : '' }),
-    td(fmtCompact(u.input), { num: true, title: `${fmtInt(u.input)} prompt, ${fmtInt(u.cache_read)} cache read` }),
-    td(fmtCompact(u.output), { num: true, title: fmtInt(u.output) }),
-    td(fmtSecs(ep.wall_time), { num: true }),
-    td(fmtScore(ep.score), { num: true }),
-    td(ep.failure ? badge(ep.failure, 'bad') : muted(ep.ended_by === 'submit' ? 'submitted' : DASH),
-      { title: ep.error ? firstLine(ep.error, 300) : (ep.ended_by === 'submit' ? 'ended by its own submit call' : '') }),
-    td(cheatCell),
-    td(yn(v ? v.honey_pots_seen : null, 'warn')),
-    td(yn(v ? v.attempted_access : null, 'bad', 'good')),
-    td(yn(v ? v.disclosed_access : null, 'good')),
-    td(v ? fmtUsd(v.judge_cost_usd) : DASH, { num: true }),
+    td(fmtInt(agg.agents), { num: true }),
+    td(agg.judged ? h('span', { class: ['cheated-cell', agg.cheated && 'text-bad'] }, `${agg.cheated}/${agg.judged}`) : muted('not judged', 'small'),
+      { num: true, title: frac == null ? 'no judged agent' : `${Math.round(frac * 100)}% of judged agents` }),
+    td(agg.judged ? fmtInt(agg.seen) : DASH, { num: true }),
+    td(agg.judged ? fmtInt(agg.attempted) : DASH, { num: true }),
+    td(reportCell(agg)),
+    td(registeredCell(agg)),
+    td(agg.ended || DASH, { cls: 'wrap-cell small' }),
+    td(agg.hasDefense ? h('span', { class: agg.blocks ? 'has-blocks' : '' }, `${fmtInt(agg.blocks)} / ${fmtInt(agg.checks)}`) : DASH, { num: true }),
+    td(fmtSecs(agg.wall), { num: true }),
+    td(fmtCompact(agg.prompt), { num: true, title: fmtInt(agg.prompt) }),
+    td(agg.judgeCost ? fmtUsd(agg.judgeCost) : DASH, { num: true }),
   ];
 }
 
@@ -734,91 +821,102 @@ async function viewRuns({ query: urlQ }, view) {
   let live = false;
   view.mounted(() => { live = true; document.title = 'Runs · results'; updateUrl(); });
   view.cleanup(() => { live = false; });
-  const rows = [];
-  for (const run of runs) {
-    const eps = run.episodes && run.episodes.length ? run.episodes : [null];
-    for (const ep of eps) rows.push({ run, ep: ep || {}, noEp: !ep });
-  }
+  const rows = runs.map(run => ({ run, setting: settingOf(run), agg: runAggregate(run) }));
+  const settings = [...new Map(rows.map(r => [r.setting.key, r.setting])).values()].sort((a, b) => a.order - b.order || a.n - b.n);
   const controls = [...new Set(runs.map(r => r.control).filter(Boolean))].sort();
-  const topologies = [...new Set(runs.map(r => r.topology).filter(Boolean))].sort();
-  runsStateFromQuery(urlQ, topologies, controls);
+  runsStateFromQuery(urlQ, settings.map(s => s.key), controls);
 
   const summary = h('div', { class: 'summary-line' });
   const tbody = h('tbody');
   const ths = RUN_COLS.map(col => {
-    const th = h('th', { class: [col.num && 'num', 'sortable'], title: col.title || 'click to sort', tabindex: '0' }, col.label);
+    const th = h('th', { class: [col.num && 'num', 'sortable'], title: col.title || 'click to sort', tabindex: '0', scope: 'col' }, col.label);
     const go = () => sortBy(col.key);
     th.addEventListener('click', go);
     th.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
     col.th = th;
     return th;
   });
+  const nCols = RUN_COLS.length + 1;
 
   for (const row of rows) {
-    const { run, ep } = row;
-    const target = row.noEp || !ep.has_transcript ? R.run(run.run) : R.episode(run.run, ep.episode);
-    const tr = h('tr', { class: [run.failed && 'failed'], title: run.failed ? 'failed run (harness crash or provider error)' : null }, runRowCells(row));
-    tr.dataset.run = run.run;
+    const { run } = row;
+    const open = openRuns.has(run.run);
+    const btn = h('button', { type: 'button', class: 'expander', 'aria-expanded': open ? 'true' : 'false', 'aria-label': `agents of ${run.run}` }, open ? '▾' : '▸');
+    const tr = h('tr', { class: ['run-row', run.failed && 'failed', open && 'open'], title: run.failed ? 'failed run (harness crash or provider error)' : null },
+      h('td', { class: 'exp-cell' }, btn), runRowCells(row));
+    const detailTd = h('td', { colspan: nCols });
+    const detail = h('tr', { class: 'detail-row', hidden: !open }, detailTd);
+    let built = false;
+    const sync = () => {
+      const isOpen = openRuns.has(run.run);
+      if (isOpen && !built) { built = true; detailTd.appendChild(h('div', { class: 'detail-box' }, episodesTable(run))); }
+      detail.hidden = !isOpen || tr.hidden;
+      tr.classList.toggle('open', isOpen);
+      btn.textContent = isOpen ? '▾' : '▸';
+      btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    };
+    const toggle = () => { if (openRuns.has(run.run)) openRuns.delete(run.run); else openRuns.add(run.run); sync(); };
+    btn.addEventListener('click', e => { e.stopPropagation(); toggle(); });
     tr.addEventListener('click', e => {
-      if (e.target.closest('a')) return;
+      if (e.target.closest('a, button')) return;
       const sel = window.getSelection && window.getSelection();
       if (sel && String(sel).length) return;
-      location.hash = target;
+      toggle();
     });
+    tr.dataset.run = run.run;
     row.tr = tr;
-    const v = ep.verdict || {};
-    row.hay = [run.run, run.control, run.topology, run.model, run.monitor_model, (run.defenses || []).join(' '),
-      ep.episode, ep.orbit_agent, ep.failure, ep.error && firstLine(ep.error, 200), v.summary, v.judge]
+    row.detail = detail;
+    row.sync = sync;
+    row.hay = [run.run, run.control, row.setting.label, row.setting.composition, run.model, run.monitor_model, (run.defenses || []).join(' '),
+      ...(run.episodes || []).flatMap(ep => [ep.orbit_agent, ep.failure, ep.role, ep.verdict && ep.verdict.summary])]
       .filter(Boolean).join(' \n ').toLowerCase();
-    tbody.appendChild(tr);
+    sync();
+    tbody.append(tr, detail);
   }
 
   function band() {
-    let last = null;
     let alt = false;
-    for (const tr of tbody.children) {
-      if (tr.hidden) continue;
-      if (tr.dataset.run !== last) { alt = !alt; last = tr.dataset.run; }
-      tr.classList.toggle('band', alt);
+    for (const row of rows) {
+      if (row.tr.hidden) continue;
+      alt = !alt;
+      row.tr.classList.toggle('band', alt);
+      row.detail.classList.toggle('band', alt);
     }
   }
 
   function apply() {
     const q = runsState.q.trim().toLowerCase();
     let shown = 0;
-    let cheated = 0;
+    let agents = 0;
     let judged = 0;
-    let judgedBlind = 0;
+    let cheated = 0;
     let failedHidden = 0;
-    const runsShown = new Set();
     for (const row of rows) {
-      const v = row.ep.verdict;
+      const { run, agg } = row;
       let ok = true;
-      if (runsState.hideFailed && row.run.failed) { ok = false; failedHidden++; }
-      if (ok && runsState.topology && row.run.topology !== runsState.topology) ok = false;
-      if (ok && runsState.control && row.run.control !== runsState.control) ok = false;
+      if (!runsState.showFailed && run.failed) { ok = false; failedHidden++; }
+      if (ok && runsState.setting && row.setting.key !== runsState.setting) ok = false;
+      if (ok && runsState.control && run.control !== runsState.control) ok = false;
       if (ok && runsState.cheated) {
-        const c = v ? v.cheated : null;
-        if (runsState.cheated === 'yes' && c !== true) ok = false;
-        if (runsState.cheated === 'no' && c !== false) ok = false;
-        if (runsState.cheated === 'none' && c != null) ok = false;
+        if (runsState.cheated === 'yes' && !(agg.cheated > 0)) ok = false;
+        if (runsState.cheated === 'no' && !(agg.judged > 0 && agg.cheated === 0)) ok = false;
+        if (runsState.cheated === 'none' && agg.judged > 0) ok = false;
       }
       if (ok && q && !row.hay.includes(q)) ok = false;
       row.tr.hidden = !ok;
-      if (ok && !row.noEp) {
+      row.sync();
+      if (ok) {
         shown++;
-        runsShown.add(row.run.run);
-        if (v && v.cheated != null && !row.ep.has_transcript) judgedBlind++;
-        else if (v && v.cheated != null) { judged++; if (v.cheated === true) cheated++; }
+        agents += agg.agents;
+        if (!run.failed) { judged += agg.judged; cheated += agg.cheated; }
       }
     }
     band();
     summary.replaceChildren(
-      h('strong', null, plural(shown, 'episode')), ` shown from ${plural(runsShown.size, 'run')} · `,
-      h('strong', { class: cheated ? 'text-bad' : '' }, `${fmtInt(cheated)} cheated`),
-      ` of ${fmtInt(judged)} judged`,
-      judgedBlind ? ` (${plural(judgedBlind, 'verdict')} on episodes without a transcript not counted)` : '',
-      runsState.hideFailed && failedHidden ? ` · ${plural(failedHidden, 'episode')} of failed runs hidden` : '');
+      h('strong', null, plural(shown, 'run')), ` shown, ${plural(agents, 'agent')} · `,
+      h('strong', { class: cheated ? 'text-bad' : '' }, `${fmtInt(cheated)} cheated`), ` of ${fmtInt(judged)} judged`,
+      !runsState.showFailed && failedHidden ? ` · ${plural(failedHidden, 'failed run')} hidden` : '',
+      runsState.showFailed ? ' · failed runs are shown and never counted' : '');
     updateUrl();
   }
 
@@ -835,42 +933,49 @@ async function viewRuns({ query: urlQ }, view) {
   }
 
   function applySort() {
-    const col = RUN_COLS.find(c => c.key === runsState.sortKey);
+    const col = RUN_COLS.find(c => c.key === runsState.sortKey) || RUN_COLS[1];
     const order = rows.slice();
-    if (col) order.sort((a, b) => cmpNullsLast(col.sort(a), col.sort(b), runsState.sortDir));
-    for (const r of order) tbody.appendChild(r.tr);
+    order.sort((a, b) => cmpNullsLast(col.sort(a), col.sort(b), runsState.sortDir) || a.run.run.localeCompare(b.run.run, 'en', { numeric: true }));
+    for (const r of order) tbody.append(r.tr, r.detail);
     for (const c of RUN_COLS) {
       c.th.classList.toggle('sorted', c === col);
       c.th.dataset.dir = c === col ? (runsState.sortDir > 0 ? 'asc' : 'desc') : '';
+      c.th.setAttribute('aria-sort', c === col ? (runsState.sortDir > 0 ? 'ascending' : 'descending') : 'none');
     }
     band();
     updateUrl();
   }
 
   const search = h('input', {
-    type: 'search', placeholder: 'Search run, control, agent, judge summary…', value: runsState.q,
-    class: 'search', 'aria-label': 'Search',
+    type: 'search', placeholder: 'Search run, control, agent, role, judge summary…', value: runsState.q,
+    class: 'search', 'aria-label': 'Search runs',
   });
   search.addEventListener('input', debounce(() => { runsState.q = search.value; apply(); }, 80));
-  const hideFailed = h('input', { type: 'checkbox', checked: runsState.hideFailed });
-  hideFailed.addEventListener('change', () => { runsState.hideFailed = hideFailed.checked; apply(); });
+  const showFailed = h('input', { type: 'checkbox', checked: runsState.showFailed });
+  showFailed.addEventListener('change', () => { runsState.showFailed = showFailed.checked; apply(); });
+  const openAll = h('button', { type: 'button', class: 'btn btn-small', onclick: () => {
+    const anyClosed = rows.some(r => !r.tr.hidden && !openRuns.has(r.run.run));
+    for (const r of rows) { if (r.tr.hidden) continue; if (anyClosed) openRuns.add(r.run.run); else openRuns.delete(r.run.run); r.sync(); }
+    openAll.textContent = anyClosed ? 'close all' : 'open all';
+  } }, 'open all');
 
   const filters = h('div', { class: 'filters' },
     search,
-    labeled('topology', select([['', 'all'], ...topologies], runsState.topology, v => { runsState.topology = v; apply(); })),
+    labeled('setting', select([['', 'all'], ...settings.map(s => [s.key, s.label])], runsState.setting, v => { runsState.setting = v; apply(); })),
     labeled('control', select([['', 'all'], ...controls], runsState.control, v => { runsState.control = v; apply(); })),
-    labeled('cheated', select([['', 'any'], ['yes', 'yes'], ['no', 'no'], ['none', 'not judged']], runsState.cheated,
+    labeled('cheated', select([['', 'any'], ['yes', 'at least one agent'], ['no', 'none of the judged'], ['none', 'not judged']], runsState.cheated,
       v => { runsState.cheated = v; apply(); })),
-    h('label', { class: 'field check' }, hideFailed, h('span', null, 'hide failed runs')));
+    h('label', { class: 'field check' }, showFailed, h('span', null, 'show failed runs')),
+    openAll);
 
-  const table = h('table', { class: 'data runs-table' }, h('thead', null, h('tr', null, ths)), tbody);
+  const table = h('table', { class: 'data runs-table' }, h('thead', null, h('tr', null, h('th', { class: 'exp-cell' }), ths)), tbody);
   const page = h('div', { class: 'page wide' },
     h('div', { class: 'page-head' },
       h('h1', null, 'Runs'),
-      muted(`${plural(runs.length, 'run')}, ${plural(rows.filter(r => !r.noEp).length, 'episode')}. Click a row for its transcript, a run name for its run page.`)),
+      muted(`${plural(runs.length, 'run')}. A row opens to its agents; the run name opens the run page (metadata, board, defenses, timeline, context windows, sample).`)),
     filters, summary,
     h('div', { class: 'table-wrap' }, table));
-  if (runsState.sortKey) applySort();
+  applySort();
   apply();
   return page;
 }
@@ -893,7 +998,7 @@ async function viewRun({ run }, view) {
       d.failed ? badge('failed run', 'bad')
         : epFailures.length ? badge(`episode failure: ${epFailures.join(', ')}`, 'warn', 'not a harness crash, but an episode ended with a failure')
           : badge('completed', 'good'),
-      badge(d.topology || '?', 'plain'),
+      badge(settingOf(d).label, 'plain', `topology in run.json: ${d.topology || '?'}`),
       badge(`control: ${d.control || 'baseline'}`, 'def')),
     h('div', { class: 'links' },
       eps.map(ep => (ep.has_transcript
@@ -906,7 +1011,8 @@ async function viewRun({ run }, view) {
   const meta = section('Run metadata', kv([
     ['task', d.task],
     ['model', d.model],
-    ['topology', d.topology],
+    ['setting', settingOf(d).label],
+    ['topology in run.json', d.topology],
     ['agents', (d.agents || []).join(', ')],
     ['control', d.control],
     ['monitor model', d.monitor_model],
@@ -2445,26 +2551,18 @@ function rasterPanel(tl, agents, maxW) {
     rasterLegend(present));
 }
 
-async function viewTimeline({ run }, view) {
-  let tl;
-  let detail;
-  try {
-    [tl, detail] = await Promise.all([apiFresh(P.timeline(run)), apiFresh(P.run(run)).catch(() => null)]);
-  } catch (e) {
-    view.mounted(() => { document.title = `timeline · ${run} · results`; });
-    return h('div', { class: 'page' },
-      h('div', { class: 'page-head' }, h('h1', null, `${run}: timeline`),
-        h('div', { class: 'links' }, link(R.run(run), 'run page', 'btn btn-small'), link(R.overview(), 'overview', 'btn btn-small'))),
-      h('p', { class: 'muted' }, 'The timeline is read from the run’s eval log. A run that is still being produced has no log yet; press Reload once it has finished.'),
-      errorBox(e, 'timeline'));
-  }
+/**
+ * The three charts of one run's timeline (agent by turn raster, swimlanes, exposure cascade) as cards.
+ * mount() draws them once the node is on screen and redraws on resize; unmount() removes the listener.
+ * Verdicts come from the run record, not tl.verdicts: only the run record says whether an episode has
+ * a transcript, and a verdict without one (or in a failed run) is not counted anywhere else either.
+ */
+function timelinePanels(run, tl, detail) {
   const agents = laneOrder(tl);
   const roles = tl.roles || {};
   const hasRoles = Object.keys(roles).length > 0;
   const eps = (detail && detail.episodes) || [];
   const epOf = a => eps.find(e => e.orbit_agent === a) || null;
-  // Verdicts come from the run record, not tl.verdicts: only the run record says whether an episode has
-  // a transcript, and a verdict without one (or in a failed run) is not counted anywhere else either.
   const infos = new Map(agents.map(a => [a, verdictInfo(detail, epOf(a))]));
   const verdictInfoOf = a => infos.get(a) || verdictInfo(detail, null);
   const verdictOf = a => verdictInfoOf(a).v;
@@ -2474,33 +2572,10 @@ async function viewTimeline({ run }, view) {
   const readOf = a => (tl.first_member_read || {})[a];
   // The touch heuristic against the judge: a touch where the counted verdict found no attempted access.
   const touchDoubtOf = a => { const v = countedVerdict(a); return touchOf(a) != null && !!v && v.attempted_access === false; };
-  const rj = (detail && detail.run_json) || {};
-  const sw = rj.swarm || null;
-  const logOk = !detail || !!detail.eval_log_exists;
-
   const ctx = { tl, agents, roles, hasRoles, verdictOf, verdictInfoOf, disclosedOf, touchOf, readOf, touchDoubtOf };
   const lane = buildLaneData(tl, agents);
-  const nEvents = (tl.events || []).length;
   const notCounted = agents.filter(a => verdictInfoOf(a).raw != null && verdictInfoOf(a).v == null);
   const whyNot = [...new Set(notCounted.map(a => verdictInfoOf(a).why))].join('; ');
-
-  const head = h('div', { class: 'page-head' },
-    h('h1', null, `${run}: timeline`),
-    h('div', { class: 'chips' },
-      detail && detail.failed ? badge('failed run', 'bad') : null,
-      badge(detail ? detail.topology || '?' : '?', 'plain'),
-      badge(`control: ${(detail && detail.control) || 'baseline'}`, 'def'),
-      sw ? badge(`composition ${sw.composition}`, 'plain', `${sw.regulators} regulators, ${sw.disregulators} disregulators, ${sw.workers} workers; seed ${sw.seed}`) : null,
-      tl.limit ? badge(`limit: ${tl.limit}`, 'warn', 'the sample ended on this limit') : null),
-    h('div', { class: 'links' },
-      link(R.run(run), 'run page', 'btn btn-small'),
-      eps.filter(e => e.has_transcript).map(e => link(R.episode(run, e.episode), `transcript ${e.orbit_agent || e.episode}`, 'btn btn-small')),
-      logLink(logOk, detail && detail.eval_log, R.context(run), 'context windows', 'btn btn-small')),
-    muted(`${plural(agents.length, 'agent')} · ${plural(nEvents, 'event')} · ${plural((tl.board || []).length, 'board post')} · ${fmtSecs(tl.duration)} sample time. ` +
-      'Honeypot touches and member reads are regex heuristics that place moments; the judge verdict is the record of truth.'),
-    notCounted.length ? h('div', { class: 'muted small' },
-      `${plural(notCounted.length, 'judge verdict')} drawn grey as “not counted”, as in the runs table and the overview: ${whyNot}.`) : null,
-    !detail ? h('div', { class: 'muted small' }, 'The run record could not be read, so no verdict is drawn.') : null);
 
   const rasterHost = h('div', { class: 'viz-host' });
   const rasterCard = h('section', { class: 'card' }, h('h2', null, 'Agent by turn'), rasterHost);
@@ -2509,21 +2584,60 @@ async function viewTimeline({ run }, view) {
   const cascadeCard = h('section', { class: 'card' },
     h('div', { class: 'sec-head' }, h('h2', null, 'Exposure cascade'), badge('exposure, not cause', 'warn', 'reading a post before a touch does not show the post caused it')),
     cascadeHost);
-
-  const drawAll = () => {
+  const draw = () => {
     const w = rasterHost.clientWidth || 900;
     rasterHost.replaceChildren(rasterPanel(tl, agents, Math.max(200, w - 110)));
     swim.draw();
     cascadeHost.replaceChildren(cascadeView(ctx, cascadeHost.clientWidth || 900));
   };
-  const onResize = debounce(() => { tip.hide(); drawAll(); }, 150);
-  view.mounted(() => {
-    document.title = `timeline · ${run} · results`;
-    drawAll();
-    window.addEventListener('resize', onResize);
-  });
-  view.cleanup(() => { window.removeEventListener('resize', onResize); tip.hide(); });
-  return h('div', { class: 'page' }, head, rasterCard, swim.card, cascadeCard);
+  const onResize = debounce(() => { tip.hide(); draw(); }, 150);
+  const note = h('div', null,
+    muted(`${plural(agents.length, 'agent')} · ${plural((tl.events || []).length, 'event')} · ${plural((tl.board || []).length, 'board post')} · ${fmtSecs(tl.duration)} sample time. ` +
+      'Honeypot touches and member reads are regex heuristics that place moments; the judge verdict is the record of truth.'),
+    notCounted.length ? h('div', { class: 'muted small' },
+      `${plural(notCounted.length, 'judge verdict')} drawn grey as “not counted”, as in the runs list and the summary: ${whyNot}.`) : null,
+    !detail ? h('div', { class: 'muted small' }, 'The run record could not be read, so no verdict is drawn.') : null);
+  return {
+    node: h('div', null, rasterCard, swim.card, cascadeCard), note, draw,
+    mount() { draw(); window.addEventListener('resize', onResize); },
+    unmount() { window.removeEventListener('resize', onResize); tip.hide(); },
+  };
+}
+
+async function viewTimeline({ run }, view) {
+  let tl;
+  let detail;
+  try {
+    [tl, detail] = await Promise.all([apiFresh(P.timeline(run)), apiFresh(P.run(run)).catch(() => null)]);
+  } catch (e) {
+    view.mounted(() => { document.title = `timeline · ${run} · results`; });
+    return h('div', { class: 'page' },
+      h('div', { class: 'page-head' }, h('h1', null, `${run}: timeline`),
+        h('div', { class: 'links' }, link(R.run(run), 'run page', 'btn btn-small'), link(R.swarm(), 'swarm visualizations', 'btn btn-small'))),
+      h('p', { class: 'muted' }, 'The timeline is read from the run’s eval log. A run that is still being produced has no log yet; press Reload once it has finished.'),
+      errorBox(e, 'timeline'));
+  }
+  const eps = (detail && detail.episodes) || [];
+  const rj = (detail && detail.run_json) || {};
+  const sw = rj.swarm || null;
+  const logOk = !detail || !!detail.eval_log_exists;
+  const panels = timelinePanels(run, tl, detail);
+  const head = h('div', { class: 'page-head' },
+    h('h1', null, `${run}: timeline`),
+    h('div', { class: 'chips' },
+      detail && detail.failed ? badge('failed run', 'bad') : null,
+      badge(detail ? settingOf(detail).label : '?', 'plain'),
+      badge(`control: ${(detail && detail.control) || 'baseline'}`, 'def'),
+      sw ? badge(`composition ${sw.composition}`, 'plain', `${sw.regulators} regulators, ${sw.disregulators} disregulators, ${sw.workers} workers; seed ${sw.seed}`) : null,
+      tl.limit ? badge(`limit: ${tl.limit}`, 'warn', 'the sample ended on this limit') : null),
+    h('div', { class: 'links' },
+      link(R.run(run), 'run page', 'btn btn-small'),
+      eps.filter(e => e.has_transcript).map(e => link(R.episode(run, e.episode), `transcript ${e.orbit_agent || e.episode}`, 'btn btn-small')),
+      logLink(logOk, detail && detail.eval_log, R.context(run), 'context windows', 'btn btn-small')),
+    panels.note);
+  view.mounted(() => { document.title = `timeline · ${run} · results`; panels.mount(); });
+  view.cleanup(() => panels.unmount());
+  return h('div', { class: 'page' }, head, panels.node);
 }
 
 /** Events split per lane, posts, and de-duplicated reads (a read and a model exposure at the same moment draw once). */
@@ -3114,12 +3228,13 @@ function cascadeView(ctx, width) {
 }
 
 // =====================================================================================
-// 12. View: overview   #/overview
+// 12. Views: summary   #/        and swarm visualizations   #/swarm
 // =====================================================================================
 
 const swarmSize = x => ((x.regulators || 0) + (x.disregulators || 0) + (x.workers || 0)) || x.n_agents || 0;
 const reportDisagrees = x => x.report_cheated != null && x.judged > 0 && x.report_cheated !== (x.cheated > 0);
 const kOfN = (k, n) => (n ? `${fmtInt(k)}/${fmtInt(n)}` : DASH);
+const isSwarmRow = x => x.composition != null;
 
 /** A run the grid can place: it records a composition and has at least one agent. */
 const drawableComposition = x => x.regulators != null && x.disregulators != null && swarmSize(x) > 0;
@@ -3307,6 +3422,7 @@ function compositionSection(swarm, failed = []) {
     ]));
 }
 
+/** One row per swarm run: composition, verdicts by role, the team report, registration; thumbs(run) adds a raster column. */
 function swarmTable(swarm, thumbs) {
   const sorted = swarm.slice().sort((a, b) => (a.regulators ?? 99) - (b.regulators ?? 99) || (a.disregulators ?? 99) - (b.disregulators ?? 99) ||
     (a.seed ?? 0) - (b.seed ?? 0) || a.run.localeCompare(b.run));
@@ -3314,14 +3430,18 @@ function swarmTable(swarm, thumbs) {
     const s = x.by_role && x.by_role[role];
     return h('td', { class: 'num' }, s && s.n ? `${s.cheated}/${s.n}` : muted(DASH));
   };
+  const registered = x => (x.registered_on_main == null ? muted(DASH)
+    : !x.registered_on_main ? badge('no', 'plain')
+      : h('span', null, badge('yes', 'good'), x.registered_copied_from ? [' ', badge('copied', 'warn', `the registry entry carries ${x.registered_copied_from}’s message verbatim`)] : null));
+  const ended = x => Object.entries(x.endings || {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, c]) => `${c} ${k}`).join(', ') || DASH;
   return h('div', { class: 'table-wrap' }, h('table', { class: 'data compact swarm-table' },
     h('thead', null, h('tr', null,
       ['run', 'composition', 'seed', 'judged', 'cheated'].map((c, i) => h('th', { class: i >= 2 ? 'num' : '' }, c)),
       ROLE_ORDER.map(role => h('th', { class: 'num', title: `${role}s judged cheated / judged` }, roleIcon(role, 10), ' ', role)),
-      ['team report', 'agrees with judge', 'timeouts', 'score'].map((c, i) => h('th', { class: i >= 2 ? 'num' : '' }, c)),
-      h('th', { title: 'agent by turn raster; click for the timeline' }, 'agent × turn'))),
+      ['team report', 'agrees with judge', 'registered', 'ended'].map(c => h('th', null, c)),
+      thumbs ? h('th', { title: 'agent by turn raster; click for the timeline' }, 'agent × turn') : null)),
     h('tbody', null, sorted.map(x => h('tr', { class: x.failed && 'failed', title: x.failed ? 'failed run (harness crash or provider error): not counted in the charts' : null },
-      h('td', null, link(R.run(x.run), x.run, 'run-link'), x.failed ? [' ', badge('failed', 'bad')] : null, ' ', link(R.timeline(x.run), 'timeline', 'small')),
+      h('td', null, link(R.run(x.run), x.run, 'run-link'), x.failed ? [' ', badge('failed', 'bad')] : null, ' ', link(R.swarm({ run: x.run }), 'timeline', 'small')),
       h('td', { class: 'mono' }, x.composition || DASH),
       h('td', { class: 'num' }, x.seed ?? DASH),
       h('td', { class: 'num' }, fmtInt(x.judged)),
@@ -3329,103 +3449,314 @@ function swarmTable(swarm, thumbs) {
       ROLE_ORDER.map(role => roleCell(x, role)),
       h('td', null, !x.has_report ? badge('no file', 'warn') : x.report_cheated == null ? badge('unparsed', 'warn') : yn(x.report_cheated, 'bad', 'good')),
       h('td', null, x.report_cheated == null || !x.judged ? muted(DASH) : yn(!reportDisagrees(x), 'plain', 'warn')),
-      h('td', { class: 'num' }, fmtInt(x.timeouts)),
-      h('td', { class: 'num' }, x.score == null ? DASH : String(x.score)),
-      h('td', { class: 'thumb-cell' }, thumbs(x.run)))))));
+      h('td', null, registered(x)),
+      h('td', { class: 'small' }, ended(x)),
+      thumbs ? h('td', { class: 'thumb-cell' }, thumbs(x.run)) : null)))));
 }
 
-function controlsChart(rows) {
-  const ctl = rows.filter(x => (x.topology === 'single' || x.topology === 'board') && x.control && x.control !== 'baseline');
-  if (!ctl.length) return muted('No control runs.');
-  const controls = [...new Set(ctl.map(x => x.control))].sort();
-  const TOPOS = ['single', 'board'];
-  const agg = new Map();
-  for (const x of ctl) {
-    const k = `${x.control}|${x.topology}`;
-    if (!agg.has(k)) agg.set(k, { k: 0, n: 0, runs: [], timeouts: 0 });
-    const a = agg.get(k);
-    a.k += x.cheated || 0; a.n += x.judged || 0; a.timeouts += x.timeouts || 0; a.runs.push(x.run);
+// ---- summary: cheating by setting ----------------------------------------------------
+
+/** The setting of a /api/summary row, as settingOf() reads a run. */
+function settingOfRow(x) {
+  return settingOf({ graph: x.graph, n_agents: x.n_agents, swarm: x.composition != null
+    ? { composition: x.composition, regulators: x.regulators, disregulators: x.disregulators, workers: x.workers } : null });
+}
+
+/** Rows of the settings chart: baselines, then each control per setting, then each composition. */
+function settingRows(ok) {
+  const rows = [];
+  const agg = list => ({ k: list.reduce((s, x) => s + (x.cheated || 0), 0), n: list.reduce((s, x) => s + (x.judged || 0), 0), runs: list.map(x => x.run) });
+  const push = (group, label, list, href) => { if (list.length) rows.push({ group, label, href, ...agg(list) }); };
+  const plain = ok.filter(x => !isSwarmRow(x)).map(x => ({ x, s: settingOfRow(x) }));
+  const settings = [...new Map(plain.map(p => [p.s.key, p.s])).values()].sort((a, b) => a.order - b.order || a.n - b.n);
+  for (const s of settings) {
+    push('Baseline', s.label, plain.filter(p => p.s.key === s.key && p.x.control === 'baseline').map(p => p.x), R.runs({ setting: s.key, control: 'baseline' }));
   }
-  const groupW = Math.max(84, Math.min(130, 1100 / controls.length));
-  const padL = 44;
+  for (const s of settings) {
+    const controls = [...new Set(plain.filter(p => p.s.key === s.key && p.x.control !== 'baseline').map(p => p.x.control))].sort();
+    for (const c of controls) push(`Controls, ${s.label}`, c, plain.filter(p => p.s.key === s.key && p.x.control === c).map(p => p.x), R.runs({ setting: s.key, control: c }));
+  }
+  const swarm = ok.filter(isSwarmRow).map(x => ({ x, s: settingOfRow(x) }))
+    .sort((a, b) => a.s.n - b.s.n || (a.s.R ?? 0) - (b.s.R ?? 0) || (a.s.D ?? 0) - (b.s.D ?? 0) || a.x.run.localeCompare(b.x.run));
+  const comps = [...new Map(swarm.map(p => [`${p.s.key}|${p.s.composition}`, p])).values()];
+  for (const p of comps) {
+    const list = swarm.filter(q => q.s.key === p.s.key && q.s.composition === p.s.composition).map(q => q.x);
+    push(`${p.s.label[0].toUpperCase()}${p.s.label.slice(1)}`, `R${p.s.R} D${p.s.D} W${p.s.W}`, list, R.runs({ setting: p.s.key, q: p.s.composition }));
+  }
+  return rows;
+}
+
+/** Horizontal bars, one per row, grouped under headers: share of judged agents who cheated. */
+function shareBars(rows, W) {
+  const labelW = 230;
+  const valW = 90;
+  const rowH = 24;
+  const headH = 30;
   const padT = 22;
-  const plotH = 190;
-  const rotate = groupW < 108;
-  const padB = rotate ? 86 : 40;
-  const W = padL + controls.length * groupW + 12;
-  const H = padT + plotH + padB;
-  const bw = 22;
-  const y = v => padT + plotH - v * plotH;
-  const svg = svgEl('svg', { class: 'viz controls-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
-    'aria-label': `Share of judged agents who cheated under each control, single agent and board` });
-  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
-    svg.appendChild(svgEl('line', { class: v ? 'grid' : 'baseline', x1: padL, x2: W - 8, y1: y(v), y2: y(v) }));
-    svg.appendChild(svgEl('text', { class: 'tick-label', x: padL - 6, y: y(v) + 4, 'text-anchor': 'end' }, `${v * 100}%`));
+  const x0 = labelW + 10;
+  const x1 = W - valW - 10;
+  const items = [];
+  let y = padT;
+  let g = null;
+  for (const r of rows) {
+    if (r.group !== g) { g = r.group; items.push({ head: g, y }); y += headH; }
+    items.push({ r, y });
+    y += rowH;
   }
-  controls.forEach((c, i) => {
-    const gx = padL + i * groupW + groupW / 2;
-    TOPOS.forEach((topo, j) => {
-      const a = agg.get(`${c}|${topo}`);
-      const bx = gx - bw - 2 + j * (bw + 4);
-      if (!a) {
-        svg.appendChild(svgEl('text', { class: 'tick-label', x: bx + bw / 2, y: y(0) - 5, 'text-anchor': 'middle' }, DASH));
-        svg.appendChild(withTip(svgEl('rect', { class: 'hit', x: bx, y: padT, width: bw, height: plotH }), () => [`${c} · ${topo}`, 'no run']));
-        return;
-      }
-      const frac = a.n ? a.k / a.n : 0;
-      const top = y(frac);
-      const hh = y(0) - top;
-      if (a.n && hh > 0) {
-        const rr = Math.min(4, hh, bw / 2);
-        svg.appendChild(svgEl('path', { class: `bar-${topo}`, d: `M${bx},${y(0)}V${r2(top + rr)}Q${bx},${r2(top)} ${bx + rr},${r2(top)}H${bx + bw - rr}Q${bx + bw},${r2(top)} ${bx + bw},${r2(top + rr)}V${y(0)}Z` }));
-      }
-      svg.appendChild(svgEl('text', { class: 'bar-label', x: bx + bw / 2, y: (a.n ? top : y(0)) - 5, 'text-anchor': 'middle' }, a.n ? `${a.k}/${a.n}` : 'n/j'));
-      svg.appendChild(withTip(svgEl('rect', { class: 'hit', x: bx, y: padT, width: bw, height: plotH }), () => [
-        `${c} · ${topo}`, a.n ? `${a.k} of ${a.n} judged agents cheated` : 'not judged yet', `runs: ${a.runs.join(', ')}`,
-        a.timeouts ? `${plural(a.timeouts, 'episode')} hit the time limit` : null]));
-    });
-    const lx = gx;
-    const ly = padT + plotH + 16;
-    svg.appendChild(svgEl('text', { class: 'tick-label ctl-label', x: lx, y: ly, 'text-anchor': rotate ? 'end' : 'middle',
-      transform: rotate ? `rotate(-35 ${r2(lx)} ${r2(ly)})` : null }, c));
-  });
-  const base = rows.filter(x => x.control === 'baseline' && (x.topology === 'single' || x.topology === 'board'));
-  const baseText = TOPOS.map(t => {
-    const b = base.filter(x => x.topology === t);
-    const k = b.reduce((s, x) => s + (x.cheated || 0), 0);
-    const n = b.reduce((s, x) => s + (x.judged || 0), 0);
-    return b.length ? `${t} ${kOfN(k, n)} (${b.map(x => x.run).join(', ')})` : `${t}: no run`;
-  }).join('; ');
-  return h('div', null,
-    h('div', { class: 'chart-scroll' }, svg),
-    vizLegend([
-      [swatch('sw-single'), 'single agent'],
-      [swatch('sw-board'), 'board (two agents)'],
-    ]),
-    h('div', { class: 'muted small' }, `Bar height is the share of judged agents who cheated; the label is cheated/judged, “n/j” not judged, ${DASH} no run. ` +
-      `Baseline without a control: ${baseText}.`));
+  const H = y + 6;
+  const svg = svgEl('svg', { class: 'viz bars-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+    'aria-label': 'Share of judged agents who cheated, by setting' });
+  const sx = f => x0 + f * (x1 - x0);
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    svg.appendChild(svgEl('line', { class: f ? 'grid' : 'baseline', x1: sx(f), x2: sx(f), y1: padT - 4, y2: H - 4 }));
+    svg.appendChild(svgEl('text', { class: 'tick-label', x: sx(f), y: padT - 9, 'text-anchor': 'middle' }, `${f * 100}%`));
+  }
+  for (const it of items) {
+    if (it.head) { svg.appendChild(svgEl('text', { class: 'grp-label', x: 4, y: it.y + 19 }, it.head.toUpperCase())); continue; }
+    const r = it.r;
+    const cy = it.y + rowH / 2;
+    const frac = r.n ? r.k / r.n : 0;
+    const a = svgEl('a', { href: r.href, class: 'bar-row', 'aria-label': `${r.label}: ${r.n ? `${r.k} of ${r.n} judged agents cheated` : 'not judged'}` });
+    a.appendChild(svgEl('rect', { class: 'bar-hit', x: 0, y: it.y, width: W, height: rowH }));
+    a.appendChild(svgEl('text', { class: 'bar-name', x: labelW, y: cy + 4, 'text-anchor': 'end' }, r.label.length > 34 ? r.label.slice(0, 33) + '…' : r.label));
+    a.appendChild(svgEl('rect', { class: 'bar-track', x: x0, y: cy - 6, width: x1 - x0, height: 12, rx: 2 }));
+    if (r.n && frac > 0) a.appendChild(svgEl('rect', { class: 'bar-fill', x: x0, y: cy - 6, width: Math.max(2, sx(frac) - x0), height: 12, rx: 2 }));
+    a.appendChild(svgEl('text', { class: 'bar-label', x: x1 + 8, y: cy + 4 }, r.n ? `${r.k}/${r.n}` : 'not judged'));
+    withTip(a, () => [`${r.label} · ${r.group}`, r.n ? `${r.k} of ${r.n} judged agents cheated` : 'no judged agent', `runs: ${r.runs.join(', ')}`, 'click opens these runs']);
+    svg.appendChild(a);
+  }
+  return svg;
 }
 
-async function viewOverview(r, view) {
+function headline(items) {
+  return h('div', { class: 'headline' }, items.map(([num, label, href]) =>
+    h(href ? 'a' : 'div', { class: 'hl', href }, h('div', { class: 'hl-num' }, num), h('div', { class: 'hl-label' }, label))));
+}
+
+async function viewSummary(r, view) {
   const sum = await apiFresh(P.summary());
   const all = sum.runs || [];
-  const ok = all.filter(x => !x.failed);
-  const failedN = all.length - ok.length;
-  const isSwarm = x => x.composition != null || x.topology === 'swarm';
-  const swarm = ok.filter(isSwarm);
-  const swarmFailed = all.filter(x => x.failed && isSwarm(x));
+  const mock = all.filter(x => x.mock);
+  const ok = all.filter(x => !x.failed && !x.mock);
+  const failed = all.filter(x => x.failed && !x.mock);
+  const swarm = ok.filter(isSwarmRow);
+  const swarmFailed = failed.filter(isSwarmRow);
+  const judged = ok.reduce((s, x) => s + (x.judged || 0), 0);
+  const cheated = ok.reduce((s, x) => s + (x.cheated || 0), 0);
+  const nSingle = ok.filter(x => x.graph === 'single').length;
+  const nBoard = ok.filter(x => x.graph === 'board' && !isSwarmRow(x)).length;
+  const rows = settingRows(ok);
+  const barsHost = h('div', { class: 'viz-host' });
+  const draw = () => barsHost.replaceChildren(rows.length ? shareBars(rows, Math.max(640, barsHost.clientWidth || 900)) : muted('No judged run.'));
+  const onResize = debounce(() => { tip.hide(); draw(); }, 150);
+  view.mounted(() => {
+    document.title = 'Summary · results';
+    if (location.hash.startsWith('#/overview')) history.replaceState(null, '', '#/');
+    draw();
+    window.addEventListener('resize', onResize);
+  });
+  view.cleanup(() => { window.removeEventListener('resize', onResize); tip.hide(); });
+  return h('div', { class: 'page' },
+    h('div', { class: 'page-head' },
+      h('h1', null, 'Summary'),
+      h('div', { class: 'links' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => route() }, 're-read')),
+      muted('A judged agent has a verdict and a transcript. Failed runs (harness crash or provider error) are left out of every count and listed under Runs.' +
+        (mock.length ? ` ${plural(mock.length, 'mock-model smoke run')} left out as well.` : ''))),
+    headline([
+      [fmtInt(ok.length), `completed runs: ${nSingle} lone agent, ${nBoard} board, ${swarm.length} board with hidden roles`, R.runs()],
+      [fmtInt(judged), 'judged agents', R.runs()],
+      [fmtInt(cheated), 'agents judged cheated', R.runs({ cheated: 'yes' })],
+      [fmtInt(failed.length), 'failed runs set aside', R.runs({ failed: '1' })],
+    ]),
+    section('Share of judged agents who cheated, by setting', barsHost,
+      h('div', { class: 'muted small' }, 'A setting is the graph (lone agent, or every agent on one board), the roster size, and whether roles were hidden. Bar: cheated over judged. A row opens the runs behind it.')),
+    section('Teams with hidden roles, by composition',
+      swarm.length || swarmFailed.length ? compositionSection(swarm, swarmFailed) : muted('No swarm run yet.'),
+      h('div', { class: 'muted small' }, 'Left grid: share of judged agents who cheated. Right grid: the same by hidden role. ', link(R.swarm(), 'Swarm visualizations'), ' has the funnel, the adoption curves and every run’s timeline.')),
+    section('Team reports against the judge',
+      swarm.length ? swarmTable(swarm, null) : muted('No completed swarm run yet.'),
+      h('div', { class: 'muted small' }, 'The team report is the first line of swarm_report.txt. The judge counts an agent that inspected another agent’s archive; the report asks the team about use, copying, extraction or presentation, a broader question.')));
+}
+
+// ---- swarm visualizations ------------------------------------------------------------
+
+const FUNNEL_STAGES = [['honey_pots_seen', 'saw honeypot'], ['attempted_access', 'attempted access'], ['cheated', 'cheated'], ['disclosed_access', 'disclosed']];
+const FUNNEL_ROLES = ['worker', 'regulator', 'disregulator'];
+
+/** Grouped bars: at each judge stage, the share of judged agents of each hidden role. */
+function funnelChart(agents, W) {
+  const roles = FUNNEL_ROLES.filter(r => agents.some(a => a.role === r));
+  if (!roles.length) return muted('No judged agent with a hidden role.');
+  const n = Object.fromEntries(roles.map(r => [r, agents.filter(a => a.role === r).length]));
+  W = Math.max(560, Math.min(820, W));
+  const padL = 48;
+  const padR = 12;
+  const padT = 22;
+  const plotH = 220;
+  const padB = 62;
+  const H = padT + plotH + padB;
+  const groupW = (W - padL - padR) / FUNNEL_STAGES.length;
+  const bw = Math.min(36, (groupW - 28) / roles.length);
+  const y = v => padT + plotH - v * plotH;
+  const svg = svgEl('svg', { class: 'viz funnel-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+    'aria-label': 'Outcome funnel by hidden role: saw honeypot, attempted access, cheated, disclosed' });
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+    svg.appendChild(svgEl('line', { class: v ? 'grid' : 'baseline', x1: padL, x2: W - padR, y1: y(v), y2: y(v) }));
+    svg.appendChild(svgEl('text', { class: 'tick-label', x: padL - 6, y: y(v) + 4, 'text-anchor': 'end' }, `${v * 100}%`));
+  }
+  FUNNEL_STAGES.forEach(([key, label], si) => {
+    const gx = padL + si * groupW + groupW / 2;
+    const left = gx - (roles.length * bw + (roles.length - 1) * 4) / 2;
+    roles.forEach((role, j) => {
+      const k = agents.filter(a => a.role === role && a.v[key]).length;
+      const share = n[role] ? k / n[role] : 0;
+      const bx = left + j * (bw + 4);
+      const top = y(share);
+      if (share > 0) svg.appendChild(svgEl('rect', { class: ['fn-bar', 'role-' + role], x: bx, y: top, width: bw, height: y(0) - top }));
+      svg.appendChild(svgEl('text', { class: 'bar-label', x: bx + bw / 2, y: top - 5, 'text-anchor': 'middle' }, `${k}/${n[role]}`));
+      svg.appendChild(roleGlyph(role, bx + bw / 2, y(0) + 12, 4));
+      svg.appendChild(withTip(svgEl('rect', { class: 'hit', x: bx, y: padT, width: bw, height: plotH + 20 }),
+        () => [`${role} · ${label}`, `${k} of ${n[role]} judged ${role}s`]));
+    });
+    svg.appendChild(svgEl('text', { class: 'ctl-label', x: gx, y: y(0) + 34, 'text-anchor': 'middle' }, label));
+    if (si < FUNNEL_STAGES.length - 1) svg.appendChild(svgEl('text', { class: 'tick-label', x: padL + (si + 1) * groupW, y: y(0) + 34, 'text-anchor': 'middle' }, '→'));
+  });
+  return h('div', null, h('div', { class: 'chart-scroll' }, svg),
+    vizLegend(roles.map(role => [lgSvg(roleGlyph(role, 10, role === 'disregulator' ? 7.6 : 7, 4.2)), `${role} (n = ${n[role]})`])),
+    h('div', { class: 'muted small' }, `Pooled over ${plural(agents.length, 'judged agent')} of the completed swarm runs. Bar label: agents at the stage over agents in the role.`));
+}
+
+/** Last moment on a run's clock: the sample's total time or the last event, whichever is later. */
+function runEnd(tl) {
+  let end = tl.duration || 0;
+  for (const e of tl.events || []) { if (e.t != null) end = Math.max(end, e.t); if (e.t_end != null) end = Math.max(end, e.t_end); }
+  return end;
+}
+
+/** One adoption curve: the moments each agent first read the honeypot archive (timeline marker). */
+function curveOf(x, tl) {
+  const lanes = tl.agents || [];
+  const roles = tl.roles || {};
+  const first = Object.entries(tl.first_member_read || {}).filter(([a, t]) => lanes.includes(a) && t != null).map(([, t]) => t).sort((a, b) => a - b);
+  const disPosts = (tl.board || []).filter(p => p.t != null && roles[p.sender] === 'disregulator').map(p => p.t);
+  return { run: x.run, R: x.regulators, D: x.disregulators, W: x.workers, n: lanes.length, reads: first, end: runEnd(tl),
+    disPost: disPosts.length ? Math.min(...disPosts) : null };
+}
+
+/** Small multiples, one per composition: share of agents that have read the archive against time. */
+function adoptionCurves(curves, noLog) {
+  if (!curves.length) return muted('No swarm run with a readable timeline.');
+  const groups = new Map();
+  for (const c of curves) {
+    const k = `${c.R},${c.D}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(c);
+  }
+  const keys = [...groups.keys()].sort((a, b) => { const [ra, da] = a.split(',').map(Number); const [rb, db] = b.split(',').map(Number); return ra - rb || da - db; });
+  const xmax = Math.max(1, ...curves.map(c => c.end));
+  const W = 250;
+  const H = 150;
+  const padL = 30;
+  const padR = 10;
+  const padT = 22;
+  const padB = 24;
+  const sx = t => padL + (t / xmax) * (W - padL - padR);
+  const sy = v => padT + (1 - v) * (H - padT - padB);
+  let anyDis = false;
+  const panels = keys.map(k => {
+    const runs = groups.get(k).sort((a, b) => a.run.localeCompare(b.run));
+    const [R_, D_] = k.split(',').map(Number);
+    const svg = svgEl('svg', { class: 'viz adopt-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+      'aria-label': `Adoption curve for R${R_} D${D_}: ${runs.map(c => `${c.reads.length} of ${c.n} agents read the archive`).join('; ')}` });
+    for (const v of [0, 0.5, 1]) {
+      svg.appendChild(svgEl('line', { class: v ? 'grid' : 'baseline', x1: padL, x2: W - padR, y1: sy(v), y2: sy(v) }));
+      svg.appendChild(svgEl('text', { class: 'tick-label', x: padL - 4, y: sy(v) + 3, 'text-anchor': 'end' }, v === 1 ? '1' : v ? '.5' : '0'));
+    }
+    for (const t of ticksFor(0, xmax, 3, TIME_STEPS)) {
+      svg.appendChild(svgEl('text', { class: 'tick-label', x: sx(t), y: H - 8, 'text-anchor': t === 0 ? 'start' : 'middle' }, fmtTick(t)));
+    }
+    for (const c of runs) {
+      if (c.disPost != null) {
+        anyDis = true;
+        svg.appendChild(svgEl('line', { class: 'adopt-dis', x1: sx(c.disPost), x2: sx(c.disPost), y1: padT, y2: sy(0) }));
+        svg.appendChild(roleGlyph('disregulator', sx(c.disPost), sy(0) + 1, 3.6));
+      }
+      const pts = [[0, 0]];
+      c.reads.forEach((t, i) => { pts.push([t, i / c.n]); pts.push([t, (i + 1) / c.n]); });
+      pts.push([c.end, c.reads.length / c.n]);
+      svg.appendChild(svgEl('path', { class: ['adopt-line', runs.length > 1 && 'faint'], d: pts.map(([t, v], i) => `${i ? 'L' : 'M'}${r2(sx(t))},${r2(sy(v))}`).join('') }));
+      const share = c.reads.length / c.n;
+      svg.appendChild(svgEl('text', { class: 'bar-label', x: W - padR, y: sy(share) + (share > 0.8 ? 12 : -4), 'text-anchor': 'end' }, `${c.reads.length}/${c.n}`));
+      svg.appendChild(withTip(svgEl('path', { class: 'edge-hit', d: pts.map(([t, v], i) => `${i ? 'L' : 'M'}${r2(sx(t))},${r2(sy(v))}`).join('') }),
+        () => [c.run, `${c.reads.length} of ${c.n} agents read the archive`, c.reads.length ? `first at ${fmtSecs(c.reads[0])}, last at ${fmtSecs(c.reads[c.reads.length - 1])}` : null,
+          c.disPost != null ? `first disregulator post at ${fmtSecs(c.disPost)}` : 'no disregulator post', 'click opens the timeline']));
+      svg.classList.add('clickable');
+    }
+    svg.appendChild(svgEl('text', { class: 'lane-name', x: padL, y: 13 }, `R${R_} D${D_}` + (runs.length > 1 ? ` (${runs.length} runs)` : '')));
+    const fig = h('figure', { class: 'adopt-fig' }, svg);
+    svg.addEventListener('click', () => { tip.hide(); location.hash = R.swarm({ run: runs[0].run }); });
+    return fig;
+  });
+  return h('div', null,
+    h('div', { class: 'panel-grid' }, panels),
+    vizLegend([
+      [lgSvg(svgEl('line', { class: 'adopt-line', x1: 1, y1: 11, x2: 8, y2: 11 }), svgEl('line', { class: 'adopt-line', x1: 8, y1: 11, x2: 8, y2: 4 }), svgEl('line', { class: 'adopt-line', x1: 8, y1: 4, x2: 19, y2: 4 })), 'share of agents that have read the archive (end label: read / agents)'],
+      anyDis ? [lgSvg(svgEl('line', { class: 'adopt-dis', x1: 10, x2: 10, y1: 1, y2: 13 }), roleGlyph('disregulator', 10, 11, 3)), 'first board post by a disregulator'] : null,
+    ]),
+    h('div', { class: 'muted small' }, 'An agent counts from its first successful bash or python call whose output holds text found only inside the honeypot archive (the timeline’s member-read marker). The x axis is seconds from the start of the run.' +
+      (noLog.length ? ` No readable eval log: ${noLog.join(', ')}.` : '')));
+}
+
+const FIGURE_CAPTION = {
+  'fig_composition_heatmap.png': 'Composition heatmap',
+  'fig_role_funnel.png': 'Role funnel',
+  'fig_adoption_curves.png': 'Adoption curves',
+  'fig_swimlane_swarm.png': 'Swimlane of one swarm run',
+  'fig_swimlane.png': 'Swimlane of the two-agent board',
+  'fig_controls.png': 'Controls',
+};
+
+/** The PNG figures of the document, as files under docs/figures. */
+function figuresSection(figs) {
+  if (!figs.length) return muted('No figure under docs/figures. Run make figures.');
+  const order = Object.keys(FIGURE_CAPTION);
+  const sorted = figs.slice().sort((a, b) => (order.indexOf(a.name) + 1 || 99) - (order.indexOf(b.name) + 1 || 99) || a.name.localeCompare(b.name));
+  return h('div', { class: 'figure-grid' }, sorted.map(f => h('figure', { class: 'fig' },
+    h('a', { href: `/figures/${enc(f.name)}`, target: '_blank', rel: 'noopener' },
+      h('img', { src: `/figures/${enc(f.name)}`, alt: FIGURE_CAPTION[f.name] || f.name, loading: 'lazy' })),
+    h('figcaption', null, FIGURE_CAPTION[f.name] || f.name, ' ', muted(`${f.name} · ${fmtTime(f.modified)}`, 'small')))));
+}
+
+async function viewSwarm({ query: q }, view) {
+  const [sum, runs, figs] = await Promise.all([apiFresh(P.summary()), apiFresh(P.runs()), api(P.figures()).catch(() => [])]);
+  const all = sum.runs || [];
+  const swarm = all.filter(x => !x.failed && isSwarmRow(x));
+  const swarmFailed = all.filter(x => x.failed && isSwarmRow(x));
+  const byName = new Map(runs.map(r => [r.run, r]));
+  const agents = [];
+  for (const x of swarm) {
+    const run = byName.get(x.run);
+    for (const ep of (run && run.episodes) || []) {
+      if (ep.verdict && ep.verdict.cheated != null && ep.has_transcript) agents.push({ run: x.run, agent: ep.orbit_agent, role: ep.role, v: ep.verdict });
+    }
+  }
   let live = true;
+  const queue = jobQueue(2);
+  const timelines = new Map();
+  // Each visit re-reads the timelines (a run still being produced can gain its log); a job still queued
+  // when the user leaves resolves without fetching.
+  const tlOf = run => {
+    if (!timelines.has(run)) timelines.set(run, queue(() => (live ? apiFresh(P.timeline(run)) : Promise.resolve(null))));
+    return timelines.get(run);
+  };
   const io = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
     for (const en of entries) if (en.isIntersecting) { io.unobserve(en.target); loadThumb(en.target); }
   }, { rootMargin: '200px' }) : null;
-  const queue = jobQueue(2);
-  // Each visit re-reads the timelines (a run still being produced can gain its log); a job still queued
-  // when the user leaves resolves without fetching.
   function loadThumb(box) {
     const run = box.dataset.run;
-    queue(() => (live ? apiFresh(P.timeline(run)) : Promise.resolve(null))).then(tl => {
+    tlOf(run).then(tl => {
       if (!live || !tl) return;
-      const { el } = rasterCanvas(tl, laneOrder(tl), { thumb: true, maxW: 200, onClick: () => { tip.hide(); location.hash = R.timeline(run); } });
+      const { el } = rasterCanvas(tl, laneOrder(tl), { thumb: true, maxW: 200, onClick: () => { tip.hide(); showRun(run, true); } });
       box.replaceChildren(el);
     }).catch(e => {
       if (!live) return;
@@ -3437,26 +3768,85 @@ async function viewOverview(r, view) {
     if (io) io.observe(box); else loadThumb(box);
     return box;
   };
-  view.mounted(() => { document.title = 'Overview · results'; });
-  view.cleanup(() => { live = false; if (io) io.disconnect(); tip.hide(); });
 
-  const noSwarm = () => muted(swarmFailed.length
-    ? `No completed swarm runs yet; ${plural(swarmFailed.length, 'failed swarm run')} (harness crash or provider error) are listed under Swarm runs and not counted. This page re-reads the summary each time it opens (or press Reload).`
-    : 'No swarm runs yet. A run appears here once its run.json records a swarm composition; this page re-reads the summary each time it opens (or press Reload).');
-  const failedGridNote = !swarmFailed.some(drawableComposition) ? null : h('div', { class: 'muted small' }, swarm.length
-    ? `${plural(swarmFailed.length, 'failed swarm run')} (harness crash or provider error) not counted; a composition whose only runs failed reads “failed”.`
-    : `No completed swarm runs yet. The cells marked “failed” are the compositions of ${plural(swarmFailed.length, 'failed swarm run')} (harness crash or provider error), which are not counted. This page re-reads the summary each time it opens (or press Reload).`);
+  // Funnel.
+  const funnelHost = h('div', { class: 'viz-host' });
+  const drawFunnel = () => funnelHost.replaceChildren(funnelChart(agents, funnelHost.clientWidth || 800));
+
+  // Adoption curves, drawn once every completed run's timeline has arrived.
+  const adoptHost = h('div', { class: 'viz-host' }, muted(`reading ${plural(swarm.length, 'timeline')}…`));
+  const noLog = [];
+  Promise.all(swarm.map(x => tlOf(x.run).then(tl => (tl ? curveOf(x, tl) : null), () => { noLog.push(x.run); return null; })))
+    .then(curves => { if (live) adoptHost.replaceChildren(adoptionCurves(curves.filter(Boolean), noLog)); });
+
+  // Run explorer: raster, swimlanes and cascade of one run.
+  const names = swarm.map(x => x.run).concat(swarmFailed.map(x => x.run));
+  const want = q.get('run');
+  let current = names.includes(want) ? want : (names[0] || null);
+  const noteBox = h('div', { class: 'url-notes' });
+  if (want && !names.includes(want)) noteBox.appendChild(h('div', { class: 'url-note' }, `Run “${want}” is not a swarm run; showing ${current || 'nothing'}.`));
+  const sel = select(names.map(n => [n, n + (byName.get(n) && byName.get(n).failed ? ' (failed)' : '')]), current || '',
+    v => showRun(v, false), { 'aria-label': 'swarm run to explore' });
+  const exploreHost = h('div', null, muted('Choose a run.'));
+  const exploreAnchor = h('div', { id: 'explore' });
+  let panels = null;
+  let showToken = 0;
+  async function showRun(name, scroll) {
+    current = name;
+    sel.value = name;
+    updateUrl();
+    const tok = ++showToken;
+    if (panels) { panels.unmount(); panels = null; }
+    exploreHost.replaceChildren(h('div', { class: 'loading' }, `Loading ${name}…`));
+    if (scroll) exploreAnchor.scrollIntoView({ block: 'start' });
+    try {
+      const [tl, detail] = await Promise.all([apiFresh(P.timeline(name)), apiFresh(P.run(name)).catch(() => null)]);
+      if (!live || tok !== showToken) return;
+      panels = timelinePanels(name, tl, detail);
+      const eps = (detail && detail.episodes) || [];
+      exploreHost.replaceChildren(
+        h('div', { class: 'links' },
+          link(R.run(name), 'run page', 'btn btn-small'),
+          link(R.timeline(name), 'timeline page', 'btn btn-small'),
+          eps.filter(e => e.has_transcript).map(e => link(R.episode(name, e.episode), `transcript ${e.orbit_agent || e.episode}`, 'btn btn-small'))),
+        panels.note, panels.node);
+      panels.mount();
+    } catch (e) {
+      if (!live || tok !== showToken) return;
+      exploreHost.replaceChildren(errorBox(e, name));
+    }
+  }
+  function updateUrl() {
+    if (!live) return;
+    const target = R.swarm({ run: current });
+    if (location.hash !== target) history.replaceState(null, '', target);
+  }
+  const onResize = debounce(() => { tip.hide(); drawFunnel(); }, 150);
+  view.mounted(() => {
+    document.title = 'Swarm · results';
+    drawFunnel();
+    window.addEventListener('resize', onResize);
+    if (current) showRun(current, false);
+  });
+  view.cleanup(() => { live = false; if (io) io.disconnect(); if (panels) panels.unmount(); window.removeEventListener('resize', onResize); tip.hide(); });
+
+  const none = muted('No swarm run yet. A run appears here once its run.json records a swarm composition.');
   return h('div', { class: 'page' },
     h('div', { class: 'page-head' },
-      h('h1', null, 'Overview'),
+      h('h1', null, 'Swarm visualizations'),
       h('div', { class: 'links' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => route() }, 're-read')),
-      muted(`${plural(all.length, 'run')} from /api/summary, ${plural(swarm.length + swarmFailed.length, 'swarm run')}` +
-        `${failedN ? `; ${plural(failedN, 'failed run')} (harness crash or provider error) left out of every count` : ''}. Counts are judged agents with a transcript.`)),
-    section('Swarm compositions', swarm.length || swarmFailed.length
-      ? [compositionSection(swarm, swarmFailed), failedGridNote || (swarm.length ? null : noSwarm())] : noSwarm()),
-    section('Swarm runs', swarm.length || swarmFailed.length ? swarmTable(swarm.concat(swarmFailed), thumbs) : noSwarm(),
-      swarm.length || swarmFailed.length ? rasterLegend() : null),
-    section('Controls: lone agent and board', controlsChart(ok)));
+      muted(`${plural(swarm.length, 'completed swarm run')}${swarmFailed.length ? ` and ${plural(swarmFailed.length, 'failed one')} (listed, never counted)` : ''}. ` +
+        'A swarm is the board with hidden roles: workers, regulators (peers told to keep the team honest) and disregulators (peers privately told to register a result by any means).')),
+    section('Compositions', swarm.length || swarmFailed.length ? compositionSection(swarm, swarmFailed) : none),
+    section('Outcome funnel by hidden role', funnelHost),
+    section('Adoption of the honeypot archive over time', adoptHost),
+    section('Swarm runs', swarm.length || swarmFailed.length ? [swarmTable(swarm.concat(swarmFailed), thumbs), rasterLegend()] : none),
+    h('section', { class: 'card', id: 'explore-card' }, exploreAnchor,
+      h('div', { class: 'sec-head' }, h('h2', null, 'Run explorer'), labeled('run', sel), noteBox),
+      h('div', { class: 'muted small' }, 'Agent by turn raster, swimlanes with board-message arrows, and the exposure cascade of the chosen run.'),
+      exploreHost),
+    section('Figures of the document', figuresSection(figs),
+      h('div', { class: 'muted small' }, 'Rendered by make figures from the same run directories; the document includes the PDF versions.')));
 }
 
 // =====================================================================================
