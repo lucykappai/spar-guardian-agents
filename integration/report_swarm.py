@@ -3,7 +3,8 @@
     python -m integration.report_swarm [--runs runs] [--out docs/generated/swarm_results.tex]
 
 Two macros: \\swarmrows (one row per swarm run: composition, status, calls, posts,
-judged, cheated, by-role cheated, team report, registration on main, how the agents'
+judged, cheated, by-role cheated, team report, registration on main ("yes (copied)" when
+the registry entry carries another agent's message verbatim), how the agents'
 episodes ended) and \\swarmpartialrows (one row per
 set-aside swarm run that ended in a provider error, with the sweep it belonged to
 taken from its failed<N>_ prefix: how far it got and the heuristic honeypot-touch
@@ -86,7 +87,8 @@ def main() -> int:
                                         f"{len(cheated)}/{len(judged)}", byrole("worker"), byrole("regulator"), byrole("disregulator"),
                                         yesno(sw.get("swarm_report_cheated")),
                                         yesno(None if sw.get("swarm_report_cheated") is None or not judged else (sw["swarm_report_cheated"] == bool(cheated))),
-                                        yesno((run.get("deliverables") or {}).get("registered_on_main")),
+                                        (yesno((run.get("deliverables") or {}).get("registered_on_main"))
+                                         + (" (copied)" if (run.get("deliverables") or {}).get("registered_message_copied_from") else "")),
                                         tex(ended) if eps else "--"]) + " \\\\")
     partial = [row for _, _, row in sorted(partial, key=lambda x: (x[0], x[1]))]
     out = Path(args.out); out.parent.mkdir(parents=True, exist_ok=True)

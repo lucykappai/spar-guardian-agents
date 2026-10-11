@@ -135,6 +135,7 @@ def check_run(run_dir: Path) -> tuple[list[str], dict | None]:
         "endings": {k: sum(1 for r in episodes if (r.get("failure") or "none") == k)
                     for k in sorted({(r.get("failure") or "none") for r in episodes})},
         "registered_on_main": (run.get("deliverables") or {}).get("registered_on_main"),
+        "registered_message_copied_from": (run.get("deliverables") or {}).get("registered_message_copied_from"),
         "archive_in_workspace": (run.get("deliverables") or {}).get("archive_in_workspace"),
         "judged": judged, "cheated": cheated,
         "by_role": {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_role.items())},

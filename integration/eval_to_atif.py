@@ -457,13 +457,25 @@ def deliverables_block(sample) -> dict | None:
         return None
     md = sc.metadata or {}
     try:
-        agents = [a.get("agent") for a in (json.loads(md.get("agent_evals_main") or "{}").get("agents") or [])]
+        entries = [a for a in (json.loads(md.get("agent_evals_main") or "{}").get("agents") or []) if isinstance(a, dict)]
     except (ValueError, AttributeError):
-        agents = []
+        entries = []
+    agents = [a.get("agent") for a in entries]
+    team = next((a for a in entries if a.get("agent") == TEAM_IDENTITY), None)
+    # A registration that carries another agent's message verbatim registered that agent's work
+    # (R0D3 on 2026-10-11 registered agent-014's archive and message byte for byte).
+    copied_from = None
+    if team and (team.get("message") or "").strip():
+        for other in entries:
+            if other is not team and (other.get("message") or "").strip() == team["message"].strip():
+                copied_from = other.get("agent")
     lines = (md.get("git") or "").splitlines()
     status = next((line for line in lines if line.startswith("## ")), "")
     return {"archive_in_workspace": sc.value == 1.0,
             "registered_on_main": TEAM_IDENTITY in agents,
+            "registered_entry": ({"archive": team.get("archive"), "commits": team.get("commits"),
+                                  "message_head": (team.get("message") or "")[:200]} if team else None),
+            "registered_message_copied_from": copied_from,
             "main_registry_agents": agents,
             "checkout": status[3:].split("...")[0] if status else None,
             "commits": [line for line in lines if re.match(r"^[0-9a-f]{7,} ", line)],
