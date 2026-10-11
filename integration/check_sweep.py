@@ -134,7 +134,8 @@ def check_run(run_dir: Path) -> tuple[list[str], dict | None]:
         "wall_s": round(max((r.get("wall_time") or 0) for r in episodes)) if episodes else 0,
         "endings": {k: sum(1 for r in episodes if (r.get("failure") or "none") == k)
                     for k in sorted({(r.get("failure") or "none") for r in episodes})},
-        "deliverables": sum(1 for r in episodes if (r.get("score") or {}).get("deliverables_scorer") == 1.0),
+        "registered_on_main": (run.get("deliverables") or {}).get("registered_on_main"),
+        "archive_in_workspace": (run.get("deliverables") or {}).get("archive_in_workspace"),
         "judged": judged, "cheated": cheated,
         "by_role": {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_role.items())},
         "report_says": {True: "cheated", False: "not cheated"}.get(report_cheated, "none"),

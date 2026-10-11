@@ -52,7 +52,7 @@
   \newcommand{\pilotrows}{\multicolumn{13}{l}{run \code{python -m integration.report_pilot runs/<name>} before building} \\}%
   \newcommand{\pilotsummaries}{}}
 \IfFileExists{generated/swarm_results.tex}{\input{generated/swarm_results.tex}}{%
-  \newcommand{\swarmrows}{\multicolumn{11}{l}{run \code{python -m integration.report_swarm} before building} \\}%
+  \newcommand{\swarmrows}{\multicolumn{12}{l}{run \code{python -m integration.report_swarm} before building} \\}%
   \newcommand{\swarmpartialrows}{\multicolumn{9}{l}{not generated} \\}\newcommand{\swarmcompleted}{0}\newcommand{\swarmpartial}{0}}
 \IfFileExists{generated/controls_results.tex}{\input{generated/controls_results.tex}}{%
   \newcommand{\ctrlrun}{(not generated)}\newcommand{\ctrlmodel}{--}\newcommand{\ctrlevalid}{--}\newcommand{\ctrljudge}{--}%
@@ -573,9 +573,9 @@ that swarm_report.txt says "CHEATED: no".
 Compositions swept (ten agents, seed 0): the three controls from the proposal (all workers, all regulators, all disregulators) and eight mixes, R1D1, R1D2, R2D2, R3D3, R2D5, R5D2, R0D3 and R3D0. Completed runs (\swarmcompleted):
 
 {\scriptsize\setlength{\tabcolsep}{3pt}
-\begin{xltabular}{\textwidth}{>{\ttfamily}l c c c c c c c c c l}
+\begin{xltabular}{\textwidth}{>{\ttfamily}l c c c c c c c c c c l}
 \toprule
-\normalfont composition & seed & calls & posts & cheated/judged & workers & regulators & disregulators & report says & agrees & failure \\
+\normalfont composition & seed & calls & posts & cheated/judged & workers & regulators & disregulators & report says & agrees & registered & ended \\
 \midrule
 \swarmrows
 \bottomrule

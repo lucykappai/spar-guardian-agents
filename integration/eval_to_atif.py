@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -419,6 +420,34 @@ def error_and_failure(sample) -> tuple[str | None, str | None]:
 # --------------------------------------------------------------------------
 # run directory
 # --------------------------------------------------------------------------
+TEAM_IDENTITY = "agent-018"   # the git identity the staged row gives the agent (README; the scorer reads this branch)
+
+
+def deliverables_block(sample) -> dict | None:
+    """What the team left behind, from the deliverables scorer's evidence.
+
+    The score value only says whether the archive sat in the working tree at the end; a
+    team that registered and then checked out main scores 0, and an uncommitted archive
+    scores 1. The registry on main and the git summary say whether the team registered.
+    """
+    sc = (sample.scores or {}).get("deliverables_scorer")
+    if sc is None:
+        return None
+    md = sc.metadata or {}
+    try:
+        agents = [a.get("agent") for a in (json.loads(md.get("agent_evals_main") or "{}").get("agents") or [])]
+    except (ValueError, AttributeError):
+        agents = []
+    lines = (md.get("git") or "").splitlines()
+    status = next((line for line in lines if line.startswith("## ")), "")
+    return {"archive_in_workspace": sc.value == 1.0,
+            "registered_on_main": TEAM_IDENTITY in agents,
+            "main_registry_agents": agents,
+            "checkout": status[3:].split("...")[0] if status else None,
+            "commits": [line for line in lines if re.match(r"^[0-9a-f]{7,} ", line)],
+            "explanation": sc.explanation}
+
+
 def swarm_block(sample) -> dict | None:
     """Composition, hidden roles and the team's own report, for a swarm run."""
     cb = (sample.metadata or {}).get("cheatbench", {})
@@ -486,7 +515,7 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
                 record.update({"final_text": None, "n_turns": 0, "n_tool_calls": 0, "usage": None,
                                "transcript_path": None,
                                "error": error or "no agent conversation was projected into the sample",
-                               "failure": failure or "harness", "ok": False})
+                               "failure": failure or "harness", "ok": False, "ended_by": "error"})
                 records.append(record)
                 continue
             traj, info = build_trajectory(sample, log, agent_name, messages)
@@ -505,11 +534,17 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
             transcript_path = ep_dir / "transcript.json"
             transcript_path.write_text(json.dumps(transcript, indent=1))
             (ep_dir / "prompt.txt").write_text(transcript["prompt"])
+            # A limit ends the sample, not every agent in it: an agent whose last tool call
+            # was submit finished its own episode before the limit hit the others.
+            submitted = any(tc.get("function_name") == "submit"
+                            for step in transcript["trajectory"].get("steps", []) for tc in (step.get("tool_calls") or []))
+            ep_error, ep_failure = (None, None) if (submitted and failure in ("timeout", "max_turns")) else (error, failure)
             record.update({
                 "final_text": info["final_text"],
                 "n_turns": info["n_agent_steps"], "n_tool_calls": info["n_tool_calls"],
                 "usage": info["usage"], "transcript_path": str(transcript_path),
-                "error": error, "failure": failure, "ok": error is None,
+                "error": ep_error, "failure": ep_failure, "ok": ep_error is None,
+                "ended_by": "submit" if submitted else ("limit" if sample.limit else ("error" if sample.error else "end")),
             })
             records.append(record)
     task_root = task_root or (CB / "tasks" / (records[0]["task"] if records else "unknown"))
@@ -521,6 +556,7 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
         "monitor_model": records[0]["monitor_model"] if records else None,
         "defenses": (log.samples[0].metadata.get("experiment", {}).get("defenses") if log.samples else None) or [],
         "swarm": swarm_block(log.samples[0]) if log.samples else None,
+        "deliverables": deliverables_block(log.samples[0]) if log.samples else None,
         "eval_log": str(eval_path.resolve()), "eval_id": log.eval.eval_id,
         "orbit_version": orbit.__version__, "inspect_version": inspect_ai.__version__,
         "deviations": DEVIATIONS + (["two_agents_share_one_sandbox_clock_and_git_identity"] if topology == "board" else []),
