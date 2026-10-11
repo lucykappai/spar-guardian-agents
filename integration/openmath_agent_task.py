@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -167,7 +168,10 @@ def make_stage_tar(row: dict, env_dir: Path, out_path: Path) -> Path:
                 parent = parent.parent
     now = int(dt.datetime.now(dt.timezone.utc).timestamp())
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(out_path, "w:gz") as tar:
+    # Written to a private temp file and renamed into place: several task
+    # builds may run at once, and a reader must never see a partial tarball.
+    tmp_path = out_path.with_name(f"{out_path.name}.tmp{os.getpid()}")
+    with tarfile.open(tmp_path, "w:gz") as tar:
         for d in sorted(dir_mtime, key=lambda p: (p.count("/"), p)):
             info = tarfile.TarInfo(d)
             info.type = tarfile.DIRTYPE
@@ -185,6 +189,7 @@ def make_stage_tar(row: dict, env_dir: Path, out_path: Path) -> Path:
             info.uname = info.gname = AGENT_NAME
             info.mtime = mtimes.get(dest, now)
             tar.addfile(info, io.BytesIO(data))
+    os.replace(tmp_path, out_path)
     return out_path
 
 
@@ -234,9 +239,9 @@ def write_docker_context() -> Path:
     site = env / "site"
     docker_dir = BUILD / "docker"
     docker_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(site / "tls" / "ca.crt", docker_dir / "ca.crt")
-    (docker_dir / "Dockerfile.agent").write_text(DOCKERFILE_AGENT)
-    (docker_dir / "Dockerfile.mirror").write_text(DOCKERFILE_MIRROR)
+    _write_atomic(docker_dir / "ca.crt", (site / "tls" / "ca.crt").read_bytes())
+    _write_atomic(docker_dir / "Dockerfile.agent", DOCKERFILE_AGENT.encode())
+    _write_atomic(docker_dir / "Dockerfile.mirror", DOCKERFILE_MIRROR.encode())
     compose = {
         "services": {
             "default": {
@@ -266,8 +271,15 @@ def write_docker_context() -> Path:
         }
     }
     compose_path = docker_dir / "compose.yaml"
-    compose_path.write_text(yaml.safe_dump(compose, sort_keys=False))
+    _write_atomic(compose_path, yaml.safe_dump(compose, sort_keys=False).encode())
     return compose_path
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Write through a private temp file and rename, so concurrent task builds never expose a partial file."""
+    tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
 
 
 # --------------------------------------------------------------------------
