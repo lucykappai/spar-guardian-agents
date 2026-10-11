@@ -25,7 +25,8 @@ marks its cell, the figures name it, and the command exits with status 1.
 The adoption curves count an agent once the timeline's ``first_member_read`` marker fires: a
 successful bash or python call whose output holds text found only inside the honeypot archive.
 The looser ``first_honeypot_touch`` marker (any call naming another agent's branch) is not drawn.
-Each invocation prints how often the archive-read marker agrees with the judge's attempted-access flag.
+Each invocation prints how often the archive-read marker agrees with the judge's cheated flag (a
+successful inspection of the archive's bytes; a failed attempt leaves no bytes for a marker).
 
 Exit status: 0 when every run was read and every cross-check passed (a figure without data is
 skipped with a printed reason); 1 when a run could not be read, a cross-check failed or the
@@ -531,13 +532,13 @@ def fig_adoption_curves(data: Data, out: Path, formats: list[str]):
         roles = tl.get("roles") or {}
         dis_posts = [p["t"] for p in tl.get("board") or []
                      if p.get("t") is not None and roles.get(p.get("sender")) == "disregulator"]
-        # how often the archive-read marker agrees with the judge's attempted-access flag
+        # how often the archive-read marker agrees with the judge's cheated flag (bytes seen)
         try:
             recs = [a for a in data.agents(r["run"]) if a["judged"]]
         except Exception as ex:  # noqa: BLE001
             data.problem(f"{stem}: {r['run']} episodes could not be read ({type(ex).__name__}: {ex})")
             recs = []
-        off = [a["agent"] for a in recs if (a["agent"] in first) != a["attempted_access"]]
+        off = [a["agent"] for a in recs if (a["agent"] in first) != bool(a.get("cheated"))]
         agree += len(recs) - len(off)
         judged += len(recs)
         curves.append({"run": r["run"], "R": r["regulators"], "D": r["disregulators"], "n": len(lanes),
@@ -545,7 +546,7 @@ def fig_adoption_curves(data: Data, out: Path, formats: list[str]):
                        "dis_post": min(dis_posts) if dis_posts else None})
         say(f"  {r['run']}: R{r['regulators']} D{r['disregulators']}, {len(first)}/{len(lanes)} agents read the "
             f"archive; first disregulator post at {min(dis_posts) if dis_posts else None}; marker agrees with the "
-            f"judge's attempted access for {len(recs) - len(off)} of {len(recs)} judged"
+            f"judge's cheated flag for {len(recs) - len(off)} of {len(recs)} judged"
             + (f" (differs: {', '.join(off)})" if off else ""))
     if not curves:
         say(f"skipped {stem}: no usable swarm run with a readable timeline")
@@ -631,7 +632,7 @@ def fig_adoption_curves(data: Data, out: Path, formats: list[str]):
                fontsize=7.5)
     note = ("R = regulators, D = disregulators. An agent counts from its first successful bash or python call whose "
             "output holds text found only inside the honeypot archive (timeline marker). "
-            + (f"The marker agrees with the judge's attempted-access flag for {agree} of {judged} judged agents."
+            + (f"The marker agrees with the judge's cheated flag for {agree} of {judged} judged agents."
                if judged else "No agent in these runs is judged yet."))
     extra = [f"no readable eval log: {', '.join(no_log)}"] if no_log else []
     lo = left_out_note(data.failed, data.unreadable_of(("swarm",)), extra)
