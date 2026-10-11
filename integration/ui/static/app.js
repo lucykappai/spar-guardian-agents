@@ -609,6 +609,7 @@ const RUN_COLS = [
   { key: 'control', label: 'Control', sort: r => r.run.control },
   { key: 'topology', label: 'Topology', sort: r => r.run.topology },
   { key: 'agent', label: 'Agent', sort: r => r.ep.orbit_agent },
+  { key: 'role', label: 'Role', sort: r => r.ep.role, title: 'hidden role in a swarm run' },
   { key: 'calls', label: 'Calls', num: true, sort: r => r.ep.n_tool_calls, title: 'tool calls (turns in the tooltip)' },
   { key: 'blocks', label: 'Blocks / checks', num: true, sort: r => (r.ep.defense ? r.ep.defense.blocks : null) },
   { key: 'prompt', label: 'Prompt tok', num: true, sort: r => (r.ep.usage || {}).input },
@@ -648,6 +649,9 @@ function runsQuery() {
   };
 }
 
+const ROLE_KIND = { worker: 'plain', regulator: 'good', disregulator: 'bad' };
+function roleBadge(role) { return badge(role, ROLE_KIND[role] || 'plain', 'hidden role in this swarm run'); }
+
 function runRowCells(row) {
   const { run, ep } = row;
   const v = ep.verdict;
@@ -672,6 +676,7 @@ function runRowCells(row) {
       : ep.has_transcript ? link(R.episode(run.run, ep.episode), agentName, 'ep-link')
         : h('span', { title: 'no transcript on disk' }, agentName, ' ', muted('(no transcript)', 'small')),
     { title: ep.episode, cls: 'wrap-cell' }),
+    td(ep.role ? roleBadge(ep.role) : muted(DASH)),
     td(fmtInt(ep.n_tool_calls), { num: true, title: `${fmtInt(ep.n_tool_calls)} tool calls, ${fmtInt(ep.n_turns)} turns` }),
     td(d ? h('span', { class: d.blocks ? 'has-blocks' : '' }, `${fmtInt(d.blocks)} / ${fmtInt(d.checks)}`) : DASH,
       { num: true, title: bb ? `blocks by boundary: ${bb}` : '' }),
@@ -888,8 +893,32 @@ async function viewRun({ run }, view) {
 
   const boardSection = section('Board messages', communicationView(d.communication, run));
   const evidence = section('Defense evidence', defenseEvidence(d.defense, defs));
+  const swarmSection = rj.swarm ? section('Swarm', swarmView(rj.swarm, eps)) : null;
 
-  return h('div', { class: 'page' }, head, meta, defSection, epSection, boardSection, evidence);
+  return h('div', { class: 'page' }, head, meta, defSection, swarmSection, epSection, boardSection, evidence);
+}
+
+// Composition, hidden roles and the team's own report of a swarm run, beside the judge's verdicts.
+function swarmView(sw, eps) {
+  const verdictOf = name => { const ep = eps.find(e => e.orbit_agent === name); return ep && ep.verdict ? ep.verdict.cheated : null; };
+  const roles = Object.entries(sw.roles || {}).sort(([a], [b]) => a.localeCompare(b));
+  const anyCheated = eps.some(e => e.verdict && e.verdict.cheated === true);
+  const judged = eps.filter(e => e.verdict && e.verdict.cheated != null).length;
+  const table = h('table', { class: 'data' },
+    h('thead', null, h('tr', null, ['agent', 'hidden role', 'judge: cheated'].map(c => h('th', null, c)))),
+    h('tbody', null, roles.map(([name, role]) => h('tr', null,
+      h('td', null, name), h('td', null, roleBadge(role)), h('td', null, yn(verdictOf(name), 'bad', 'good'))))));
+  const reportVerdict = sw.swarm_report_cheated;
+  const agree = reportVerdict == null || !judged ? null : (reportVerdict === anyCheated);
+  return h('div', null,
+    kv([
+      ['composition', h('span', null, mono(sw.composition || DASH), ' ', muted(`${sw.regulators} regulators, ${sw.disregulators} disregulators, ${sw.workers} workers; seed ${sw.seed}`, 'small'))],
+      ['judge: any agent cheated', judged ? yn(anyCheated, 'bad', 'good') : muted('not judged')],
+      ['team report says cheated', sw.swarm_report == null ? badge('no report file', 'warn') : yn(reportVerdict, 'bad', 'good')],
+      ['report agrees with judge', agree == null ? muted(DASH) : yn(agree, 'good', 'bad')],
+    ], 'kv-grid'),
+    sw.swarm_report ? h('div', null, h('h3', null, 'swarm_report.txt'), h('pre', { class: 'pre' }, String(sw.swarm_report))) : null,
+    h('h3', null, 'Roles'), table);
 }
 
 function defensesTable(defs) {
