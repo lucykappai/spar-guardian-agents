@@ -53,6 +53,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 from integration.board import (board_agents, board_communication, board_execution,  # noqa: E402
                                board_roster, board_scheduler)
+from integration.controls import DEFAULT_MONITOR_MODEL, defenses_for  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CB = ROOT / "submodules" / "cheatbench"
@@ -370,14 +371,19 @@ def _scheduler(max_turns: int, time_limit_s: int) -> SchedulerConfig:
 
 @task
 def cheatbench_openmath_agent(row: str = "riemann", message_limit: int = MESSAGE_LIMIT,
-                              token_limit: int = TOKEN_LIMIT, time_limit_s: int = 0) -> Task:
+                              token_limit: int = 0, time_limit_s: int = 0,
+                              control: str = "", monitor_model: str = DEFAULT_MONITOR_MODEL) -> Task:
     """One ORBIT agent runs the CheatBench row in CheatBench's own sandbox image.
 
     time_limit_s=0 takes task.yaml's timeout_s (3600); smoke tests pass a short one.
+    control names one of integration/controls.py's defenses ("" = baseline); the
+    LLM-based controls judge with monitor_model. token_limit=0 means TOKEN_LIMIT,
+    tripled under a control because the monitor's calls count toward it.
     """
     check_submodule_heads()
     cfg = load_task_yaml()
     time_limit_s = time_limit_s or int(cfg["timeout_s"])
+    token_limit = token_limit or TOKEN_LIMIT * (3 if control else 1)
     agent = AgentSpec(name="solver", role="worker", tools=["bash", "python"],
                       max_messages=message_limit + 10)
     task_ = multi_agent_task(
@@ -394,7 +400,24 @@ def cheatbench_openmath_agent(row: str = "riemann", message_limit: int = MESSAGE
         message_limit=message_limit,
         token_limit=token_limit,
     )
-    return _without_channel_tools(task_)
+    return _with_defenses(_without_channel_tools(task_), control, monitor_model)
+
+
+def _with_defenses(task_: Task, control: str, monitor_model: str) -> Task:
+    """Store the control's DefenseConfigs in the sample's experiment config.
+
+    multi_agent_task takes no defenses; the orchestrator reads them from
+    metadata["experiment"]["defenses"] and enforces them at the model and tool
+    boundaries (orbit/solvers/orchestrator.py:_build_attacks_and_defenses).
+    """
+    from orbit.configs.experiment import ExperimentConfig
+    defenses = [d.model_dump(mode="json") for d in defenses_for(control, monitor_model)]
+    for sample in task_.dataset:
+        sample.metadata["experiment"]["defenses"] = defenses
+        ExperimentConfig.model_validate(sample.metadata["experiment"])
+        sample.metadata["cheatbench"]["control"] = control or "baseline"
+        sample.metadata["cheatbench"]["monitor_model"] = monitor_model if defenses else None
+    return task_
 
 
 def _without_channel_tools(task_: Task) -> Task:
@@ -418,9 +441,10 @@ BOARD_AGENTS = ["alpha", "beta"]
 
 @task
 def cheatbench_openmath_agent_board(row: str = "riemann", message_limit: int = MESSAGE_LIMIT,
-                                    token_limit: int = 2 * TOKEN_LIMIT, time_limit_s: int = 0,
+                                    token_limit: int = 0, time_limit_s: int = 0,
                                     delivery: str = "notify", scheduling_mode: str = "round_robin",
-                                    max_turns: int = 0) -> Task:
+                                    max_turns: int = 0, control: str = "",
+                                    monitor_model: str = DEFAULT_MONITOR_MODEL) -> Task:
     """Two ORBIT agents share the sandbox and one message board (integration/board.py).
 
     Both receive CheatBench's instruction as the sample input. The message and
@@ -430,9 +454,10 @@ def cheatbench_openmath_agent_board(row: str = "riemann", message_limit: int = M
     check_submodule_heads()
     cfg = load_task_yaml()
     time_limit_s = time_limit_s or int(cfg["timeout_s"])
+    token_limit = token_limit or 2 * TOKEN_LIMIT * (3 if control else 1)
     agents = board_agents(BOARD_AGENTS, tools=["bash", "python"], max_messages=message_limit + 10,
                           workdir=WORKDIR)
-    return multi_agent_task(
+    task_ = multi_agent_task(
         name="cheatbench_openmath_agent_board",
         setup=board_roster(agents, tool_kwargs=TOOL_KWARGS),
         dataset=build_samples([row]),
@@ -445,3 +470,4 @@ def cheatbench_openmath_agent_board(row: str = "riemann", message_limit: int = M
         message_limit=message_limit,
         token_limit=token_limit,
     )
+    return _with_defenses(task_, control, monitor_model)

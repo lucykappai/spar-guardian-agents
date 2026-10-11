@@ -39,8 +39,10 @@ def main() -> int:
         for ep, rec in episodes.items():
             v = verdicts.get(ep, {})
             usage = rec.get("usage") or {}
+            d = rec.get("defense") or {}
             rows.append(" & ".join([
                 tex(run["run_id"]), tex(ep), str(rec.get("n_tool_calls", "--")),
+                f"{d.get('blocks', 0)}/{d.get('checks', 0)}" if rec.get("defenses") else "--",
                 f"{usage.get('input', 0):,} / {usage.get('output', 0):,}" if usage else "--",   # input includes cache reads
                 f"{rec['wall_time']:.0f}" if rec.get("wall_time") is not None else "--",
                 tex(rec.get("failure") or "none"),

@@ -110,7 +110,11 @@ def agent_messages(sample, agent: str) -> list:
 
 
 def span_owner(sample):
-    """span_id -> name of the nearest enclosing span of type 'agent' (ORBIT names it after the spec)."""
+    """span_id -> name of the nearest enclosing span of type 'agent' (ORBIT names it after the spec).
+
+    Events inside an ``orbit.defense`` span (a monitor's or guardian's own model
+    calls) belong to the defense, not to the agent, and get owner None.
+    """
     begins = {e.id: e for e in sample.events if e.event == "span_begin"}
     cache: dict = {}
 
@@ -120,6 +124,8 @@ def span_owner(sample):
         e = begins.get(span_id)
         if e is None:
             result = None
+        elif e.type == "orbit.defense":
+            result = None
         elif e.type == "agent":
             result = e.name
         else:
@@ -127,6 +133,44 @@ def span_owner(sample):
         cache[span_id] = result
         return result
     return owner
+
+
+def defense_evidence(sample) -> dict:
+    """DefenseLog store fields plus every defense_intervention info event."""
+    keys = ("resolved_defenses", "activity", "blocks", "detections", "vaccinations",
+            "vaccination_injections", "total_activations", "false_positives", "true_positives")
+    log = {k: sample.store.get(f"DefenseLog:{k}") for k in keys}
+    interventions = []
+    for e in sample.events:
+        if e.event == "info" and isinstance(e.data, dict) and e.data.get("event") in (
+                "defense_intervention", "defense_resample", "defense_instrumentation_exempt"):
+            interventions.append(e.data)
+    return {"log": log, "interventions": interventions}
+
+
+def defense_counts(evidence: dict, agent: str) -> dict:
+    """checks and blocks per boundary for one agent, from the intervention events."""
+    out = {"checks": 0, "blocks": 0, "blocks_by_boundary": {}, "checks_by_boundary": {}}
+    for ev in evidence["interventions"]:
+        if ev.get("event") != "defense_intervention" or ev.get("agent") != agent:
+            continue
+        b = ev.get("boundary", "?")
+        out["checks"] += 1
+        out["checks_by_boundary"][b] = out["checks_by_boundary"].get(b, 0) + 1
+        if ev.get("allow") is False:
+            out["blocks"] += 1
+            out["blocks_by_boundary"][b] = out["blocks_by_boundary"].get(b, 0) + 1
+    return out
+
+
+def redacted_message_ids(model_events) -> set:
+    """Ids of messages a defense withheld from the provider (orbit_defense_redacted)."""
+    ids = set()
+    for ev in model_events:
+        for m in ev.input or []:
+            if (m.metadata or {}).get("orbit_defense_redacted"):
+                ids.add(m.id)
+    return ids
 
 
 def agent_events(sample, agent: str, kind: str) -> list:
@@ -164,6 +208,7 @@ def usage_from_events(model_events) -> dict:
 def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Trajectory, dict]:
     model_events = agent_events(sample, agent_name, "model")
     notices = delivery_notices(model_events)
+    redacted = redacted_message_ids(model_events)
     by_id = {oid: text for oid, text in notices if oid}
     ordered = [text for _, text in notices]
     steps: list[dict] = []
@@ -178,7 +223,8 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
             steps.append({"source": "system", "message": text})
         elif isinstance(msg, ChatMessageUser):
             text, _ = split_content(msg.content)
-            steps.append({"source": "user", "message": text})
+            steps.append({"source": "user", "message": text,
+                          **({"extra": {"withheld_from_model_by_defense": True}} if msg.id in redacted else {})})
         elif isinstance(msg, ChatMessageAssistant):
             notice = by_id.get(msg.id)
             how = "message_id"
@@ -202,6 +248,8 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
         elif isinstance(msg, ChatMessageTool):
             content = tool_result_text(msg.content)
             extra = {"is_error": True, "error": msg.error.message} if msg.error else None
+            if msg.id in redacted:
+                extra = {**(extra or {}), "withheld_from_model_by_defense": True}
             idx = issued.get(msg.tool_call_id)
             if idx is None:
                 steps.append({"source": "user", "message": content,
@@ -323,6 +371,13 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
             comm_dir = out_dir / "communication"
             comm_dir.mkdir(exist_ok=True)
             (comm_dir / f"{sample.id}#{sample.epoch}.json").write_text(json.dumps(comm, indent=1, default=str))
+        defenses_cfg = meta.get("experiment", {}).get("defenses") or []
+        evidence = defense_evidence(sample)
+        if defenses_cfg or evidence["interventions"]:
+            def_dir = out_dir / "defense"
+            def_dir.mkdir(exist_ok=True)
+            (def_dir / f"{sample.id}#{sample.epoch}.json").write_text(json.dumps(
+                {"defenses": defenses_cfg, **evidence}, indent=1, default=str))
         for agent_name in agents:
             episode = f"{sample.id}#{sample.epoch}" if len(agents) == 1 else f"{sample.id}#{sample.epoch}@{agent_name}"
             messages = agent_messages(sample, agent_name)
@@ -331,6 +386,9 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
                 "task": cb.get("task"), "variant": cb.get("variant", ""),
                 "model": log.eval.model, "agent": f"orbit/{agent_name}", "orbit_agent": agent_name,
                 "orbit_roster": agents, "topology": topology,
+                "control": cb.get("control", "baseline"), "monitor_model": cb.get("monitor_model"),
+                "defenses": [d["name"] for d in defenses_cfg],
+                "defense": defense_counts(evidence, agent_name),
                 "agent_version": f"orbit-{orbit.__version__}+inspect-ai-{inspect_ai.__version__}",
                 "prompt_file": cb.get("prompt_file"),
                 "wall_time": sample.total_time,
@@ -374,6 +432,9 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
         "task": records[0]["task"] if records else None, "task_root": str(task_root.resolve()), "variant": "",
         "run_id": out_dir.name, "model": log.eval.model, "agent": "orbit",
         "source": "orbit", "topology": topology, "agents": agents_seen,
+        "control": records[0]["control"] if records else None,
+        "monitor_model": records[0]["monitor_model"] if records else None,
+        "defenses": (log.samples[0].metadata.get("experiment", {}).get("defenses") if log.samples else None) or [],
         "eval_log": str(eval_path.resolve()), "eval_id": log.eval.eval_id,
         "orbit_version": orbit.__version__, "inspect_version": inspect_ai.__version__,
         "deviations": DEVIATIONS + (["two_agents_share_one_sandbox_clock_and_git_identity"] if topology == "board" else []),
