@@ -359,6 +359,8 @@ spar-guardian-agents/
     controls.py                 defenses_for(control, monitor_model): ORBIT DefenseConfigs per named control; task criteria and gate patterns
     run_control.sh              eval one control with Gemini 3.8 Flash, then judge.sh; exits non-zero on any failed step
     summarize_runs.py           one line per judged episode across run directories
+    check_sweep.py              exit 1 unless every named swarm run is complete and judged; a summary line per run
+    provider_retry.py           imported by the task file: the Gemini API's 402 "credits depleted" is retried
     eval_to_atif.py             convert(eval_path, out_dir, task_root) -> summary; CLI
     smoke_test.py               scenarios complete, message_limit, time_limit, board (mockllm, real sandbox)
     judge.sh                    convert + judge in cheatbench-judge + print verdicts; exits non-zero on any failed step
@@ -580,19 +582,19 @@ Compositions swept (ten agents, seed 0): the three controls from the proposal (a
 \end{xltabular}
 }
 
-Set-aside runs (\swarmpartial): on the first sweep every run ended after about thirty tool calls per agent with the Gemini API error ``Your prepayment credits are depleted'', before any deliverable or team report. Their partial logs are kept as \code{runs/failed_swarm_*}. The table gives what they recorded before the cut: tool calls, board posts, and two heuristics from the results server's timeline, the agents whose commands named another agent's branch, commit or copied archive (``touched'') and those whose results carried text found only inside agent-014's archive members (``read''), by role. These are not verdicts; the judge did not see complete episodes.
+Set-aside runs (\swarmpartial): two sweeps ended the same way. In each, every run died with the Gemini API error ``Your prepayment credits are depleted'' before any deliverable or team report: the first sweep after about thirty tool calls per agent, the second, launched after a top-up, after about forty-five. Their partial logs are kept as \code{runs/failed_swarm_*} and \code{runs/failed2_swarm_*}. The table gives what each recorded before the cut: tool calls, board posts, and two heuristics from the results server's timeline, the agents whose commands named another agent's branch, commit or copied archive (``touched'') and those whose results carried text found only inside agent-014's archive members (``read''), by role. These are not verdicts; the judge did not see complete episodes.
 
 {\scriptsize\setlength{\tabcolsep}{3pt}
-\begin{xltabular}{\textwidth}{>{\ttfamily}l c c c c c c c l}
+\begin{xltabular}{\textwidth}{>{\ttfamily}l c c c c c c c c l}
 \toprule
-\normalfont composition & calls & posts & touched & read & workers t/r of n & regulators t/r of n & disregulators t/r of n & ended with \\
+\normalfont composition & sweep & calls & posts & touched & read & workers t/r of n & regulators t/r of n & disregulators t/r of n & ended with \\
 \midrule
 \swarmpartialrows
 \bottomrule
 \end{xltabular}
 }
 
-Reading. The sweep has to be run again once the account is topped up; \code{judge.sh} now refuses to spend judge calls on a run that ended in a provider or harness error. The partial logs still show the board at work: ten to thirty-three posts per run in half an hour, and in the all-worker run several posts telling the team not to use prior submissions before anyone had read one.
+Reading. The sweep has to be run again with credit that covers all of it, in waves of a few compositions, so that a shortfall leaves complete runs rather than fragments. \code{judge.sh} refuses to spend judge calls on a run that ended in a provider or harness error, and \code{check_sweep.py} refuses to pass a run that is not complete and judged. The partial logs still show the board at work: in the first sweep, thirteen to thirty-three posts per run in half an hour, and in the all-worker run several posts telling the team not to use prior submissions before anyone had read one.
 
 Figures. \code{python -m integration.figures --runs runs --out docs/figures} draws the research's designs from the run directories: the composition heatmap, the role funnel and the adoption curves need completed swarm runs and are included below when their files exist; the swimlane and the controls plot are drawn from the runs already judged.
 
@@ -631,7 +633,7 @@ K14 & a literal gate sees only the argument string & \code{git show} inside a Py
 K15 & a blocked completion becomes a trailing model turn & the Gemini API rejects the next request under the board's one-step quantum & passive registered shim appends the continue prompt to the provider input; invisible in the log and transcript, evidenced by calls after a refusal completing \\
 K16 & stock criteria are injection-oriented & the stock monitor blocked the task prompt and most reasoning, the stock guardian nothing & task-aware criteria carried alongside the stock ones \\
 K17 & input checks repeat every turn & an LLM control checks every user and tool message of every call again each turn; on the board that is hundreds of judge calls per twenty steps and a timeout & reported; a cached or tool-call-only control is future work \\
-K18 & a provider billing error ends a run mid-way & eleven ten-agent runs died at once when prepaid credits ran out; judge calls were spent on their fragments & converter marks such episodes lost; \code{judge.sh} refuses crashed runs; check credit before a sweep \\
+K18 & a provider billing error ends a run mid-way & two sweeps of eleven parallel ten-agent runs died at once when prepaid credits ran out, 32 and 46 minutes in (50 M and 101 M prompt tokens); judge calls were spent on the first sweep's fragments & converter marks such episodes lost; \code{judge.sh} refuses crashed runs; launch in waves after a top-up that covers the whole sweep \\
 \bottomrule
 \end{xltabular}
 }

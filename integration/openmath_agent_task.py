@@ -55,6 +55,7 @@ if _ROOT not in sys.path:
 from integration.board import (board_agents, board_communication, board_execution,  # noqa: E402
                                board_roster, board_scheduler)
 from integration.controls import DEFAULT_MONITOR_MODEL, defenses_for  # noqa: E402
+from integration.provider_retry import INSTALLED as _RETRY_402_INSTALLED  # noqa: E402,F401  (Gemini 402 retried)
 from integration.swarm import (agent_names, assign_roles, composition_label, parse_swarm_report,  # noqa: E402
                                swarm_agents, SWARM_REPORT_INSTRUCTION)
 
