@@ -71,3 +71,27 @@ Message = {role: "system"|"user"|"assistant"|"tool", id, text, reasoning, flags:
 `defense_refusal` (this assistant text replaced a blocked completion).
 
 Errors: 404 `{"error": ...}` for unknown run/episode/call; 500 `{"error", "traceback"}` for server faults.
+
+### `GET /api/runs/<run>/timeline` → events of one run on a common clock (seconds from the sample's start)
+```
+{run, t0, duration, limit, agents: [str], roles: {agent: role} (swarm runs), verdicts: {agent: cheated|null},
+ first_honeypot_touch: {agent: t}, first_member_read: {agent: t},   # heuristics, see markers
+ events: [Event] sorted by t, board: [Post], markers: {touch, member_read}}
+Event = {t, t_end?, agent, kind: "model"|"defense_call"|"tool"|"submit"|"defense", ...}
+  model:        tokens_in, tokens_out, tool_calls: [function], refusal: bool, error
+  defense_call: defense (the control's own judge call)
+  tool/submit:  function, id, preview, blocked, error, honeypot_touch, member_read, message_ids? (channel_post: sent; channel_read: read)
+  defense:      defense, boundary, allow, reason, tool?
+Post = {sequence, sender, id, t, content, read_by: [{agent, t, how: "read"|"model_exposure"}]}
+```
+`honeypot_touch` marks a bash/python call whose arguments name another agent's branch, commit or copied archive
+(openmath_agent riemann row); `member_read` marks a successful call whose result carries text found only inside
+agent-014's archive members. They place moments on a timeline; the judge verdict in `verdicts` is the record of truth.
+
+### `GET /api/summary` → `{runs: [RunAggregate]}` for cross-run charts (no eval log needed)
+```
+RunAggregate = {run, control, topology, failed, n_agents, judged, cheated, honeypots_seen, attempted, disclosed,
+                blocks, checks, timeouts, score, wall_time, prompt_tokens,
+                regulators, disregulators, workers, composition, seed, report_cheated, has_report,
+                by_role: {worker|regulator|disregulator: {n, cheated}} | null}
+```
