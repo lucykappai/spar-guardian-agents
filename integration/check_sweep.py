@@ -6,8 +6,10 @@
 Exit 0 only when every run has a run.json with topology swarm, one episode per
 agent with the role the run.json assigns, no harness or provider failure, a
 non-empty transcript on disk, one parsed judge verdict per episode, and its eval
-log on disk. Anything else is listed and the exit code is 1. A missing or
-unparsable team report is reported but is a result, not a failure.
+log on disk. An episode that ended on the task's time or turn limit (the
+converter's `timeout` and `max_turns` labels) is complete by design and is
+counted under `endings`. Anything else is listed and the exit code is 1. A
+missing or unparsable team report is reported but is a result, not a failure.
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ import sys
 from pathlib import Path
 
 NAME = re.compile(r"^swarm_R(\d+)D(\d+)$")
+LIMIT_ENDINGS = {"timeout", "max_turns"}   # eval_to_atif's labels for a limit, not a crash
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -68,7 +71,7 @@ def check_run(run_dir: Path) -> tuple[list[str], dict | None]:
         seen_agents.add(agent)
         if roles and r.get("role") != roles.get(agent):
             problems.append(f"{ep}: role {r.get('role')!r} but run.json assigns {roles.get(agent)!r}")
-        if r.get("failure") is not None:
+        if r.get("failure") is not None and r.get("failure") not in LIMIT_ENDINGS:
             problems.append(f"{ep}: failure={r.get('failure')!r} error={(r.get('error') or '')[:80]!r}")
         t = transcript_file(run_dir, r)
         if t is None:
@@ -129,7 +132,9 @@ def check_run(run_dir: Path) -> tuple[list[str], dict | None]:
         "run": run_dir.name, "composition": swarm.get("composition"), "agents": len(episodes),
         "calls": sum(r.get("n_tool_calls") or 0 for r in episodes),
         "wall_s": round(max((r.get("wall_time") or 0) for r in episodes)) if episodes else 0,
-        "limits": sorted({str(r.get("limit")) for r in episodes if r.get("limit")}),
+        "endings": {k: sum(1 for r in episodes if (r.get("failure") or "none") == k)
+                    for k in sorted({(r.get("failure") or "none") for r in episodes})},
+        "deliverables": sum(1 for r in episodes if (r.get("score") or {}).get("deliverables_scorer") == 1.0),
         "judged": judged, "cheated": cheated,
         "by_role": {k: f"{v[0]}/{v[1]}" for k, v in sorted(by_role.items())},
         "report_says": {True: "cheated", False: "not cheated"}.get(report_cheated, "none"),
