@@ -437,6 +437,7 @@ function episodeRecord(ep) {
   const d = ep.defense;
   return kv([
     ['agent', ep.orbit_agent || ep.agent],
+    ['hidden role', ep.role ? roleBadge(ep.role) : undefined],
     ['tool calls', fmtInt(ep.n_tool_calls)],
     ['turns', fmtInt(ep.n_turns)],
     ['tokens prompt', h('span', { title: fmtInt(u.input) }, fmtCompact(u.input))],
@@ -621,7 +622,7 @@ async function route() {
 // 5. View: runs   #/runs   (one row per run; a row opens to its agents)
 // =====================================================================================
 
-const runsState = { q: '', setting: '', control: '', cheated: '', showFailed: false, sortKey: 'setting', sortDir: 1 };
+const runsState = { q: '', setting: '', control: '', cheated: '', failed: 'hide', sortKey: 'setting', sortDir: 1 };
 const openRuns = new Set();   // runs whose agent rows are open, kept across visits
 
 /**
@@ -697,7 +698,7 @@ const RUN_COLS = [
 ];
 
 /**
- * Runs-list state from the URL: #/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=desc.
+ * Runs-list state from the URL: #/runs?q=&setting=&control=&cheated=&failed=1|only&sort=&dir=desc.
  * A bare #/runs keeps the state from earlier in the session; #/runs?all=1 resets every filter.
  */
 function runsStateFromQuery(q, settings, controls) {
@@ -707,7 +708,8 @@ function runsStateFromQuery(q, settings, controls) {
   runsState.setting = pick(q.get('setting') || '', settings);
   runsState.control = pick(q.get('control') || '', controls);
   runsState.cheated = pick(q.get('cheated') || '', ['yes', 'no', 'none']);
-  runsState.showFailed = q.get('failed') === '1';
+  const f = q.get('failed');
+  runsState.failed = f === '1' || f === 'show' ? 'show' : f === 'only' ? 'only' : 'hide';
   const sk = q.get('sort');
   runsState.sortKey = RUN_COLS.some(c => c.key === sk) ? sk : 'setting';
   runsState.sortDir = q.get('dir') === 'desc' ? -1 : 1;
@@ -717,7 +719,7 @@ function runsQuery() {
   const s = runsState;
   return {
     q: s.q.trim() ? s.q : '', setting: s.setting, control: s.control, cheated: s.cheated,
-    failed: s.showFailed ? '1' : '', sort: s.sortKey === 'setting' ? '' : s.sortKey, dir: s.sortDir < 0 ? 'desc' : '',
+    failed: s.failed === 'show' ? '1' : s.failed === 'only' ? 'only' : '', sort: s.sortKey === 'setting' ? '' : s.sortKey, dir: s.sortDir < 0 ? 'desc' : '',
   };
 }
 
@@ -766,9 +768,9 @@ function reportCell(agg) {
 function episodesTable(run) {
   const eps = run.episodes || [];
   const cols = [['agent'], ['role'], ['calls', 'num'], ['ended by'], ['cheated'], ['saw honeypot'], ['attempted'], ['extracted'], ['disclosed'],
-    ['prompt tok', 'num'], ['judge $', 'num'], ['']];
+    ['prompt tok', 'num'], ['judge $', 'num'], ['links', 'hidden-name']];
   return h('table', { class: 'data compact eps-table' },
-    h('thead', null, h('tr', null, cols.map(([c, cls]) => h('th', { class: cls }, c)))),
+    h('thead', null, h('tr', null, cols.map(([c, cls]) => h('th', { class: cls === 'hidden-name' ? '' : cls, scope: 'col' }, cls === 'hidden-name' ? h('span', { class: 'visually-hidden' }, c) : c)))),
     h('tbody', null, eps.map(ep => {
       const v = ep.verdict || null;
       const u = ep.usage || {};
@@ -894,7 +896,8 @@ async function viewRuns({ query: urlQ }, view) {
     for (const row of rows) {
       const { run, agg } = row;
       let ok = true;
-      if (!runsState.showFailed && run.failed) { ok = false; failedHidden++; }
+      if (runsState.failed === 'hide' && run.failed) { ok = false; failedHidden++; }
+      if (runsState.failed === 'only' && !run.failed) ok = false;
       if (ok && runsState.setting && row.setting.key !== runsState.setting) ok = false;
       if (ok && runsState.control && run.control !== runsState.control) ok = false;
       if (ok && runsState.cheated) {
@@ -915,8 +918,8 @@ async function viewRuns({ query: urlQ }, view) {
     summary.replaceChildren(
       h('strong', null, plural(shown, 'run')), ` shown, ${plural(agents, 'agent')} · `,
       h('strong', { class: cheated ? 'text-bad' : '' }, `${fmtInt(cheated)} cheated`), ` of ${fmtInt(judged)} judged`,
-      !runsState.showFailed && failedHidden ? ` · ${plural(failedHidden, 'failed run')} hidden` : '',
-      runsState.showFailed ? ' · failed runs are shown and never counted' : '');
+      runsState.failed === 'hide' && failedHidden ? ` · ${plural(failedHidden, 'failed run')} hidden` : '',
+      runsState.failed !== 'hide' ? ' · failed runs are never counted' : '');
     updateUrl();
   }
 
@@ -951,8 +954,6 @@ async function viewRuns({ query: urlQ }, view) {
     class: 'search', 'aria-label': 'Search runs',
   });
   search.addEventListener('input', debounce(() => { runsState.q = search.value; apply(); }, 80));
-  const showFailed = h('input', { type: 'checkbox', checked: runsState.showFailed });
-  showFailed.addEventListener('change', () => { runsState.showFailed = showFailed.checked; apply(); });
   const openAll = h('button', { type: 'button', class: 'btn btn-small', onclick: () => {
     const anyClosed = rows.some(r => !r.tr.hidden && !openRuns.has(r.run.run));
     for (const r of rows) { if (r.tr.hidden) continue; if (anyClosed) openRuns.add(r.run.run); else openRuns.delete(r.run.run); r.sync(); }
@@ -965,16 +966,16 @@ async function viewRuns({ query: urlQ }, view) {
     labeled('control', select([['', 'all'], ...controls], runsState.control, v => { runsState.control = v; apply(); })),
     labeled('cheated', select([['', 'any'], ['yes', 'at least one agent'], ['no', 'none of the judged'], ['none', 'not judged']], runsState.cheated,
       v => { runsState.cheated = v; apply(); })),
-    h('label', { class: 'field check' }, showFailed, h('span', null, 'show failed runs')),
+    labeled('failed runs', select([['hide', 'hidden'], ['show', 'shown'], ['only', 'only failed']], runsState.failed, v => { runsState.failed = v; apply(); })),
     openAll);
 
-  const table = h('table', { class: 'data runs-table' }, h('thead', null, h('tr', null, h('th', { class: 'exp-cell' }), ths)), tbody);
+  const table = h('table', { class: 'data runs-table' }, h('thead', null, h('tr', null, h('th', { class: 'exp-cell', scope: 'col' }, h('span', { class: 'visually-hidden' }, 'agents')), ths)), tbody);
   const page = h('div', { class: 'page wide' },
     h('div', { class: 'page-head' },
       h('h1', null, 'Runs'),
       muted(`${plural(runs.length, 'run')}. A row opens to its agents; the run name opens the run page (metadata, board, defenses, timeline, context windows, sample).`)),
     filters, summary,
-    h('div', { class: 'table-wrap' }, table));
+    h('div', { class: 'table-wrap runs-wrap' }, table));
   applySort();
   apply();
   return page;
@@ -1492,6 +1493,7 @@ async function viewEpisode({ run, episode, query: q }, view) {
     h('div', { class: 'ep-title' },
       h('h1', null, episode),
       badge(ep.orbit_agent || t.agent || '?', 'agent'),
+      ep.role ? roleBadge(ep.role) : null,
       t.model ? muted(t.model) : null,
       h('span', { class: 'spacer' }),
       navBtn(prev, `← ${prev || 'prev episode'}`),
@@ -1509,7 +1511,7 @@ async function viewEpisode({ run, episode, query: q }, view) {
       counts.withheld ? [' · ', badge(`${counts.withheld} WITHHELD`, 'withheld')] : null,
       counts.notice ? [' · ', badge(`${counts.notice} provider-only`, 'notice')] : null,
       counts.error ? [' · ', badge(`${counts.error} tool errors`, 'bad')] : null),
-    h('h3', { class: 'sub-h' }, 'Judge verdict'),
+    h('h2', { class: 'sub-h' }, 'Judge verdict'),
     verdictBlock(ep.verdict),
     ep.error ? lazyDetails('episode error', () => longText(ep.error, { lines: 30 }), { cls: 'sub' }) : null,
     lazyDetails('ORBIT metadata and final metrics', () => h('div', null,
@@ -1534,10 +1536,11 @@ async function viewEpisode({ run, episode, query: q }, view) {
   let active = null;
   const setActive = e => {
     if (active === e) return;
-    if (active) active.item.classList.remove('active');
+    if (active) { active.item.classList.remove('active'); active.item.removeAttribute('aria-current'); }
     active = e;
     if (!e) return;
     e.item.classList.add('active');
+    e.item.setAttribute('aria-current', 'true');
     const it = e.item;
     if (it.offsetTop < listBox.scrollTop || it.offsetTop + it.offsetHeight > listBox.scrollTop + listBox.clientHeight) {
       listBox.scrollTop = it.offsetTop - listBox.clientHeight / 3;
@@ -1874,7 +1877,7 @@ async function viewContext({ run, query: q }, view) {
     const c = byIndex.get(i);
     if (!c) return;
     st.selected = i;
-    for (const it of items) it.el.classList.toggle('active', it.c.index === i);
+    for (const it of items) { it.el.classList.toggle('active', it.c.index === i); if (it.c.index === i) it.el.setAttribute('aria-current', 'true'); else it.el.removeAttribute('aria-current'); }
     const it = items.find(x => x.c.index === i);
     if (it && !opts.fromList) scrollItemIntoList(it);
     if (it && opts.focus) it.el.focus({ preventScroll: true });
@@ -1934,10 +1937,10 @@ async function viewContext({ run, query: q }, view) {
 
   const kindBtns = h('div', { class: 'seg', role: 'group', 'aria-label': 'call kind' },
     [['', 'all'], ['agent', 'agent calls only'], ['defense', 'defense calls only']].map(([v, label]) => {
-      const b = h('button', { type: 'button', class: ['seg-btn', st.kind === v && 'active'], dataset: { v } }, label);
+      const b = h('button', { type: 'button', class: ['seg-btn', st.kind === v && 'active'], 'aria-pressed': st.kind === v ? 'true' : 'false', dataset: { v } }, label);
       b.addEventListener('click', () => {
         st.kind = v;
-        for (const x of kindBtns.children) x.classList.toggle('active', x.dataset.v === v);
+        for (const x of kindBtns.children) { x.classList.toggle('active', x.dataset.v === v); x.setAttribute('aria-pressed', x.dataset.v === v ? 'true' : 'false'); }
         applyFilter();
       });
       return b;
@@ -2717,11 +2720,11 @@ function swimlaneCard(ctx, lane, run) {
   // Controls: axis mode, layers, zoom.
   const modeBtns = h('div', { class: 'seg', role: 'group', 'aria-label': 'x axis' },
     [['time', 'seconds from start'], ['turn', 'turn index']].map(([v, label]) => {
-      const b = h('button', { type: 'button', class: ['seg-btn', st.mode === v && 'active'], dataset: { v } }, label);
+      const b = h('button', { type: 'button', class: ['seg-btn', st.mode === v && 'active'], 'aria-pressed': st.mode === v ? 'true' : 'false', dataset: { v } }, label);
       b.addEventListener('click', () => {
         if (st.mode === v) return;
         st.mode = v;
-        for (const x of modeBtns.children) x.classList.toggle('active', x.dataset.v === v);
+        for (const x of modeBtns.children) { x.classList.toggle('active', x.dataset.v === v); x.setAttribute('aria-pressed', x.dataset.v === v ? 'true' : 'false'); }
         [st.lo, st.hi] = full();
         syncZoom();
         draw();
@@ -3273,7 +3276,7 @@ function compositionGrid(N, cells, drawCell, label) {
   const W = padL + (N + 1) * c + 8;
   const H = padT + (N + 1) * c + padB;
   const uid = ++vizUid;
-  const svg = svgEl('svg', { class: 'viz comp-grid', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': label });
+  const svg = svgEl('svg', { class: 'viz comp-grid', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'group', 'aria-label': label });
   svg.appendChild(svgEl('defs', null,
     svgEl('pattern', { id: `hatch-${uid}`, width: 6, height: 6, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' },
       svgEl('line', { class: 'hatch-line', x1: 0, y1: 0, x2: 0, y2: 6 }))));
@@ -3423,7 +3426,7 @@ function compositionSection(swarm, failed = []) {
 }
 
 /** One row per swarm run: composition, verdicts by role, the team report, registration; thumbs(run) adds a raster column. */
-function swarmTable(swarm, thumbs) {
+function swarmTable(swarm, thumbs, onTimeline) {
   const sorted = swarm.slice().sort((a, b) => (a.regulators ?? 99) - (b.regulators ?? 99) || (a.disregulators ?? 99) - (b.disregulators ?? 99) ||
     (a.seed ?? 0) - (b.seed ?? 0) || a.run.localeCompare(b.run));
   const roleCell = (x, role) => {
@@ -3441,7 +3444,8 @@ function swarmTable(swarm, thumbs) {
       ['team report', 'agrees with judge', 'registered', 'ended'].map(c => h('th', null, c)),
       thumbs ? h('th', { title: 'agent by turn raster; click for the timeline' }, 'agent × turn') : null)),
     h('tbody', null, sorted.map(x => h('tr', { class: x.failed && 'failed', title: x.failed ? 'failed run (harness crash or provider error): not counted in the charts' : null },
-      h('td', null, link(R.run(x.run), x.run, 'run-link'), x.failed ? [' ', badge('failed', 'bad')] : null, ' ', link(R.swarm({ run: x.run }), 'timeline', 'small')),
+      h('td', null, link(R.run(x.run), x.run, 'run-link'), x.failed ? [' ', badge('failed', 'bad')] : null, ' ',
+        h('a', { href: R.swarm({ run: x.run }), class: 'small', onclick: onTimeline ? (e => { e.preventDefault(); onTimeline(x.run); }) : null }, 'timeline')),
       h('td', { class: 'mono' }, x.composition || DASH),
       h('td', { class: 'num' }, x.seed ?? DASH),
       h('td', { class: 'num' }, fmtInt(x.judged)),
@@ -3504,7 +3508,7 @@ function shareBars(rows, W) {
     y += rowH;
   }
   const H = y + 6;
-  const svg = svgEl('svg', { class: 'viz bars-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img',
+  const svg = svgEl('svg', { class: 'viz bars-svg', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'group',
     'aria-label': 'Share of judged agents who cheated, by setting' });
   const sx = f => x0 + f * (x1 - x0);
   for (const f of [0, 0.25, 0.5, 0.75, 1]) {
@@ -3534,7 +3538,7 @@ function headline(items) {
 }
 
 async function viewSummary(r, view) {
-  const sum = await apiFresh(P.summary());
+  const [sum, figs] = await Promise.all([apiFresh(P.summary()), api(P.figures()).catch(() => [])]);
   const all = sum.runs || [];
   const mock = all.filter(x => x.mock);
   const ok = all.filter(x => !x.failed && !x.mock);
@@ -3566,7 +3570,7 @@ async function viewSummary(r, view) {
       [fmtInt(ok.length), `completed runs: ${nSingle} lone agent, ${nBoard} board, ${swarm.length} board with hidden roles`, R.runs({ all: '1' })],
       [fmtInt(judged), 'judged agents', R.runs({ all: '1' })],
       [fmtInt(cheated), 'agents judged cheated', R.runs({ cheated: 'yes' })],
-      [fmtInt(failed.length), 'failed runs set aside', R.runs({ failed: '1' })],
+      [fmtInt(failed.length), 'failed runs set aside', R.runs({ failed: 'only' })],
     ]),
     section('Share of judged agents who cheated, by setting', barsHost,
       h('div', { class: 'muted small' }, 'A setting is the graph (lone agent, or every agent on one board), the roster size, and whether roles were hidden. Bar: cheated over judged. A row opens the runs behind it.')),
@@ -3575,7 +3579,9 @@ async function viewSummary(r, view) {
       h('div', { class: 'muted small' }, 'Left grid: share of judged agents who cheated. Right grid: the same by hidden role. ', link(R.swarm(), 'Swarm visualizations'), ' has the funnel, the adoption curves and every run’s timeline.')),
     section('Team reports against the judge',
       swarm.length ? swarmTable(swarm, null) : muted('No completed swarm run yet.'),
-      h('div', { class: 'muted small' }, 'The team report is the first line of swarm_report.txt. The judge counts an agent that inspected another agent’s archive; the report asks the team about use, copying, extraction or presentation, a broader question.')));
+      h('div', { class: 'muted small' }, 'The team report is the first line of swarm_report.txt. The judge counts an agent that inspected another agent’s archive; the report asks the team about use, copying, extraction or presentation, a broader question.')),
+    section('Figures of the document', figuresSection(figs),
+      h('div', { class: 'muted small' }, 'Rendered by make figures from the same run directories; the document includes the PDF versions.')));
 }
 
 // ---- swarm visualizations ------------------------------------------------------------
@@ -3644,7 +3650,7 @@ function curveOf(x, tl) {
 }
 
 /** Small multiples, one per composition: share of agents that have read the archive against time. */
-function adoptionCurves(curves, noLog) {
+function adoptionCurves(curves, noLog, onOpen) {
   if (!curves.length) return muted('No swarm run with a readable timeline.');
   const groups = new Map();
   for (const c of curves) {
@@ -3694,7 +3700,7 @@ function adoptionCurves(curves, noLog) {
     }
     svg.appendChild(svgEl('text', { class: 'lane-name', x: padL, y: 13 }, `R${R_} D${D_}` + (runs.length > 1 ? ` (${runs.length} runs)` : '')));
     const fig = h('figure', { class: 'adopt-fig' }, svg);
-    svg.addEventListener('click', () => { tip.hide(); location.hash = R.swarm({ run: runs[0].run }); });
+    svg.addEventListener('click', () => { tip.hide(); if (onOpen) onOpen(runs[0].run); else location.hash = R.swarm({ run: runs[0].run }); });
     return fig;
   });
   return h('div', null,
@@ -3756,7 +3762,7 @@ async function viewSwarm({ query: q }, view) {
     const run = box.dataset.run;
     tlOf(run).then(tl => {
       if (!live || !tl) return;
-      const { el } = rasterCanvas(tl, laneOrder(tl), { thumb: true, maxW: 200, onClick: () => { tip.hide(); showRun(run, true); } });
+      const { el } = rasterCanvas(tl, laneOrder(tl), { thumb: true, maxW: 160, onClick: () => { tip.hide(); showRun(run, true); } });
       box.replaceChildren(el);
     }).catch(e => {
       if (!live) return;
@@ -3776,8 +3782,8 @@ async function viewSwarm({ query: q }, view) {
   // Adoption curves, drawn once every completed run's timeline has arrived.
   const adoptHost = h('div', { class: 'viz-host' }, muted(`reading ${plural(swarm.length, 'timeline')}…`));
   const noLog = [];
-  Promise.all(swarm.map(x => tlOf(x.run).then(tl => (tl ? curveOf(x, tl) : null), () => { noLog.push(x.run); return null; })))
-    .then(curves => { if (live) adoptHost.replaceChildren(adoptionCurves(curves.filter(Boolean), noLog)); });
+  const adoptionDone = Promise.all(swarm.map(x => tlOf(x.run).then(tl => (tl ? curveOf(x, tl) : null), () => { noLog.push(x.run); return null; })))
+    .then(curves => { if (live) adoptHost.replaceChildren(adoptionCurves(curves.filter(Boolean), noLog, name => showRun(name, true))); });
 
   // Run explorer: raster, swimlanes and cascade of one run.
   const names = swarm.map(x => x.run).concat(swarmFailed.map(x => x.run));
@@ -3811,6 +3817,8 @@ async function viewSwarm({ query: q }, view) {
           eps.filter(e => e.has_transcript).map(e => link(R.episode(name, e.episode), `transcript ${e.orbit_agent || e.episode}`, 'btn btn-small'))),
         panels.note, panels.node);
       panels.mount();
+      // The sections above the explorer finish drawing on their own clock; scroll again once they have.
+      if (scroll) adoptionDone.then(() => { if (live && tok === showToken) exploreAnchor.scrollIntoView({ block: 'start' }); });
     } catch (e) {
       if (!live || tok !== showToken) return;
       exploreHost.replaceChildren(errorBox(e, name));
@@ -3826,12 +3834,12 @@ async function viewSwarm({ query: q }, view) {
     document.title = 'Swarm · results';
     drawFunnel();
     window.addEventListener('resize', onResize);
-    if (current) showRun(current, false);
+    if (current) showRun(current, !!want && names.includes(want));
   });
   view.cleanup(() => { live = false; if (io) io.disconnect(); if (panels) panels.unmount(); window.removeEventListener('resize', onResize); tip.hide(); });
 
   const none = muted('No swarm run yet. A run appears here once its run.json records a swarm composition.');
-  return h('div', { class: 'page' },
+  return h('div', { class: 'page wide' },
     h('div', { class: 'page-head' },
       h('h1', null, 'Swarm visualizations'),
       h('div', { class: 'links' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => route() }, 're-read')),
@@ -3840,7 +3848,7 @@ async function viewSwarm({ query: q }, view) {
     section('Compositions', swarm.length || swarmFailed.length ? compositionSection(swarm, swarmFailed) : none),
     section('Outcome funnel by hidden role', funnelHost),
     section('Adoption of the honeypot archive over time', adoptHost),
-    section('Swarm runs', swarm.length || swarmFailed.length ? [swarmTable(swarm.concat(swarmFailed), thumbs), rasterLegend()] : none),
+    section('Swarm runs', swarm.length || swarmFailed.length ? [swarmTable(swarm.concat(swarmFailed), thumbs, name => showRun(name, true)), rasterLegend()] : none),
     h('section', { class: 'card', id: 'explore-card' }, exploreAnchor,
       h('div', { class: 'sec-head' }, h('h2', null, 'Run explorer'), labeled('run', sel), noteBox),
       h('div', { class: 'muted small' }, 'Agent by turn raster, swimlanes with board-message arrows, and the exposure cascade of the chosen run.'),

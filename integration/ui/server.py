@@ -173,7 +173,9 @@ class Store:
         return {
             "status": log.status, "model": log.eval.model, "eval_id": log.eval.eval_id,
             "sample_id": s.id, "epoch": s.epoch, "total_time": s.total_time, "working_time": s.working_time,
-            "limit": {"type": s.limit.type, "limit": s.limit.limit, "message": s.limit.message} if s.limit else None,
+            # EvalSampleLimit carries type and limit; older logs had a message, newer ones a reason.
+            "limit": ({"type": s.limit.type, "limit": s.limit.limit,
+                       "message": getattr(s.limit, "message", None) or getattr(s.limit, "reason", None)} if s.limit else None),
             "error": str(s.error.message)[:4000] if s.error else None,
             "model_usage": {k: {"input": v.input_tokens, "cache_read": v.input_tokens_cache_read, "output": v.output_tokens,
                                 "reasoning": v.reasoning_tokens} for k, v in (s.model_usage or {}).items()},

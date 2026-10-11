@@ -28,7 +28,7 @@ integration/
   ui/                    results browser: server, API.md, static UI
   docker/judge/          image that runs CheatBench's judge
 runs/<name>/             one run: run.json, episodes.jsonl, judge.jsonl, trajectories/, communication/, defense/
-logs/<kind>/<name>/      Inspect eval logs (gitignored)
+logs/                    Inspect eval logs (gitignored): ctrl/<run>/, swarm/<run>/, and the two pilots under gemini*/
 docs/                    the document, generated tables, figures
 submodules/              cheatbench and orbit, read only
 VERIFICATION_LOG.md      every output, how it was verified, and the result
@@ -42,7 +42,7 @@ scripts/run_swarm.sh 3 3 swarm_R3D3_s1 -T seed=1                # one compositio
 scripts/judge.sh logs/swarm/<run>/<log>.eval <run>               # convert and judge an existing eval log
 ```
 
-Each run writes `runs/<name>/` and `logs/<kind>/<name>/`. A run that died in the harness or at the provider is set aside under a `failed_` or `failed2_` prefix. The browser hides those by default, and no table or figure counts them.
+Each run writes `runs/<name>/` and its eval log under `logs/`. A run that died in the harness or at the provider is set aside under a `failed_` or `failed2_` prefix. The browser hides those by default, and no table or figure counts them.
 
 ## Results browser
 

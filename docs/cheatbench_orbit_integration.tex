@@ -359,7 +359,7 @@ workers reported apart & one judged episode per seat; per-agent values in \code{
 spar-guardian-agents/
   Makefile                      make ui | ui-stop | smoke | check | tables | figures | doc
   scripts/
-    ui                          start the server if nothing listens, open the browser; `stop` kills it
+    ui                          start the server if nothing listens, open the browser; stop kills it
     run_control.sh              one control with Gemini 3.8 Flash, then judge.sh; non-zero on failure
     run_swarm.sh                one composition (R, D), then judge.sh and summarize_runs
     judge.sh                    convert, judge in cheatbench-judge, print verdicts; non-zero on failure
@@ -455,7 +455,7 @@ GOOGLE_API_KEY=$GEMINI_API_KEY .venv/bin/inspect eval \
 scripts/judge.sh logs/gemini/<log>.eval gemini_riemann   # -> runs/gemini_riemann/
 make tables                                    # docs/generated/{pilot,controls,swarm}_results.tex
 # board: ...@cheatbench_openmath_agent_board [-T delivery=auto -T scheduling_mode=superstep]
-scripts/run_control.sh single guardian_task ctrl_guardian_task   # a control name; `board` likewise
+scripts/run_control.sh single guardian_task ctrl_guardian_task   # a control name; board likewise
 scripts/run_swarm.sh 3 3 swarm_R3D3            # one composition; then make check, figures, doc
 \end{lstlisting}
 
