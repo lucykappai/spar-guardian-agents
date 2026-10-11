@@ -682,7 +682,7 @@ function roleBadge(role) {
 function verdictCell(ep, yesKind = 'bad', noKind = 'good') {
   const v = ep && ep.verdict ? ep.verdict.cheated : null;
   if (v != null && !ep.has_transcript) {
-    return h('span', { title: 'verdict on an episode with no transcript (harness crash); not counted in the summary' }, yn(v, 'plain', 'plain'));
+    return h('span', { title: 'verdict on an episode with no transcript (harness crash or provider error); not counted in the summary' }, yn(v, 'plain', 'plain'));
   }
   return yn(v, yesKind, noKind);
 }
@@ -694,10 +694,10 @@ function runRowCells(row) {
   const u = ep.usage || {};
   const td = (content, opts = {}) => h('td', { class: opts.num ? 'num' : opts.cls, title: opts.title }, content);
   const agentName = ep.orbit_agent || ep.episode || DASH;
-  // A verdict on an episode with no transcript (harness crash) judged nothing: grey, not counted.
+  // A verdict on an episode with no transcript (harness crash or provider error) judged nothing: grey, not counted.
   const blind = !!v && v.cheated != null && !ep.has_transcript && !row.noEp;
   let cheatCell = blind
-    ? h('span', { title: 'verdict on an episode with no transcript (harness crash); not counted in the summary' }, yn(v.cheated, 'plain', 'plain'))
+    ? h('span', { title: 'verdict on an episode with no transcript (harness crash or provider error); not counted in the summary' }, yn(v.cheated, 'plain', 'plain'))
     : yn(v ? v.cheated : null, 'bad', 'good');
   if (v && (v.parse_ok === false || v.judge_error)) {
     cheatCell = h('span', null, cheatCell, ' ', badge('judge issue', 'warn', String(v.judge_error || 'parse failed')));
@@ -757,7 +757,7 @@ async function viewRuns({ query: urlQ }, view) {
   for (const row of rows) {
     const { run, ep } = row;
     const target = row.noEp || !ep.has_transcript ? R.run(run.run) : R.episode(run.run, ep.episode);
-    const tr = h('tr', { class: [run.failed && 'failed'], title: run.failed ? 'failed run (harness crash)' : null }, runRowCells(row));
+    const tr = h('tr', { class: [run.failed && 'failed'], title: run.failed ? 'failed run (harness crash or provider error)' : null }, runRowCells(row));
     tr.dataset.run = run.run;
     tr.addEventListener('click', e => {
       if (e.target.closest('a')) return;
@@ -2262,8 +2262,8 @@ function verdictInfo(detail, ep) {
   const c = ep && ep.verdict ? ep.verdict.cheated : null;
   const raw = c === true || c === false ? c : null;
   if (raw == null) return { v: null, raw, label: 'not judged', why: null };
-  if (!ep.has_transcript) return { v: null, raw, label: 'not counted', why: 'the episode has no transcript (harness crash)' };
-  if (detail.failed) return { v: null, raw, label: 'not counted', why: 'the run failed (harness crash)' };
+  if (!ep.has_transcript) return { v: null, raw, label: 'not counted', why: 'the episode has no transcript (harness crash or provider error)' };
+  if (detail.failed) return { v: null, raw, label: 'not counted', why: 'the run failed (harness crash or provider error)' };
   return { v: raw, raw, label: raw ? 'cheated' : 'not cheated', why: null };
 }
 function verdictLine(info) {
@@ -3146,7 +3146,7 @@ function runTipLines(x) {
   return `${x.run} · seed ${x.seed ?? DASH} · ${x.judged ? `${x.cheated}/${x.judged} cheated` : 'not judged'} · team report ${x.has_report ? (x.report_cheated == null ? 'unparsed' : x.report_cheated ? 'cheated' : 'not cheated') : 'missing'}` +
     `${reportDisagrees(x) ? ' (disagrees with the judge)' : ''} · ${plural(x.timeouts || 0, 'timeout')} · score ${x.score ?? DASH}`;
 }
-const failedTipLine = x => `${x.run} · seed ${x.seed ?? DASH} · failed run (harness crash), not counted`;
+const failedTipLine = x => `${x.run} · seed ${x.seed ?? DASH} · failed run (harness crash or provider error), not counted`;
 const failedNote = cell => (cell.failed.length ? ` (${plural(cell.failed.length, 'failed run')} not counted)` : '');
 
 /** Regulators (y, up) by disregulators (x) grid for one swarm size; only cells with R + D <= N exist. */
@@ -3197,7 +3197,7 @@ function cellLink(cell, title) {
 
 /** A composition whose only runs failed: outlined and labelled, never filled as an outcome. */
 function failedCell(svg, cell, x, y, c, r, d, N) {
-  const g = cellLink(cell, `R${r} D${d} W${N - r - d}: ${plural(cell.failed.length, 'failed run')} (harness crash), not counted`);
+  const g = cellLink(cell, `R${r} D${d} W${N - r - d}: ${plural(cell.failed.length, 'failed run')} (harness crash or provider error), not counted`);
   g.appendChild(svgEl('rect', { class: 'hm-failed', x: x + 1.5, y: y + 1.5, width: c - 3, height: c - 3, rx: 3 }));
   g.appendChild(svgEl('text', { class: 'hm-failed-text', x: x + c / 2, y: y + c / 2 + 3, 'text-anchor': 'middle' }, 'failed'));
   svg.appendChild(g);
@@ -3294,7 +3294,7 @@ function compositionSection(swarm, failed = []) {
       [seqLegend(), '0 to 100% of judged agents cheated (cell text k/n)'],
       [swatch('sw-hatch'), 'no run'],
       [swatch('sw-unjudged'), 'not judged yet'],
-      failedDrawn.length ? [swatch('sw-failed'), 'failed runs only (harness crash), not counted'] : null,
+      failedDrawn.length ? [swatch('sw-failed'), 'failed runs only (harness crash or provider error), not counted'] : null,
       [lgSvg(svgEl('path', { class: 'corner-mark', d: 'M6,2L16,2L16,12Z' })), 'team report disagrees with the judge'],
       [lgSvg(svgEl('path', { class: 'corner-mark hollow', d: 'M6,2L16,2L16,12Z' })), 'no team report'],
     ]),
@@ -3320,7 +3320,7 @@ function swarmTable(swarm, thumbs) {
       ROLE_ORDER.map(role => h('th', { class: 'num', title: `${role}s judged cheated / judged` }, roleIcon(role, 10), ' ', role)),
       ['team report', 'agrees with judge', 'timeouts', 'score'].map((c, i) => h('th', { class: i >= 2 ? 'num' : '' }, c)),
       h('th', { title: 'agent by turn raster; click for the timeline' }, 'agent × turn'))),
-    h('tbody', null, sorted.map(x => h('tr', { class: x.failed && 'failed', title: x.failed ? 'failed run (harness crash): not counted in the charts' : null },
+    h('tbody', null, sorted.map(x => h('tr', { class: x.failed && 'failed', title: x.failed ? 'failed run (harness crash or provider error): not counted in the charts' : null },
       h('td', null, link(R.run(x.run), x.run, 'run-link'), x.failed ? [' ', badge('failed', 'bad')] : null, ' ', link(R.timeline(x.run), 'timeline', 'small')),
       h('td', { class: 'mono' }, x.composition || DASH),
       h('td', { class: 'num' }, x.seed ?? DASH),
@@ -3441,17 +3441,17 @@ async function viewOverview(r, view) {
   view.cleanup(() => { live = false; if (io) io.disconnect(); tip.hide(); });
 
   const noSwarm = () => muted(swarmFailed.length
-    ? `No completed swarm runs yet; ${plural(swarmFailed.length, 'failed swarm run')} (harness crash) are listed under Swarm runs and not counted. This page re-reads the summary each time it opens (or press Reload).`
+    ? `No completed swarm runs yet; ${plural(swarmFailed.length, 'failed swarm run')} (harness crash or provider error) are listed under Swarm runs and not counted. This page re-reads the summary each time it opens (or press Reload).`
     : 'No swarm runs yet. A run appears here once its run.json records a swarm composition; this page re-reads the summary each time it opens (or press Reload).');
   const failedGridNote = !swarmFailed.some(drawableComposition) ? null : h('div', { class: 'muted small' }, swarm.length
-    ? `${plural(swarmFailed.length, 'failed swarm run')} (harness crash) not counted; a composition whose only runs failed reads “failed”.`
-    : `No completed swarm runs yet. The cells marked “failed” are the compositions of ${plural(swarmFailed.length, 'failed swarm run')} (harness crash), which are not counted. This page re-reads the summary each time it opens (or press Reload).`);
+    ? `${plural(swarmFailed.length, 'failed swarm run')} (harness crash or provider error) not counted; a composition whose only runs failed reads “failed”.`
+    : `No completed swarm runs yet. The cells marked “failed” are the compositions of ${plural(swarmFailed.length, 'failed swarm run')} (harness crash or provider error), which are not counted. This page re-reads the summary each time it opens (or press Reload).`);
   return h('div', { class: 'page' },
     h('div', { class: 'page-head' },
       h('h1', null, 'Overview'),
       h('div', { class: 'links' }, h('button', { type: 'button', class: 'btn btn-small', onclick: () => route() }, 're-read')),
       muted(`${plural(all.length, 'run')} from /api/summary, ${plural(swarm.length + swarmFailed.length, 'swarm run')}` +
-        `${failedN ? `; ${plural(failedN, 'failed run')} (harness crash) left out of every count` : ''}. Counts are judged agents with a transcript.`)),
+        `${failedN ? `; ${plural(failedN, 'failed run')} (harness crash or provider error) left out of every count` : ''}. Counts are judged agents with a transcript.`)),
     section('Swarm compositions', swarm.length || swarmFailed.length
       ? [compositionSection(swarm, swarmFailed), failedGridNote || (swarm.length ? null : noSwarm())] : noSwarm()),
     section('Swarm runs', swarm.length || swarmFailed.length ? swarmTable(swarm.concat(swarmFailed), thumbs) : noSwarm(),
