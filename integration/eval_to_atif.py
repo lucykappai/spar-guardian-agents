@@ -178,15 +178,23 @@ def agent_events(sample, agent: str, kind: str) -> list:
     return [e for e in sample.events if e.event == kind and owner(e.span_id) == agent]
 
 
-def delivery_notices(model_events) -> list[tuple[str | None, str]]:
-    """(output assistant message id or None, notice text) per model call that carried a notice."""
+TRAILING_TURN_TAG = "orbit_trailing_turn_fix"   # integration/controls.py
+
+
+def delivery_notices(model_events) -> list[tuple[str | None, str, str]]:
+    """(output assistant message id or None, text, source) per provider-only message in a model call.
+
+    Covers ORBIT's channel notices (system) and the integration's trailing-turn
+    continue prompt (user); neither enters the durable conversation.
+    """
     out = []
     for ev in model_events:
         for m in ev.input or []:
-            if m.role == "system" and (m.metadata or {}).get(DELIVERY_TAG):
+            meta = m.metadata or {}
+            if (m.role == "system" and meta.get(DELIVERY_TAG)) or (m.role == "user" and meta.get(TRAILING_TURN_TAG)):
                 text, _ = split_content(m.content)
                 out_id = ev.output.message.id if (ev.output and ev.output.choices) else None
-                out.append((out_id, text))
+                out.append((out_id, text, "system" if m.role == "system" else "user"))
     return out
 
 
@@ -209,8 +217,11 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
     model_events = agent_events(sample, agent_name, "model")
     notices = delivery_notices(model_events)
     redacted = redacted_message_ids(model_events)
-    by_id = {oid: text for oid, text in notices if oid}
-    ordered = [text for _, text in notices]
+    by_id: dict = {}
+    for oid, text, source in notices:
+        if oid:
+            by_id.setdefault(oid, []).append((text, source))
+    ordered = [(text, source) for _, text, source in notices]
     steps: list[dict] = []
     issued: dict[str, int] = {}          # tool_call_id -> index into steps
     system_prompt = None
@@ -226,13 +237,14 @@ def build_trajectory(sample, log, agent_name: str, messages: list) -> tuple[Traj
             steps.append({"source": "user", "message": text,
                           **({"extra": {"withheld_from_model_by_defense": True}} if msg.id in redacted else {})})
         elif isinstance(msg, ChatMessageAssistant):
-            notice = by_id.get(msg.id)
+            items = by_id.get(msg.id)
             how = "message_id"
-            if notice is None and not by_id and assistant_seen < len(ordered):
-                notice, how = ordered[assistant_seen], "order"
-            if notice is not None:
-                steps.append({"source": "system", "message": notice,
-                              "extra": {"orbit_delivery_notice": True, "attached_by": how}})
+            if items is None and not by_id and assistant_seen < len(ordered):
+                items, how = [ordered[assistant_seen]], "order"
+            for text, source in items or []:
+                steps.append({"source": source, "message": text,
+                              "extra": {"orbit_delivery_notice": source == "system",
+                                        "orbit_trailing_turn_fix": source == "user", "attached_by": how}})
                 attached_notices += 1
             assistant_seen += 1
             text, reasoning = split_content(msg.content)
