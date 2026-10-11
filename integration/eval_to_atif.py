@@ -408,7 +408,9 @@ def error_and_failure(sample) -> tuple[str | None, str | None]:
     if sample.error is not None:
         message = str(getattr(sample.error, "message", sample.error))
         lowered = message.lower()
-        if any(k in lowered for k in ("rate limit", "429", "connection", "stream", "timed out", "overloaded")):
+        if any(k in lowered for k in ("rate limit", "429", "connection", "stream", "timed out", "overloaded",
+                                      "credits are depleted", "billing", "quota", "insufficient_quota", "resource_exhausted")):
+            # a lost episode in CheatBench's terms: the provider, not the agent, ended it
             return message, "connection_closed"
         return message, "harness"
     return None, None

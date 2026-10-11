@@ -21,6 +21,14 @@ docker image inspect cheatbench-judge >/dev/null 2>&1 || {
 echo "== convert $EVAL_LOG -> $RUN_DIR"
 "$ROOT/.venv/bin/python" -m integration.eval_to_atif "$EVAL_LOG" "$RUN_DIR"
 [ -s "$RUN_DIR/episodes.jsonl" ] || { echo "conversion produced no episodes" >&2; exit 3; }
+# A run whose sample ended in a provider or harness error is incomplete: do not spend judge
+# calls on it unless asked (JUDGE_ERRORS=1). The converter has already written the records.
+if [ "${JUDGE_ERRORS:-0}" != "1" ] && "$ROOT/.venv/bin/python" - "$RUN_DIR/episodes.jsonl" <<'PY'
+import json, sys
+recs = [json.loads(l) for l in open(sys.argv[1])]
+sys.exit(0 if any(r.get("failure") in ("harness", "connection_closed") for r in recs) else 1)
+PY
+then echo "run has a harness or provider failure; not judging (set JUDGE_ERRORS=1 to force)" >&2; exit 5; fi
 
 echo "== judge ($JUDGE) in cheatbench-judge"
 docker run --rm -v "$ROOT:$ROOT" -w "$ROOT/submodules/cheatbench" -e OPENAI_API_KEY cheatbench-judge \
