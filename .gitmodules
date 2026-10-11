@@ -1,0 +1,6 @@
+[submodule "submodules/cheatbench"]
+	path = submodules/cheatbench
+	url = https://github.com/unrulyabstractions/cheatbench
+[submodule "submodules/orbit"]
+	path = submodules/orbit
+	url = https://github.com/unrulyabstractions/orbit

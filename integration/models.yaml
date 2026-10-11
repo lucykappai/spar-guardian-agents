@@ -1,0 +1,9 @@
+# Judge entries for CheatBench's judge.py (--models-config), outside the submodule.
+# CheatBench's own gpt-6-sol entry routes through ${OPENAI_BASE_URL}, which is
+# unset here; this entry keeps the model and generation settings and uses the
+# OpenAI client's default endpoint with OPENAI_API_KEY.
+gpt-6-sol:
+  model: openai/gpt-6-sol
+  api_key_env: OPENAI_API_KEY
+  generation_config:
+    reasoning_effort: high
