@@ -150,11 +150,20 @@ def defense_evidence(sample) -> dict:
     return {"log": log, "interventions": interventions}
 
 
+PASSIVE_DEFENSES = {"trailing_turn_fix"}     # integration shim: checks everything, blocks nothing
+
+
 def defense_counts(evidence: dict, agent: str) -> dict:
-    """checks and blocks per boundary for one agent, from the intervention events."""
+    """checks and blocks per boundary for one agent, from the intervention events.
+
+    The passive trailing-turn shim is itself a registered defense and is asked at
+    every boundary; its checks are left out so the counts describe the control.
+    """
     out = {"checks": 0, "blocks": 0, "blocks_by_boundary": {}, "checks_by_boundary": {}}
     for ev in evidence["interventions"]:
         if ev.get("event") != "defense_intervention" or ev.get("agent") != agent:
+            continue
+        if ev.get("defense") in PASSIVE_DEFENSES:
             continue
         b = ev.get("boundary", "?")
         out["checks"] += 1
@@ -217,8 +226,11 @@ TRAILING_TURN_TAG = "orbit_trailing_turn_fix"   # integration/controls.py
 def delivery_notices(model_events) -> list[tuple[str | None, str, str]]:
     """(output assistant message id or None, text, source) per provider-only message in a model call.
 
-    Covers ORBIT's channel notices (system) and the integration's trailing-turn
-    continue prompt (user); neither enters the durable conversation.
+    Covers ORBIT's channel notices (system) and, should Inspect ever record it,
+    the integration's trailing-turn continue prompt (user). Neither enters the
+    durable conversation. In practice the ModelEvent is written before ORBIT's
+    model filters run, so the shim's prompt never appears here; the transcript
+    shows a refusal followed by the next turn.
     """
     out = []
     for ev in model_events:
@@ -405,6 +417,19 @@ def error_and_failure(sample) -> tuple[str | None, str | None]:
 # --------------------------------------------------------------------------
 # run directory
 # --------------------------------------------------------------------------
+def swarm_block(sample) -> dict | None:
+    """Composition, hidden roles and the team's own report, for a swarm run."""
+    cb = (sample.metadata or {}).get("cheatbench", {})
+    swarm = cb.get("swarm")
+    if not swarm:
+        return None
+    md = {}
+    for sc in (sample.scores or {}).values():
+        md = sc.metadata or {}
+        break
+    return {**swarm, "swarm_report": md.get("swarm_report"), "swarm_report_cheated": md.get("swarm_report_cheated")}
+
+
 def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> dict:
     log = read_eval_log(str(eval_path), resolve_attachments=True)
     out_dir = out_dir.resolve()
@@ -420,7 +445,7 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
             raise ValueError(f"sample {sample.id}: no ORBIT roster in metadata['experiment']")
         agents_seen = agents
         if (meta.get("experiment", {}).get("communication") or {}).get("channels"):
-            topology = "board"
+            topology = "swarm" if cb.get("swarm") else "board"
         error, failure = error_and_failure(sample)
         comm = {k.split(":", 1)[1]: sample.store.get(k) for k in ("CommunicationState:messages", "CommunicationState:events")
                 if sample.store.get(k)}
@@ -444,6 +469,7 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
                 "model": log.eval.model, "agent": f"orbit/{agent_name}", "orbit_agent": agent_name,
                 "orbit_roster": agents, "topology": topology,
                 "control": cb.get("control", "baseline"), "monitor_model": cb.get("monitor_model"),
+                "role": ((cb.get("swarm") or {}).get("roles") or {}).get(agent_name),
                 "defenses": [d["name"] for d in defenses_cfg],
                 "defense": defense_counts(evidence, agent_name),
                 "agent_version": f"orbit-{orbit.__version__}+inspect-ai-{inspect_ai.__version__}",
@@ -492,6 +518,7 @@ def convert(eval_path: Path, out_dir: Path, task_root: Path | None = None) -> di
         "control": records[0]["control"] if records else None,
         "monitor_model": records[0]["monitor_model"] if records else None,
         "defenses": (log.samples[0].metadata.get("experiment", {}).get("defenses") if log.samples else None) or [],
+        "swarm": swarm_block(log.samples[0]) if log.samples else None,
         "eval_log": str(eval_path.resolve()), "eval_id": log.eval.eval_id,
         "orbit_version": orbit.__version__, "inspect_version": inspect_ai.__version__,
         "deviations": DEVIATIONS + (["two_agents_share_one_sandbox_clock_and_git_identity"] if topology == "board" else []),

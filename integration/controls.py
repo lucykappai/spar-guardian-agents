@@ -36,8 +36,11 @@ class _TrailingTurnFilter(ModelFilter):
     is the last message of the agent's conversation; the next scheduled model
     step then sends a request that ends with an assistant message, which the
     Gemini API rejects ("Requests ending with a model turn are not supported").
-    The appended user message reaches the provider only; it never enters the
-    durable conversation, and the converter recovers it from the model event.
+    The appended user message reaches the provider only. It never enters the
+    durable conversation, and Inspect writes the ModelEvent before ORBIT's model
+    filters run, so it is not in the eval log either: a transcript shows the
+    refusal followed by the next turn. The evidence that it works is that calls
+    after a refusal complete instead of failing with the 400.
     """
 
     name = "trailing_model_turn_fix"
