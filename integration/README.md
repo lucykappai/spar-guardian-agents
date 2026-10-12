@@ -25,6 +25,7 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 |---|---|
 | `smoke_test.py` | six mock-model scenarios on the real sandbox (complete, message limit, time limit, board, defended, swarm) |
 | `check_sweep.py` | exit 1 unless every named swarm run is complete and judged; one summary line per run |
+| `check_share.py` | exit 1 unless the static bundle equals the live data, its figures match `docs/figures`, its page is well formed, no file exceeds the publisher's limits and no credential pattern appears |
 
 ## report/
 
@@ -41,6 +42,7 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 |---|---|
 | `server.py` | stdlib HTTP server over `runs/` and the eval logs; `Store` is also the data layer `report/` uses |
 | `__main__.py` | `python -m integration.ui [--runs runs] [--port 8765] [--open]` |
+| `export.py` | `python -m integration.ui.export`: the browser as a static bundle (`index.html` for a publisher, `preview.html`, `data/`, `figures/`, `manifest.json`); `make share` runs it and the check |
 | `API.md` | the JSON contract |
 | `static/` | the single-page UI: `index.html`, `app.js`, `style.css` |
 

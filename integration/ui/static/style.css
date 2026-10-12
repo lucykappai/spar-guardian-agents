@@ -1,7 +1,8 @@
-/* Results browser styles. No external fonts; light and dark follow prefers-color-scheme. */
+/* Results browser styles. No external fonts; light and dark follow prefers-color-scheme. Every colour is a token
+   on :root; the dark blocks only redefine tokens (export.py adds the [data-theme] variants an artifact viewer sets). */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --header-h: 48px;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
@@ -18,7 +19,7 @@
   --code-bg: #f4f4f0;
 
   --good: #1d7238;   --good-bg: #e1f2e6;
-  --bad: #b02a20;    --bad-bg: #fbe4e1;
+  --bad: #b02a20;    --bad-bg: #fbe4e1;   --on-bad: #ffffff;
   --warn: #85560a;   --warn-bg: #fbefd6;
   --notice: #6340b3; --notice-bg: #efe9fb;
   --withheld: #8a3f8a; --withheld-bg: #f6e4f6;
@@ -35,6 +36,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --bg: #15161a;
     --panel: #1d1f24;
     --panel-2: #24262c;
@@ -47,7 +49,7 @@
     --code-bg: #191b20;
 
     --good: #7fd49a;   --good-bg: #1c3526;
-    --bad: #ff8f84;    --bad-bg: #3f201d;
+    --bad: #ff8f84;    --bad-bg: #3f201d;   --on-bad: #1d1f24;
     --warn: #f0c46e;   --warn-bg: #3b2f15;
     --notice: #c3a8ff; --notice-bg: #2e2645;
     --withheld: #f0a6f0; --withheld-bg: #3a213a;
@@ -64,7 +66,7 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--header-h) + 12px); }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--header-h) + 12px + env(safe-area-inset-top, 0px)); }
 body {
   margin: 0;
   background: var(--bg);
@@ -92,9 +94,9 @@ code, .mono { font-family: var(--mono); font-size: 13px; }
 /* ---------- header ---------- */
 .topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 20;
-  height: var(--header-h);
+  height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
   display: flex; align-items: center; gap: 12px;
-  padding: 0 16px;
+  padding: env(safe-area-inset-top, 0px) 16px 0;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -168,11 +170,10 @@ input[type="search"]:focus, select:focus, button:focus-visible, th:focus-visible
 .b-agent { background: var(--panel-2); color: var(--text); border-color: var(--border-strong); }
 .b-notice { background: var(--notice-bg); color: var(--notice); }
 .b-refusal { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
-.b-blocked { background: var(--bad); color: #fff; }
+.b-blocked { background: var(--bad); color: var(--on-bad); }
 .b-withheld { background: var(--withheld-bg); color: var(--withheld); border-color: var(--withheld); }
 .b-new { background: var(--new-bg); color: var(--new); }
 .b-prevout { background: var(--panel-2); color: var(--muted); border-color: var(--border-strong); }
-@media (prefers-color-scheme: dark) { .b-blocked { color: #1d1f24; } }
 
 /* ---------- cards, key-values ---------- */
 .card {
@@ -240,7 +241,7 @@ table.data.runs-table th { white-space: normal; vertical-align: bottom; }
 .runs-table tbody tr.run-row:hover td { background: var(--hover); }
 .runs-table tr.open td { border-bottom-color: transparent; }
 /* The header stays in view while the list scrolls; the wrapper lets the page scroll sideways only on narrow screens. */
-.runs-table thead th { position: sticky; top: var(--header-h); z-index: 3; }
+.runs-table thead th { position: sticky; top: calc(var(--header-h) + env(safe-area-inset-top, 0px)); z-index: 3; }
 @media (min-width: 1360px) { .runs-wrap { overflow: visible; } }
 .runs-table .exp-cell { width: 28px; padding-right: 0; }
 .expander { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; width: 22px; height: 22px; border-radius: 4px; padding: 0; }
@@ -292,8 +293,8 @@ tr.row-blocked td { background: var(--bad-bg); }
 /* ---------- split layout (transcript, context) ---------- */
 .split { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; max-width: 1640px; margin: 0 auto; }
 .sidebar {
-  position: sticky; top: calc(var(--header-h) + 12px);
-  max-height: calc(100vh - var(--header-h) - 24px);
+  position: sticky; top: calc(var(--header-h) + 12px + env(safe-area-inset-top, 0px));
+  max-height: calc(100vh - var(--header-h) - 24px - env(safe-area-inset-top, 0px));
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
 }
@@ -406,6 +407,8 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
 .error-box { border: 1px solid var(--bad); background: var(--bad-bg); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
 .error-title { font-weight: 650; color: var(--bad); margin-bottom: 6px; overflow-wrap: anywhere; }
 .error-box .pre { background: var(--panel); }
+.static-note { color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 10px 12px; margin: 8px 0; max-width: 70ch; }
+.badge.snapshot { white-space: nowrap; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
@@ -598,7 +601,8 @@ canvas.raster.clickable { cursor: pointer; }
 .comp-block + .comp-block { margin-top: 14px; }
 .comp-block h3 { margin-bottom: 6px; }
 .comp-pair { display: flex; flex-wrap: wrap; gap: 8px 28px; }
-.comp-fig { margin: 0; }
+.comp-fig { margin: 0; min-width: 0; max-width: 100%; }
+.comp-grid { max-width: 100%; height: auto; }   /* scales down at phone width; the viewBox keeps the drawing */
 .comp-fig figcaption { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
 .chart-scroll { overflow-x: auto; max-width: 100%; }
 .swarm-table td { white-space: nowrap; }

@@ -37,7 +37,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small CheatBench on ORBIT: integration design}
-\fancyhead[R]{\small rev 9, 2026-10-11}
+\fancyhead[R]{\small rev 10, 2026-10-12}
 \fancyfoot[C]{\small\thepage}
 \renewcommand{\headrulewidth}{0.3pt}
 
@@ -61,7 +61,7 @@
 
 \title{\vspace{-1.4cm}CheatBench on ORBIT: integration design}
 \author{SPAR guardian-agents project}
-\date{Revision 9, 11 October 2026}
+\date{Revision 10, 12 October 2026}
 
 \begin{document}
 \maketitle
@@ -357,7 +357,7 @@ workers reported apart & one judged episode per seat; per-agent values in \code{
 
 \begin{lstlisting}
 spar-guardian-agents/
-  Makefile                      make ui | ui-stop | smoke | check | tables | figures | doc
+  Makefile                      make ui | ui-stop | share | smoke | check | tables | figures | doc
   scripts/
     ui                          start the server if nothing listens, open the browser; stop kills it
     run_control.sh              one control with Gemini 3.8 Flash, then judge.sh; non-zero on failure
@@ -374,11 +374,12 @@ spar-guardian-agents/
     convert/eval_to_atif.py     convert(eval_path, out_dir, task_root) -> summary; CLI
     checks/smoke_test.py        six mockllm scenarios on the real sandbox
     checks/check_sweep.py       exit 1 unless every named swarm run is complete and judged
+    checks/check_share.py       exit 1 unless the static bundle equals the live data, within the limits
     report/report_pilot.py      pilot and controls tables -> docs/generated/
     report/report_swarm.py      swarm tables -> docs/generated/swarm_results.tex
     report/figures.py           the figures of this document, from the server's data layer
     report/summarize_runs.py    one line per judged episode
-    ui/                         results browser: server.py, API.md, static/
+    ui/                         results browser: server.py, export.py (static bundle), API.md, static/
     docker/judge/Dockerfile     image cheatbench-judge (python:3.11-slim + the judge's imports)
     build/openmath_agent/       build.py output, stage tarballs, docker context (gitignored)
   submodules/cheatbench/        read-only; imported: core.{trajectory,judge,agents,render}, build.py
@@ -454,6 +455,7 @@ GOOGLE_API_KEY=$GEMINI_API_KEY .venv/bin/inspect eval \
     --model google/gemini-3.8-flash --log-dir logs/gemini --display plain
 scripts/judge.sh logs/gemini/<log>.eval gemini_riemann   # -> runs/gemini_riemann/
 make tables                                    # docs/generated/{pilot,controls,swarm}_results.tex
+make share                                     # static copy of the browser -> integration/build/share
 # board: ...@cheatbench_openmath_agent_board [-T delivery=auto -T scheduling_mode=superstep]
 scripts/run_control.sh single guardian_task ctrl_guardian_task   # a control name; board likewise
 scripts/run_swarm.sh 3 3 swarm_R3D3            # one composition; then make check, figures, doc
@@ -627,7 +629,7 @@ Swimlane of R3D3: lanes grouped by hidden role (workers, regulators, disregulato
 
 \section{Results browser}
 
-\code{make ui} (\code{scripts/ui}) starts \code{python -m integration.ui} when nothing listens on the port and opens the browser; \code{integration/ui/API.md} is the contract. A \textbf{setting} is the communication graph (a lone agent, or every agent on one board), the roster size, and whether roles were hidden; the swarm of section 10 is the board with ten agents and hidden roles, and the browser reads it so. The browser has three parts. \textbf{Summary}: the share of judged agents who cheated by setting (the two baselines, each control on the lone agent and on the board, each composition), the composition grids, and the team reports against the judge. \textbf{Runs}: one row per run with its setting, control, cheated over judged, honeypot seen, attempted access, team report, registration on \code{main} and how the episodes ended; a row opens to its agents; the run name opens the run page (metadata, defenses, composition and team report, board posts in order, defense interventions), and from there the transcript viewer (blocked calls, defense refusals, model-written refusal text, provider-only notices, withheld inputs), the context-window viewer over every model call in the log with the exact provider input and the messages new since the previous call, the sample view with the scorer's workspace evidence, and the per-run timeline. \textbf{Swarm}: the composition grids, the outcome funnel by hidden role, the adoption curves, the swarm runs with their agent-by-turn rasters, a run explorer with the swimlane, the board-message arrows and the exposure cascade, and the figures of this document. Set-aside runs and the mock-model smoke run are listed under Runs and never counted. The figures come from \code{python -m integration.report.figures}, which reads the same data layer without the server.
+\code{make ui} (\code{scripts/ui}) starts \code{python -m integration.ui} when nothing listens on the port and opens the browser; \code{integration/ui/API.md} is the contract. A \textbf{setting} is the communication graph (a lone agent, or every agent on one board), the roster size, and whether roles were hidden; the swarm of section 10 is the board with ten agents and hidden roles, and the browser reads it so. The browser has three parts. \textbf{Summary}: the share of judged agents who cheated by setting (the two baselines, each control on the lone agent and on the board, each composition), the composition grids, and the team reports against the judge. \textbf{Runs}: one row per run with its setting, control, cheated over judged, honeypot seen, attempted access, team report, registration on \code{main} and how the episodes ended; a row opens to its agents; the run name opens the run page (metadata, defenses, composition and team report, board posts in order, defense interventions), and from there the transcript viewer (blocked calls, defense refusals, model-written refusal text, provider-only notices, withheld inputs), the context-window viewer over every model call in the log with the exact provider input and the messages new since the previous call, the sample view with the scorer's workspace evidence, and the per-run timeline. \textbf{Swarm}: the composition grids, the outcome funnel by hidden role, the adoption curves, the swarm runs with their agent-by-turn rasters, a run explorer with the swimlane, the board-message arrows and the exposure cascade, and the figures of this document. Set-aside runs and the mock-model smoke run are listed under Runs and never counted. The figures come from \code{python -m integration.report.figures}, which reads the same data layer without the server. \code{make share} writes the browser as a static bundle under \code{integration/build/share}: every API response as a file, the figures, and one page with the UI inlined. The bundle runs where no server does. The per-call context windows stay local, and the page says so.
 
 \section{Known constraints}
 

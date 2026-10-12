@@ -1,6 +1,7 @@
 /* Results browser for ORBIT x CheatBench runs.
  *
- * Vanilla ES2020, no framework, no build step, no network access beyond the local API.
+ * Vanilla ES2020, no framework, no build step, no network access beyond the local API (or, in a
+ * static bundle written by integration/ui/export.py, the JSON files beside the page).
  * Every piece of run data (transcripts, tool output, board posts, reasons, errors) is
  * inserted with textContent or text nodes. Nothing from the API ever reaches innerHTML.
  *
@@ -139,6 +140,78 @@ class ApiError extends Error {
   }
 }
 
+// Static mode. integration/ui/export.py writes every API response to files under data/ and the
+// figures under figures/, and sets window.RESULTS_STATIC before this script, so the same UI runs
+// with no server (a shared artifact, a static host). The per-call context windows stay out of the
+// bundle (hundreds of calls per run, about 200 KB each); the context page says so.
+const STATIC = (window.RESULTS_STATIC && typeof window.RESULTS_STATIC === 'object') ? window.RESULTS_STATIC : null;
+const STATIC_CALL_NOTE = 'The exact provider input of each call is read from the eval log and is not part of this shared copy; ' +
+  'the list, the usage and the output previews are. Open the run in the local browser (make ui) for the full call.';
+const bundleCache = new Map();   // file -> Promise of its parsed JSON
+
+function bundleJson(file) {
+  if (!bundleCache.has(file)) {
+    const p = (async () => {
+      let res;
+      try {
+        res = await fetch(file, { headers: { Accept: 'application/json' } });
+      } catch (e) {
+        throw new ApiError(file, 0, { error: `network error: ${e && e.message}` });
+      }
+      const text = await res.text();
+      if (!res.ok) throw new ApiError(file, res.status, { error: `HTTP ${res.status} for ${file}` });
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        throw new ApiError(file, res.status, { error: `non-JSON file ${file}` });
+      }
+    })();
+    bundleCache.set(file, p);
+    p.catch(() => { if (bundleCache.get(file) === p) bundleCache.delete(file); });
+  }
+  return bundleCache.get(file);
+}
+
+/** Where an API path lives in the bundle: a file and, inside a run's file, the key to pick. */
+function resolveStatic(path) {
+  let parts;
+  try {
+    parts = path.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent);
+  } catch (e) {
+    return null;
+  }
+  const data = STATIC.data || 'data/';
+  if (parts[0] !== 'api') return null;
+  if (parts.length === 2 && ['runs', 'summary', 'figures'].includes(parts[1])) return { file: data + parts[1] + '.json' };
+  if (parts[1] !== 'runs' || parts.length < 3) return null;
+  const file = data + 'run/' + enc(parts[2]) + '.json';
+  const rest = parts.slice(3);
+  if (!rest.length) return { file, pick: b => b.run };
+  if (rest[0] === 'transcript' && rest.length === 2) return { file, pick: b => (b.transcripts || {})[rest[1]] };
+  if (rest.length === 1 && ['sample', 'context', 'timeline'].includes(rest[0])) return { file, pick: b => b[rest[0]] };
+  if (rest[0] === 'context' && rest.length === 2) return { unavailable: STATIC_CALL_NOTE };
+  return null;
+}
+
+async function staticJson(path) {
+  const m = resolveStatic(path);
+  if (!m) throw new ApiError(path, 404, { error: `not found: ${path}` });
+  if (m.unavailable) throw new ApiError(path, 404, { error: m.unavailable, static_note: true });
+  let b;
+  try {
+    b = await bundleJson(m.file);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) throw new ApiError(path, 404, { error: `not found: ${path}` });
+    throw e;
+  }
+  const v = m.pick ? m.pick(b) : b;
+  if (v === undefined) throw new ApiError(path, 404, { error: `not found: ${path}` });
+  if (v && typeof v === 'object' && v.__error) {
+    throw new ApiError(path, v.__error.status || 404, v.__error.body || { error: `not found: ${path}` });
+  }
+  return v;
+}
+
 const API_CACHE_MAX = 250;
 const apiCache = new Map();  // path -> Promise, kept in least-recently-used order
 // One model call can be hundreds of KB, so single calls get their own small cache.
@@ -165,6 +238,7 @@ function apiCall(path) { return cachedFetch(callCache, CALL_CACHE_MAX, path); }
 function apiFresh(path) { apiCache.delete(path); return api(path); }
 
 async function fetchJson(path) {
+  if (STATIC) return staticJson(path);
   let res;
   try {
     res = await fetch(path, { headers: { Accept: 'application/json' } });
@@ -193,6 +267,19 @@ const P = {
   summary: () => '/api/summary',
   figures: () => '/api/figures',
 };
+
+/** A figure file: served by the server, or a file beside the page in a static bundle. */
+function figureUrl(name) { return (STATIC ? (STATIC.figures || 'figures/') : '/figures/') + enc(name); }
+
+/** Rewrite the hash without navigating; a frame that refuses URL state keeps the view as drawn. */
+function setHashQuietly(target) {
+  if (location.hash === target) return;
+  try {
+    history.replaceState(null, '', target);
+  } catch (e) {
+    /* a sandboxed frame may refuse URL state; the view is already on screen */
+  }
+}
 
 /** Hash routes. */
 const R = {
@@ -328,6 +415,9 @@ function section(title, ...children) {
 
 function errorBox(err, context) {
   const isApi = err instanceof ApiError;
+  if (isApi && err.body && err.body.static_note) {
+    return h('div', { class: 'static-note' }, context ? `${context}: ` : '', String(err.body.error));
+  }
   const body = isApi ? err.body : { error: String((err && err.message) || err) };
   const title = isApi
     ? `API error${err.status ? ' ' + err.status : ''} on ${err.path}`
@@ -517,6 +607,8 @@ function renderShell() {
         h('a', { class: 'nav-tab', id: 'nav-runs', href: '#/runs' }, 'Runs'),
         h('a', { class: 'nav-tab', id: 'nav-swarm', href: '#/swarm' }, 'Swarm')),
       h('nav', { class: 'crumbs', id: 'crumbs', 'aria-label': 'Breadcrumbs' }),
+      STATIC ? h('span', { class: 'badge b-plain snapshot', title: 'A static copy of the results browser: every page reads files exported with make share. ' +
+        `Exported ${fmtTime(STATIC.generated)}.` }, `snapshot ${String(STATIC.generated || '').slice(0, 10)}`) : null,
       h('button', {
         type: 'button', class: 'btn btn-small', title: 'Clear cached API responses and reload this view',
         onclick: () => { apiCache.clear(); callCache.clear(); route(); },
@@ -926,7 +1018,7 @@ async function viewRuns({ query: urlQ }, view) {
   function updateUrl() {
     if (!live) return;
     const target = R.runs(runsQuery());
-    if (location.hash !== target) history.replaceState(null, '', target);
+    setHashQuietly(target);
   }
 
   function sortBy(key) {
@@ -1576,7 +1668,7 @@ async function viewEpisode({ run, episode, query: q }, view) {
   function updateUrl() {
     if (!live) return;
     const target = R.episode(run, episode, { find: find.value.trim(), kind: kindVal, step: q.get('step') });
-    if (location.hash !== target) history.replaceState(null, '', target);
+    setHashQuietly(target);
   }
   function applyFilter() {
     const needle = find.value.trim().toLowerCase();
@@ -1792,6 +1884,7 @@ async function viewContext({ run, query: q }, view) {
   if (urlFlag && CALL_FILTERS.some(([v]) => v === urlFlag)) st.flag = urlFlag;
   else if (urlFlag) showNote(`Unknown flag “${urlFlag}” in the link; showing calls with any flag.`);
   if (!detail) showNote('Could not load the run’s defense evidence, so blocked outputs are not marked.');
+  if (STATIC) showNote(STATIC_CALL_NOTE);
   if (bi.misaligned.length) {
     showNote(`Blocked outputs are marked in this list only where an agent’s calls line up with its defense checks. ` +
       `Not aligned: ${bi.misaligned.join('; ')}. Opening a call still shows its blocks.`);
@@ -1851,7 +1944,7 @@ async function viewContext({ run, query: q }, view) {
     const target = R.context(run, {
       agent: st.agent, kind: st.kind, flag: st.flag, call: st.selected == null ? '' : st.selected,
     });
-    if (location.hash !== target) history.replaceState(null, '', target);
+    setHashQuietly(target);
   }
 
   // If an opened call's real output id disagrees with the order alignment, drop the marks.
@@ -3555,7 +3648,7 @@ async function viewSummary(r, view) {
   const onResize = debounce(() => { tip.hide(); draw(); }, 150);
   view.mounted(() => {
     document.title = 'Summary · results';
-    if (location.hash.startsWith('#/overview')) history.replaceState(null, '', '#/');
+    if (location.hash.startsWith('#/overview')) setHashQuietly('#/');
     draw();
     window.addEventListener('resize', onResize);
   });
@@ -3728,8 +3821,8 @@ function figuresSection(figs) {
   const order = Object.keys(FIGURE_CAPTION);
   const sorted = figs.slice().sort((a, b) => (order.indexOf(a.name) + 1 || 99) - (order.indexOf(b.name) + 1 || 99) || a.name.localeCompare(b.name));
   return h('div', { class: 'figure-grid' }, sorted.map(f => h('figure', { class: 'fig' },
-    h('a', { href: `/figures/${enc(f.name)}`, target: '_blank', rel: 'noopener' },
-      h('img', { src: `/figures/${enc(f.name)}`, alt: FIGURE_CAPTION[f.name] || f.name, loading: 'lazy' })),
+    h('a', { href: figureUrl(f.name), target: '_blank', rel: 'noopener' },
+      h('img', { src: figureUrl(f.name), alt: FIGURE_CAPTION[f.name] || f.name, loading: 'lazy' })),
     h('figcaption', null, FIGURE_CAPTION[f.name] || f.name, ' ', muted(`${f.name} · ${fmtTime(f.modified)}`, 'small')))));
 }
 
@@ -3827,7 +3920,7 @@ async function viewSwarm({ query: q }, view) {
   function updateUrl() {
     if (!live) return;
     const target = R.swarm({ run: current });
-    if (location.hash !== target) history.replaceState(null, '', target);
+    setHashQuietly(target);
   }
   const onResize = debounce(() => { tip.hide(); drawFunnel(); }, 150);
   view.mounted(() => {

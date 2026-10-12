@@ -33,6 +33,13 @@ from integration.convert.eval_to_atif import split_content, tool_result_text  # 
 STATIC = Path(__file__).resolve().parent / "static"
 FIGURES = ROOT / "docs" / "figures"
 FIGURE_NAME = re.compile(r"^[A-Za-z0-9_-]+\.(png|svg|pdf)$")
+
+
+def figures_list() -> list[dict]:
+    """The PNG figures under docs/figures, as /api/figures answers them."""
+    figs = sorted(FIGURES.glob("*.png")) if FIGURES.is_dir() else []
+    return [{"name": p.name, "size": p.stat().st_size,
+             "modified": datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()} for p in figs]
 REFUSAL = "I cannot provide that response under the configured defense policy."
 WITHHELD = "[Content withheld by a configured defense.]"
 FLAG_KEYS = {"orbit_communication_delivery": "delivery_notice", "orbit_trailing_turn_fix": "trailing_turn_fix",
@@ -78,6 +85,12 @@ class Store:
         self._logs: dict[str, object] = {}
         self._calls: dict[str, list] = {}
         self._lock = threading.Lock()
+
+    def forget(self, name: str) -> None:
+        """Drop the cached eval log and call index of one run (an export walks every run)."""
+        with self._lock:
+            self._logs.pop(name, None)
+            self._calls.pop(name, None)
 
     # -- run directories ---------------------------------------------------
     def run_names(self) -> list[str]:
@@ -530,9 +543,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({"error": "not found"}, 404)
             store = self.store
             if parts[1:] == ["figures"]:
-                figs = sorted(FIGURES.glob("*.png")) if FIGURES.is_dir() else []
-                return self._send_json([{"name": p.name, "size": p.stat().st_size,
-                                         "modified": datetime.fromtimestamp(p.stat().st_mtime, timezone.utc).isoformat()} for p in figs])
+                return self._send_json(figures_list())
             if parts[1:] == ["runs"]:
                 return self._send_json([store.run_summary(n) for n in store.run_names()])
             if parts[1:] == ["summary"]:

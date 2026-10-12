@@ -17,6 +17,17 @@ A **setting** is the communication graph (`single`: a lone agent; `board`: every
 whether roles were hidden. `run.json` writes `topology: "swarm"` for a board with hidden roles; the API adds `graph` so the swarm reads
 as what it is, a board of N agents with roles.
 
+## Static export
+
+`make share` (`python -m integration.ui.export`, then `python -m integration.checks.check_share`) writes `integration/build/share/`:
+`index.html` (the page for a publisher that wraps it in a document: title, stylesheet, app, script), `preview.html` (the same page in a
+full document), `data/runs.json`, `data/summary.json`, `data/figures.json`, `data/run/<run>.json` (`{run, sample, context, timeline,
+transcripts: {<episode>: ...}}`; an endpoint that would have answered 404 or 500 is stored as `{"__error": {status, body}}`), `figures/*.png`
+and `manifest.json` (every file with its size and SHA-256). The page sets `window.RESULTS_STATIC = {data, figures, generated, git, omitted}`
+before `app.js`, and the API client then reads the files instead of the endpoints. `/api/runs/<run>/context/<i>` is not exported; the
+context page says so and points at the local browser. The stylesheet in the page carries `[data-theme]` variants of the dark tokens for a
+viewer that sets an explicit theme.
+
 ## Data model
 
 A **run** is one directory under `runs/` holding `run.json`, `episodes.jsonl`, `judge.jsonl`, `trajectories/<episode>/transcript.json`,

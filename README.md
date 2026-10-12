@@ -7,6 +7,7 @@ CheatBench's `openmath_agent` row `riemann` run inside ORBIT with Gemini 3.8 Fla
 ```
 make ui            # opens http://127.0.0.1:8765/  (Summary, Runs, Swarm)
 make ui-stop
+make share         # static copy of the browser under integration/build/share, for publishing
 make check         # refuses unless the eleven swarm runs are complete and judged
 make smoke         # mock-model scenarios on the real sandbox, no model spend
 make tables figures doc
@@ -23,9 +24,9 @@ scripts/                 ui, run_control.sh, run_swarm.sh, judge.sh
 integration/
   task/                  the ORBIT task: samples, sandbox, board, swarm roles, controls, Gemini 402 retry
   convert/               eval log -> CheatBench run directory
-  checks/                smoke tests and the sweep check
+  checks/                smoke tests, the sweep check, the share check
   report/                tables, figures, one-line summaries
-  ui/                    results browser: server, API.md, static UI
+  ui/                    results browser: server, static UI, export.py (static bundle), API.md
   docker/judge/          image that runs CheatBench's judge
 runs/<name>/             one run: run.json, episodes.jsonl, judge.jsonl, trajectories/, communication/, defense/
 logs/                    Inspect eval logs (gitignored): ctrl/<run>/, swarm/<run>/, and the two pilots under gemini*/
@@ -47,3 +48,5 @@ Each run writes `runs/<name>/` and its eval log under `logs/`. A run that died i
 ## Results browser
 
 Three parts. **Summary**: the share of judged agents who cheated by setting, the composition grids, and the team reports against the judge. **Runs**: one row per run that opens to its agents, then the run page, the transcript, the context windows, the sample and the timeline. **Swarm**: the composition grids, the role funnel, the adoption curves, the swarm runs with their rasters, and a run explorer with the swimlane and the exposure cascade. `integration/ui/API.md` is the HTTP contract.
+
+`make share` writes the same browser as a static bundle under `integration/build/share`: every API response as a file, the figures, and one page with the UI inlined, for publishing where no server runs (a claude.ai artifact, any static host). The per-call context windows stay local; the page says so. `preview.html` in that directory is the page in a full document for a local check.
