@@ -147,32 +147,51 @@ class ApiError extends Error {
 const STATIC = (window.RESULTS_STATIC && typeof window.RESULTS_STATIC === 'object') ? window.RESULTS_STATIC : null;
 const STATIC_CALL_NOTE = 'The exact provider input of each call is read from the eval log and is not part of this shared copy; ' +
   'the list, the usage and the output previews are. Open the run in the local browser (make ui) for the full call.';
-const bundleCache = new Map();   // file -> Promise of its parsed JSON
+const BUNDLE_CACHE_MAX = 40;
+const bundleCache = new Map();   // file -> Promise of its parsed JSON, kept in least-recently-used order
 
 function bundleJson(file) {
-  if (!bundleCache.has(file)) {
-    const p = (async () => {
-      let res;
-      try {
-        res = await fetch(file, { headers: { Accept: 'application/json' } });
-      } catch (e) {
-        throw new ApiError(file, 0, { error: `network error: ${e && e.message}` });
-      }
-      const text = await res.text();
-      if (!res.ok) throw new ApiError(file, res.status, { error: `HTTP ${res.status} for ${file}` });
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        throw new ApiError(file, res.status, { error: `non-JSON file ${file}` });
-      }
-    })();
+  if (bundleCache.has(file)) {
+    const p = bundleCache.get(file);
+    bundleCache.delete(file);
     bundleCache.set(file, p);
-    p.catch(() => { if (bundleCache.get(file) === p) bundleCache.delete(file); });
+    return p;
   }
-  return bundleCache.get(file);
+  const p = (async () => {
+    let res;
+    try {
+      res = await fetch(file, { headers: { Accept: 'application/json' } });
+    } catch (e) {
+      if (location.protocol === 'file:') {
+        throw new ApiError(file, 0, { error: 'This copy reads the files beside the page, and a browser refuses that from disk. ' +
+          'Serve the directory over HTTP (python3 -m http.server 8000 in it) and open http://127.0.0.1:8000/.', static_note: true });
+      }
+      throw new ApiError(file, 0, { error: `network error: ${e && e.message}` });
+    }
+    const text = await res.text();
+    if (!res.ok) throw new ApiError(file, res.status, { error: `HTTP ${res.status} for ${file}` });
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new ApiError(file, res.status, { error: `non-JSON file ${file}` });
+    }
+  })();
+  bundleCache.set(file, p);
+  p.catch(() => { if (bundleCache.get(file) === p) bundleCache.delete(file); });
+  while (bundleCache.size > BUNDLE_CACHE_MAX) bundleCache.delete(bundleCache.keys().next().value);
+  return p;
 }
 
-/** Where an API path lives in the bundle: a file and, inside a run's file, the key to pick. */
+/** An own property of a parsed object, never an inherited one (an episode named "constructor" is not a transcript). */
+function ownProp(o, k) {
+  return o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined;
+}
+
+/**
+ * Where an API path lives in the bundle (the layout export.py writes): data/{runs,summary,figures}.json and, per
+ * run, data/run/<run>/{run,sample,context,timeline,transcripts}.json; a transcript is picked out of the run's
+ * transcripts file by episode.
+ */
 function resolveStatic(path) {
   let parts;
   try {
@@ -184,11 +203,11 @@ function resolveStatic(path) {
   if (parts[0] !== 'api') return null;
   if (parts.length === 2 && ['runs', 'summary', 'figures'].includes(parts[1])) return { file: data + parts[1] + '.json' };
   if (parts[1] !== 'runs' || parts.length < 3) return null;
-  const file = data + 'run/' + enc(parts[2]) + '.json';
+  const dir = data + 'run/' + enc(parts[2]) + '/';
   const rest = parts.slice(3);
-  if (!rest.length) return { file, pick: b => b.run };
-  if (rest[0] === 'transcript' && rest.length === 2) return { file, pick: b => (b.transcripts || {})[rest[1]] };
-  if (rest.length === 1 && ['sample', 'context', 'timeline'].includes(rest[0])) return { file, pick: b => b[rest[0]] };
+  if (!rest.length) return { file: dir + 'run.json' };
+  if (rest.length === 1 && ['sample', 'context', 'timeline'].includes(rest[0])) return { file: dir + rest[0] + '.json' };
+  if (rest[0] === 'transcript' && rest.length === 2) return { file: dir + 'transcripts.json', pick: b => ownProp(b, rest[1]) };
   if (rest[0] === 'context' && rest.length === 2) return { unavailable: STATIC_CALL_NOTE };
   return null;
 }
@@ -611,7 +630,7 @@ function renderShell() {
         `Exported ${fmtTime(STATIC.generated)}.` }, `snapshot ${String(STATIC.generated || '').slice(0, 10)}`) : null,
       h('button', {
         type: 'button', class: 'btn btn-small', title: 'Clear cached API responses and reload this view',
-        onclick: () => { apiCache.clear(); callCache.clear(); route(); },
+        onclick: () => { apiCache.clear(); callCache.clear(); bundleCache.clear(); route(); },
       }, 'Reload')),
     h('main', { id: 'main', tabindex: '-1' }));
 }
@@ -678,6 +697,8 @@ const VIEWS = {
   },
 };
 
+let keepScrollOnce = false;   // set by a theme change: the view is drawn again without jumping to the top
+
 /**
  * Render the view for the current hash. A view is `async (route, view) => Node`.
  * view.mounted(fn) runs fn once the node is on screen, and only if the user is still on
@@ -700,8 +721,10 @@ async function route() {
   try {
     const node = await VIEWS[r.view](r, view);
     if (token !== routeToken) { runCleanups(mine); return; }
+    const y = keepScrollOnce ? window.scrollY : 0;
+    keepScrollOnce = false;
     main.replaceChildren(node);
-    window.scrollTo(0, 0);
+    window.scrollTo(0, y);
     for (const fn of mounted) fn();
   } catch (e) {
     if (token !== routeToken) { runCleanups(mine); return; }
@@ -3956,6 +3979,11 @@ async function viewSwarm({ query: q }, view) {
 
 renderShell();
 window.addEventListener('hashchange', route);
+// Canvases and sequential fills read their colours from the tokens when drawn, so a theme change after that
+// (the OS scheme, or a viewer setting data-theme on the root) draws the view again in place.
+function redrawForTheme() { keepScrollOnce = true; route(); }
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawForTheme);
+new MutationObserver(redrawForTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 route();
 
 })();

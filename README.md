@@ -8,6 +8,7 @@ CheatBench's `openmath_agent` row `riemann` run inside ORBIT with Gemini 3.8 Fla
 make ui            # opens http://127.0.0.1:8765/  (Summary, Runs, Swarm)
 make ui-stop
 make share         # static copy of the browser under integration/build/share, for publishing
+make share-browser # headless pass over that copy (needs node and Playwright)
 make check         # refuses unless the eleven swarm runs are complete and judged
 make smoke         # mock-model scenarios on the real sandbox, no model spend
 make tables figures doc
@@ -49,4 +50,4 @@ Each run writes `runs/<name>/` and its eval log under `logs/`. A run that died i
 
 Three parts. **Summary**: the share of judged agents who cheated by setting, the composition grids, and the team reports against the judge. **Runs**: one row per run that opens to its agents, then the run page, the transcript, the context windows, the sample and the timeline. **Swarm**: the composition grids, the role funnel, the adoption curves, the swarm runs with their rasters, and a run explorer with the swimlane and the exposure cascade. `integration/ui/API.md` is the HTTP contract.
 
-`make share` writes the same browser as a static bundle under `integration/build/share`: every API response as a file, the figures, and one page with the UI inlined, for publishing where no server runs (a claude.ai artifact, any static host). The per-call context windows stay local; the page says so. `preview.html` in that directory is the page in a full document for a local check.
+`make share` writes the browser as a static bundle under `integration/build/share`. The bundle needs no server. It holds `index.html` (the complete page, for any static host), `artifact.html` (the same page without the document skeleton, for a publisher that adds its own, such as a claude.ai artifact), the figures, and every API response except the per-call context windows as JSON files: the run list, the summary, the figure list, and one file per run and endpoint. The context page states that the per-call inputs are missing and points at the local browser. To check the bundle locally, serve the directory over HTTP (`cd integration/build/share && python3 -m http.server 8000`) and open http://127.0.0.1:8000/. Opened from disk, the data requests fail and the page says so. `make share` also runs `check_share`, and `make share-browser` runs a headless pass. A publish takes at most 255 files and 64 MB, so the bundle goes up in several publishes.

@@ -357,7 +357,7 @@ workers reported apart & one judged episode per seat; per-agent values in \code{
 
 \begin{lstlisting}
 spar-guardian-agents/
-  Makefile                      make ui | ui-stop | share | smoke | check | tables | figures | doc
+  Makefile                      make help lists them: ui, share, smoke, check, tables, figures, doc
   scripts/
     ui                          start the server if nothing listens, open the browser; stop kills it
     run_control.sh              one control with Gemini 3.8 Flash, then judge.sh; non-zero on failure
@@ -375,6 +375,7 @@ spar-guardian-agents/
     checks/smoke_test.py        six mockllm scenarios on the real sandbox
     checks/check_sweep.py       exit 1 unless every named swarm run is complete and judged
     checks/check_share.py       exit 1 unless the static bundle equals the live data, within the limits
+    checks/share_browser.js     headless pass over the served bundle (make share-browser)
     report/report_pilot.py      pilot and controls tables -> docs/generated/
     report/report_swarm.py      swarm tables -> docs/generated/swarm_results.tex
     report/figures.py           the figures of this document, from the server's data layer
@@ -382,6 +383,7 @@ spar-guardian-agents/
     ui/                         results browser: server.py, export.py (static bundle), API.md, static/
     docker/judge/Dockerfile     image cheatbench-judge (python:3.11-slim + the judge's imports)
     build/openmath_agent/       build.py output, stage tarballs, docker context (gitignored)
+    build/share/                make share output: the static bundle for publishing (gitignored)
   submodules/cheatbench/        read-only; imported: core.{trajectory,judge,agents,render}, build.py
   submodules/orbit/             read-only; installed editable into .venv
   .venv/                        orbit + inspect-ai 0.3.263 + google-genai + the judge module's imports
@@ -629,7 +631,7 @@ Swimlane of R3D3: lanes grouped by hidden role (workers, regulators, disregulato
 
 \section{Results browser}
 
-\code{make ui} (\code{scripts/ui}) starts \code{python -m integration.ui} when nothing listens on the port and opens the browser; \code{integration/ui/API.md} is the contract. A \textbf{setting} is the communication graph (a lone agent, or every agent on one board), the roster size, and whether roles were hidden; the swarm of section 10 is the board with ten agents and hidden roles, and the browser reads it so. The browser has three parts. \textbf{Summary}: the share of judged agents who cheated by setting (the two baselines, each control on the lone agent and on the board, each composition), the composition grids, and the team reports against the judge. \textbf{Runs}: one row per run with its setting, control, cheated over judged, honeypot seen, attempted access, team report, registration on \code{main} and how the episodes ended; a row opens to its agents; the run name opens the run page (metadata, defenses, composition and team report, board posts in order, defense interventions), and from there the transcript viewer (blocked calls, defense refusals, model-written refusal text, provider-only notices, withheld inputs), the context-window viewer over every model call in the log with the exact provider input and the messages new since the previous call, the sample view with the scorer's workspace evidence, and the per-run timeline. \textbf{Swarm}: the composition grids, the outcome funnel by hidden role, the adoption curves, the swarm runs with their agent-by-turn rasters, a run explorer with the swimlane, the board-message arrows and the exposure cascade, and the figures of this document. Set-aside runs and the mock-model smoke run are listed under Runs and never counted. The figures come from \code{python -m integration.report.figures}, which reads the same data layer without the server. \code{make share} writes the browser as a static bundle under \code{integration/build/share}: every API response as a file, the figures, and one page with the UI inlined. The bundle runs where no server does. The per-call context windows stay local, and the page says so.
+\code{make ui} (\code{scripts/ui}) starts \code{python -m integration.ui} when nothing listens on the port and opens the browser; \code{integration/ui/API.md} is the contract. A \textbf{setting} is the communication graph (a lone agent, or every agent on one board), the roster size, and whether roles were hidden; the swarm of section 10 is the board with ten agents and hidden roles, and the browser reads it so. The browser has three parts. \textbf{Summary}: the share of judged agents who cheated by setting (the two baselines, each control on the lone agent and on the board, each composition), the composition grids, and the team reports against the judge. \textbf{Runs}: one row per run with its setting, control, cheated over judged, honeypot seen, attempted access, team report, registration on \code{main} and how the episodes ended; a row opens to its agents; the run name opens the run page (metadata, defenses, composition and team report, board posts in order, defense interventions), and from there the transcript viewer (blocked calls, defense refusals, model-written refusal text, provider-only notices, withheld inputs), the context-window viewer over every model call in the log with the exact provider input and the messages new since the previous call, the sample view with the scorer's workspace evidence, and the per-run timeline. \textbf{Swarm}: the composition grids, the outcome funnel by hidden role, the adoption curves, the swarm runs with their agent-by-turn rasters, a run explorer with the swimlane, the board-message arrows and the exposure cascade, and the figures of this document. Set-aside runs and the mock-model smoke run are listed under Runs and never counted. The figures come from \code{python -m integration.report.figures}, which reads the same data layer without the server. \code{make share} writes the browser as a static bundle under \code{integration/build/share}. The bundle needs no server. It holds the figures, one page with the UI inlined, and every API response except the per-call context windows. The context page states that the per-call inputs are missing and points at the local browser.
 
 \section{Known constraints}
 

@@ -19,14 +19,19 @@ as what it is, a board of N agents with roles.
 
 ## Static export
 
-`make share` (`python -m integration.ui.export`, then `python -m integration.checks.check_share`) writes `integration/build/share/`:
-`index.html` (the page for a publisher that wraps it in a document: title, stylesheet, app, script), `preview.html` (the same page in a
-full document), `data/runs.json`, `data/summary.json`, `data/figures.json`, `data/run/<run>.json` (`{run, sample, context, timeline,
-transcripts: {<episode>: ...}}`; an endpoint that would have answered 404 or 500 is stored as `{"__error": {status, body}}`), `figures/*.png`
-and `manifest.json` (every file with its size and SHA-256). The page sets `window.RESULTS_STATIC = {data, figures, generated, git, omitted}`
-before `app.js`, and the API client then reads the files instead of the endpoints. `/api/runs/<run>/context/<i>` is not exported; the
-context page says so and points at the local browser. The stylesheet in the page carries `[data-theme]` variants of the dark tokens for a
-viewer that sets an explicit theme.
+`make share` (`python -m integration.ui.export`, then `python -m integration.checks.check_share`) writes `integration/build/share/`
+into a fresh directory: `index.html` (the complete page, for any static host), `artifact.html` (the same page without the document
+skeleton, for a publisher that adds its own: title, stylesheet, app, script), `data/runs.json`, `data/summary.json`,
+`data/figures.json`, `data/run/<run>/{run,sample,context,timeline}.json`, `data/run/<run>/transcripts.json`
+(`{<episode>: /api/runs/<run>/transcript/<episode>}` for every episode with a transcript), `figures/*.png` and `manifest.json`
+(every file with its size and SHA-256, the source hashes, the counts). A sample, context, timeline, run or transcript that would
+have answered 404 or 500 is stored in its place as `{"__error": {status, body}}`, and the export then exits 1 unless
+`--allow-errors`. The page sets `window.RESULTS_STATIC = {data, figures, generated, git, omitted}` before `app.js`, and the API
+client then reads the files instead of the endpoints. `/api/runs/<run>/context/<i>` is not exported; the context page says so and
+points at the local browser. The stylesheet in the page carries `[data-theme]` variants of the dark tokens for a viewer that sets
+an explicit theme. Serve the directory over HTTP to open it (`python3 -m http.server 8000` in it); from disk the data requests fail
+and the page says so. `make share-browser` runs `integration/checks/share_browser.js` over the served bundle. A publish takes at
+most 255 files and 64 MB, so the bundle goes up in several publishes.
 
 ## Data model
 

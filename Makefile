@@ -3,7 +3,7 @@ PY := .venv/bin/python
 SWARM := R0D0,R10D0,R0D10,R1D1,R1D2,R2D2,R3D3,R2D5,R5D2,R0D3,R3D0
 CTRL := $(addprefix runs/,ctrl_vaccination ctrl_secure_model ctrl_tool_wrapper ctrl_dual_llm ctrl_monitor_stock ctrl_guardian_stock ctrl_monitor_task ctrl_guardian_task ctrl_regex_task ctrl_regex_task_hard ctrlb_monitor_stock ctrlb_guardian_stock ctrlb_monitor_task ctrlb_guardian_task)
 
-.PHONY: help ui ui-stop share smoke check tables figures doc
+.PHONY: help ui ui-stop share share-browser smoke check tables figures doc
 
 help:  ## list the targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | column -t -s "$$(printf '\t')"
@@ -17,6 +17,11 @@ ui-stop:  ## stop the results browser started by make ui
 share:  ## export the results browser as a static bundle (integration/build/share) and check it
 	$(PY) -m integration.ui.export
 	$(PY) -m integration.checks.check_share
+
+share-browser:  ## headless pass over the exported bundle (needs node and Playwright with Chromium)
+	@python3 -m http.server 8798 --bind 127.0.0.1 --directory integration/build/share >/dev/null 2>&1 & echo $$! > integration/build/share-http.pid; sleep 1; \
+	NODE_PATH=$${NODE_PATH:-/opt/homebrew/lib/node_modules} node integration/checks/share_browser.js http://127.0.0.1:8798/; rc=$$?; \
+	kill $$(cat integration/build/share-http.pid); rm -f integration/build/share-http.pid; exit $$rc
 
 smoke:  ## six mock-model scenarios on the real sandbox, no model spend
 	$(PY) -m integration.checks.smoke_test

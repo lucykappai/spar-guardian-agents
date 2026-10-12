@@ -25,7 +25,8 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 |---|---|
 | `smoke_test.py` | six mock-model scenarios on the real sandbox (complete, message limit, time limit, board, defended, swarm) |
 | `check_sweep.py` | exit 1 unless every named swarm run is complete and judged; one summary line per run |
-| `check_share.py` | exit 1 unless the static bundle equals the live data, its figures match `docs/figures`, its page is well formed, no file exceeds the publisher's limits and no credential pattern appears |
+| `check_share.py` | exit 1 unless the static bundle equals the live data, its figures match `docs/figures`, its page is exactly what the exporter builds, no endpoint is an error record, no text file is over 16 MB and no image over 15 MB, and no credential pattern or credential-like environment value appears |
+| `share_browser.js` | headless Chromium pass over the served bundle (`make share-browser`): every view at 360, 400 and 1440 px with no error, no request outside the bundle and no horizontal scroll; the context note; the four theme states; a redraw after a theme change |
 
 ## report/
 
@@ -42,7 +43,7 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 |---|---|
 | `server.py` | stdlib HTTP server over `runs/` and the eval logs; `Store` is also the data layer `report/` uses |
 | `__main__.py` | `python -m integration.ui [--runs runs] [--port 8765] [--open]` |
-| `export.py` | `python -m integration.ui.export`: the browser as a static bundle (`index.html` for a publisher, `preview.html`, `data/`, `figures/`, `manifest.json`); `make share` runs it and the check |
+| `export.py` | `python -m integration.ui.export`: the browser as a static bundle in a fresh directory (`index.html` complete, `artifact.html` for a publisher that adds the document skeleton, `data/`, `figures/`, `manifest.json`); exits 1 when an endpoint had to be stored as an error record; `make share` runs it and the check |
 | `API.md` | the JSON contract |
 | `static/` | the single-page UI: `index.html`, `app.js`, `style.css` |
 
@@ -50,4 +51,4 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 
 The image that runs CheatBench's `judge.py` (it imports Linux-only sandbox code). Build with `docker build -t cheatbench-judge integration/docker/judge`.
 
-`build/` (gitignored) holds the staged task built by CheatBench's `tasks/openmath_agent/build.py`.
+`build/` (gitignored) holds the staged task built by CheatBench's `tasks/openmath_agent/build.py`, and `share/`, the static bundle `make share` writes.

@@ -108,6 +108,11 @@ class Store:
         for rec in _jsonl(d / "episodes.jsonl"):
             v = verdicts.get(rec["episode"])
             rec = dict(rec)
+            # A set-aside run keeps the transcript_path of its original name, which a newer run may own by
+            # now; the copy under the run's own trajectories/ is its record.
+            own = d / "trajectories" / rec["episode"] / "transcript.json"
+            if own.exists():
+                rec["transcript_path"] = str(own)
             rec["verdict"] = ({k: v.get(k) for k in ("cheated", "honey_pots_seen", "attempted_access", "extracted_submission",
                                                    "success_claim_seen_before_access", "disclosed_access",
                                                    "explicit_prohibition_violated", "summary", "judge", "judge_cost_usd",
@@ -133,7 +138,7 @@ class Store:
             "endings": endings_of(eps),
             "agents": run.get("agents"), "control": run.get("control") or "baseline",
             "monitor_model": run.get("monitor_model"), "defenses": [d_["name"] for d_ in run.get("defenses") or []],
-            "eval_log": run.get("eval_log"), "eval_log_exists": bool(run.get("eval_log")) and Path(run["eval_log"]).exists(),
+            "eval_log": self._eval_log_path(name), "eval_log_exists": self._eval_log_path(name) is not None,
             "failed": any(e.get("failure") in FAILED_LABELS for e in eps) or bool(FAILED_NAME.match(name)),
             "episodes": eps,
             "has_communication": (d / "communication").exists(), "has_defense": (d / "defense").exists(),
@@ -157,19 +162,25 @@ class Store:
         raise KeyError(episode)
 
     # -- eval log ----------------------------------------------------------
+    def _eval_log_path(self, name: str):
+        """The run's eval log as a string, or None: the path run.json records, else, for a set-aside run
+        (renamed with a failed_ prefix), the same file under logs/<kind>/<run name>/."""
+        run = _json(self._dir(name) / "run.json") or {}
+        path = run.get("eval_log")
+        if not path:
+            return None
+        if Path(path).exists():
+            return str(path)
+        candidate = Path(path).parent.parent / name / Path(path).name
+        return str(candidate) if candidate.exists() else None
+
     def _log(self, name: str):
         with self._lock:
             if name in self._logs:
                 return self._logs[name]
-        run = _json(self._dir(name) / "run.json") or {}
-        path = run.get("eval_log")
-        if path and not Path(path).exists():
-            # a set-aside run: logs/<kind>/<old name>/x.eval was renamed with the run directory
-            candidate = Path(path).parent.parent / name / Path(path).name
-            if candidate.exists():
-                path = str(candidate)
-        if not path or not Path(path).exists():
-            raise KeyError(f"{name}: eval log not found at {path}")
+        path = self._eval_log_path(name)
+        if not path:
+            raise KeyError(f"{name}: eval log not found at {(_json(self._dir(name) / 'run.json') or {}).get('eval_log')}")
         from inspect_ai.log import read_eval_log
 
         log = read_eval_log(path, resolve_attachments=True)
