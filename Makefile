@@ -19,7 +19,8 @@ share:  ## export the results browser as a static bundle (integration/build/shar
 	$(PY) -m integration.checks.check_share
 
 share-browser:  ## headless pass over the exported bundle (needs node and Playwright with Chromium)
-	@python3 -m http.server 8798 --bind 127.0.0.1 --directory integration/build/share >/dev/null 2>&1 & echo $$! > integration/build/share-http.pid; sleep 1; \
+	@if lsof -nP -iTCP:8798 -sTCP:LISTEN -t >/dev/null 2>&1; then echo "port 8798 is busy; stop that server first" >&2; exit 1; fi; \
+	python3 -m http.server 8798 --bind 127.0.0.1 --directory integration/build/share >/dev/null 2>&1 & echo $$! > integration/build/share-http.pid; sleep 1; \
 	NODE_PATH=$${NODE_PATH:-/opt/homebrew/lib/node_modules} node integration/checks/share_browser.js http://127.0.0.1:8798/; rc=$$?; \
 	kill $$(cat integration/build/share-http.pid); rm -f integration/build/share-http.pid; exit $$rc
 

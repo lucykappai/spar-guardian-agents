@@ -2,8 +2,8 @@
 
     python -m integration.ui.export [--runs runs] [--out integration/build/share] [--allow-errors]
 
-The bundle needs no server. It is written into a fresh directory that replaces --out on success, so nothing from an
-earlier export survives. Layout:
+The bundle needs no server. It is written into a fresh directory that replaces --out once every endpoint answered, so
+nothing from an earlier export survives; a refused export (below) stays under <out>.tmp and --out is unchanged. Layout:
 
     index.html              the complete page: serve the directory over HTTP (python -m http.server 8000 in it, then
                             http://127.0.0.1:8000/); opened from disk, the browser refuses the data requests
@@ -124,7 +124,7 @@ def source_hashes() -> dict:
     return {name: hashlib.sha256((here / name).read_bytes()).hexdigest() for name in SOURCES}
 
 
-def export(runs_dir: Path, out: Path) -> dict:
+def export(runs_dir: Path, out: Path, allow_errors: bool = False) -> dict:
     store = Store(runs_dir.resolve())
     tmp = out.parent / (out.name + ".tmp")
     if tmp.exists():
@@ -185,10 +185,12 @@ def export(runs_dir: Path, out: Path) -> dict:
                 "transcripts": n_transcripts, "endpoint_errors": errors, "omitted": [OMITTED], "files": files,
                 "total_bytes": sum(f["bytes"] for f in files)}
     (tmp / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    if errors and not allow_errors:
+        return {**manifest, "out": str(tmp), "refused": True}
     if out.exists():
         shutil.rmtree(out)
     tmp.rename(out)
-    return manifest
+    return {**manifest, "out": str(out), "refused": False}
 
 
 def main() -> int:
@@ -198,15 +200,15 @@ def main() -> int:
     ap.add_argument("--allow-errors", action="store_true", help="exit 0 even when an endpoint was stored as an error record")
     args = ap.parse_args()
     out = Path(args.out)
-    m = export(Path(args.runs), out)
+    m = export(Path(args.runs), out, args.allow_errors)
     print(f"exported {m['runs']} runs, {m['transcripts']} transcripts, {len(m['files'])} files, "
-          f"{m['total_bytes'] / 1e6:.1f} MB -> {out} (git {m['git']})")
+          f"{m['total_bytes'] / 1e6:.1f} MB -> {m['out']} (git {m['git']})")
     if m["endpoint_errors"]:
         n = sum(len(v) for v in m["endpoint_errors"].values())
         print(f"{n} endpoint(s) stored as error records in {len(m['endpoint_errors'])} run(s): "
               + "; ".join(f"{k}: {', '.join(v)}" for k, v in m["endpoint_errors"].items()), file=sys.stderr)
-        if not args.allow_errors:
-            print("refusing: pass --allow-errors to ship a bundle with error records", file=sys.stderr)
+        if m["refused"]:
+            print(f"refusing: {out} is unchanged and the export stays under {m['out']}; pass --allow-errors to accept", file=sys.stderr)
             return 1
     return 0
 

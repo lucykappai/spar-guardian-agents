@@ -241,7 +241,8 @@ table.data.runs-table th { white-space: normal; vertical-align: bottom; }
 .runs-table tbody tr.run-row:hover td { background: var(--hover); }
 .runs-table tr.open td { border-bottom-color: transparent; }
 /* The header stays in view while the list scrolls; the wrapper lets the page scroll sideways only on narrow screens. */
-.runs-table thead th { position: sticky; top: calc(var(--header-h) + env(safe-area-inset-top, 0px)); z-index: 3; }
+/* Only the outer header sticks; the agents table inside an open row scrolls with its box. */
+.runs-table > thead > tr > th { position: sticky; top: calc(var(--header-h) + env(safe-area-inset-top, 0px)); z-index: 3; }
 @media (min-width: 1360px) { .runs-wrap { overflow: visible; } }
 .runs-table .exp-cell { width: 28px; padding-right: 0; }
 .expander { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; width: 22px; height: 22px; border-radius: 4px; padding: 0; }
@@ -249,6 +250,9 @@ table.data.runs-table th { white-space: normal; vertical-align: bottom; }
 .runs-table tr.detail-row > td { padding: 0 8px 12px 36px; white-space: normal; }
 .runs-table tr.detail-row.band > td { background: var(--band); }
 .detail-box { border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; background: var(--panel); }
+/* Scroll containers are positioned, so a visually hidden header name (absolutely positioned) stays inside
+   the box it belongs to instead of widening the page. */
+.table-wrap, .detail-box { position: relative; }
 table.eps-table { width: 100%; font-size: 13.5px; }
 table.eps-table th { background: var(--panel-2); }
 .eps-table td { white-space: nowrap; vertical-align: middle; }

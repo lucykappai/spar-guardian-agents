@@ -16,7 +16,7 @@ Every check is against the thing itself:
     stylesheet has both [data-theme] dark blocks with color-scheme dark, and the page loads nothing external;
   * no credential pattern appears in any decoded JSON string or page text, and no value of a credential-like
     environment variable (API keys, tokens, secrets, passwords) appears anywhere in the bundle.
-A headless browser pass over the served bundle is integration/checks/check_share_browser.js (make share-browser).
+A headless browser pass over the served bundle is integration/checks/share_browser.js (make share-browser).
 """
 from __future__ import annotations
 

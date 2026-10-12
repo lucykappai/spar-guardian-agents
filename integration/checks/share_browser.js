@@ -25,7 +25,7 @@ async function main() {
   const enc = encodeURIComponent;
   const views = [
     { name: 'summary', hash: '#/' },
-    { name: 'runs', hash: '#/runs?all=1' },
+    { name: 'runs', hash: '#/runs?all=1', runs: true },
     { name: 'swarm', hash: `#/swarm?run=${enc(swarm.run)}`, swarm: true },
     { name: 'run', hash: `#/run/${enc(withTranscript.run)}` },
     { name: 'transcript', hash: episode ? `#/run/${enc(withTranscript.run)}/episode/${enc(episode.episode)}` : null },
@@ -53,6 +53,21 @@ async function main() {
         if (!c.calls) fail(`${width}px context: no calls listed`);
         if (!c.note) fail(`${width}px context: the selected call does not show the static note`);
         if (!c.sideNote) fail(`${width}px context: the sidebar lacks the static note`);
+      }
+      if (v.runs) {
+        // open the first run: its first agent row must be visible, not under the agents table's own header
+        await page.locator('tr.run-row .expander').first().click();
+        await page.waitForTimeout(250);
+        const r = await page.evaluate(() => {
+          const row = document.querySelector('tr.detail-row .eps-table tbody tr');
+          if (!row) return { missing: true };
+          row.scrollIntoView({ block: 'center' });
+          const b = row.getBoundingClientRect();
+          const el = document.elementFromPoint(b.left + Math.min(40, b.width / 2), b.top + b.height / 2);
+          return { covered: !(el && row.contains(el)), by: el ? el.tagName + '.' + el.className : 'nothing' };
+        });
+        if (r.missing) fail(`${width}px runs: no agent row after opening the first run`);
+        else if (r.covered) fail(`${width}px runs: the first agent row is covered by ${r.by}`);
       }
       await page.waitForTimeout(250);
       const m = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth, boxes: document.querySelectorAll('.error-box').length, h1: (document.querySelector('h1') || {}).textContent }));
