@@ -12,3 +12,6 @@ docs/*.fls
 docs/*.log
 docs/*.out
 docs/latexmk.out
+
+# git worktrees (user-created, never committed)
+worktrees/
