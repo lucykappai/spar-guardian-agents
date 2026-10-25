@@ -4,6 +4,6 @@
 [submodule "submodules/orbit"]
 	path = submodules/orbit
 	url = https://github.com/unrulyabstractions/orbit
-[submodule "submodules/covertpersonashifts"]
-	path = submodules/covertpersonashifts
+[submodule "submodules/lucy"]
+	path = submodules/lucy
 	url = https://github.com/lucykappai/covertpersonashifts

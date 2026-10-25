@@ -32,7 +32,7 @@ integration/
 runs/<name>/             one run: run.json, episodes.jsonl, judge.jsonl, trajectories/, communication/, defense/
 logs/                    Inspect eval logs (gitignored): ctrl/<run>/, swarm/<run>/, and the two pilots under gemini*/
 docs/                    the document, generated tables, figures
-submodules/              cheatbench, orbit and covertpersonashifts (Lucy's swarm-persona repository), read only
+submodules/              cheatbench, orbit and lucy (Lucy's repository covertpersonashifts; Rigel's commits are in it), read only
 VERIFICATION_LOG.md      every output, how it was verified, and the result
 ```
 
