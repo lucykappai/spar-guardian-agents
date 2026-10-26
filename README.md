@@ -20,7 +20,7 @@ make check         # refuses unless the eleven swarm runs are complete and judge
 ## Requirements
 
 - `.venv`: Python 3.11 with ORBIT installed editable from `submodules/orbit`, plus pytest. The judge runs through Inspect's OpenAI provider, which needs `openai>=3.1` (ORBIT's own requirement); CheatBench's `litellm` pins `openai<3` and is not used here.
-- Docker. The openmath sandbox image is built by the task. SWE needs the `cbswe-<issue>:native` image, which `src/benchmark/domains/swe.py` builds when it is missing.
+- Docker. The openmath sandbox image is built by the task. SWE needs the `cbswe-<issue>:native` image, which the SWE domain builds when it is missing.
 - `GEMINI_API_KEY` for the agents and `OPENAI_API_KEY` for the judge.
 
 ## Layout
@@ -30,10 +30,12 @@ Makefile                 entry points (make help)
 src/                     the package: cli.py, run.py, tasks.py and the packages below; see src/README.md
   swarm/                 the experiment on ORBIT: the board, the hidden roles, Lucy's turn rules, the controls,
                          the end-of-episode probes
-  benchmark/             CheatBench as tasks: the sample, the sandbox, the graders, the judge, the export
+  benchmark/             CheatBench as tasks: the sample, the sandbox, the graders, the judge, the export;
+                         see src/benchmark/README.md
     base.py              the Benchmark protocol
-    domains/             one module per task domain: openmath.py (openmath_agent) and swe.py (the SWE issues
-                         with Lucy's honeypots)
+    domains/openmath/    openmath_agent: task.py, sandbox.py, probe.py, scripts/
+    domains/swe/         the SWE issues with Lucy's honeypots: task.py, split.py, sandbox.py, honeypots.py,
+                         grader.py, scripts/
     transcript.py        one Inspect sample as one ATIF transcript per agent
     judge.py, models.yaml CheatBench's judge as an Inspect scorer
     export.py            one eval log as runs/<name>/

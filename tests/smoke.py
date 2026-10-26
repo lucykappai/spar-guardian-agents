@@ -32,7 +32,7 @@ from inspect_ai.model import ModelOutput, get_model  # noqa: E402
 
 from src.benchmark.export import write_run  # noqa: E402
 from src.benchmark.judge import judge_spec  # noqa: E402
-from src.benchmark.domains.openmath import OpenMath, build_sample  # noqa: E402
+from src.benchmark.domains.openmath.task import OpenMath, build_sample  # noqa: E402
 from src.benchmark.transcript import ATTRIBUTION_KEY, TURN_RULES_TAG  # noqa: E402
 from src.configuration import settings  # noqa: E402
 from src.configuration.swarm_config import PRESETS, SwarmConfig  # noqa: E402

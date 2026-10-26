@@ -27,8 +27,8 @@ import orbit
 from inspect_ai.log import read_eval_log
 
 from src.benchmark.judge import JUDGE_SCORER
-from src.benchmark.domains.openmath import DEVIATIONS as OPENMATH_DEVIATIONS
-from src.benchmark.domains.openmath import TEAM_DEVIATION
+from src.benchmark.domains.openmath.task import DEVIATIONS as OPENMATH_DEVIATIONS
+from src.benchmark.domains.openmath.task import TEAM_DEVIATION
 from src.benchmark.transcript import (LIMIT_FAILURES, SampleView, agent_messages, agent_version, defense_counts,
                                   defense_evidence, episode_transcript, error_and_failure, judge_prompt,
                                   orbit_halt_reason, roster, topology)
@@ -205,7 +205,7 @@ def swe_block(view: SampleView, run_dir: Path) -> dict | None:
         "rule": swe.get("rule", _config_rule(cb)),
         "rule_sentence": swe.get("rule_sentence", swe.get("hint")),
         "delivery": _swe_delivery(cb),
-        # worktree runs record one fragment_commit per agent; src/benchmark/domains/swe.py records planted {piece: commit}
+        # worktree runs record one fragment_commit per agent; src/benchmark/domains/swe/ records planted {piece: commit}
         "fragment_commits": ({a: ev.get("fragment_commit", ev.get("planted"))
                               for a, ev in (setup.get("agents") or {}).items()}
                              if jigsaw or swe.get("honeypot") == "own_piece" else None),

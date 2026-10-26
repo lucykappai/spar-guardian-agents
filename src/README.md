@@ -15,6 +15,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `swarm/rules.py` | Lucy's turn rules: the plan, the callback after each activation, and the model filter |
 | `swarm/controls.py` | `defenses_for(control, monitor_model)`: ORBIT's shipped defenses as named controls |
 | `swarm/probes.py` | Lucy's end-of-episode reflection and awareness questions, as an Inspect scorer |
+| `benchmark/` | CheatBench's tasks: the Benchmark protocol, the openmath and SWE domains, the transcript, the judge and the export; see `src/benchmark/README.md` |
 | `measures/` | over run directories: the command line's summary (`summary.py`), Rigel's cheating ladder (`rungs.py`) and Lucy's SWE measures (`swe_summary.py`) |
 | `utils/provider_retry.py` | Gemini's 402 "credits depleted" retried as a rate limit |
 | `ui/` | the results browser: `server.py`, `launch.py` (start and stop in the background), `API.md` and the single-page UI in `static/` |

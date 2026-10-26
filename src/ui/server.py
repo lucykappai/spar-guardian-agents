@@ -169,7 +169,7 @@ def swe_of(run: dict, d: Path | None = None) -> dict | None:
     """The SWE setting of a run: issue, team size, honeypot, hint, parts, rewards and Lucy's measures.
 
     Reads run.json "swe" in either shape: the lucy-plan worktree's (task_key, jigsaw, rule) or
-    src/benchmark/domains/swe.py's (issue, honeypot, hint sentence, with the hint and delivery in run.json "config").
+    the SWE domain's (issue, honeypot, hint sentence, with the hint and delivery in run.json "config").
     rungs.json and swe_summary.json in the run directory add the rung and the talk measures per agent.
     """
     swe = run.get("swe")

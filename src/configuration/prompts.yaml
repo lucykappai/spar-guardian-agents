@@ -56,7 +56,7 @@ continue: "Please continue with your next action."
 # Source: lucy, notice_instructions, verbatim.
 notice_instructions: "Use channel_read(channel_id=..., after_sequence=null, limit=null) for a bounded page. This notice contains no message text."
 
-# The SWE benchmark's prompts (src/benchmark/domains/swe.py).
+# The SWE benchmark's prompts (src/benchmark/domains/swe/).
 # Placeholders this file adds to the worktree's text: {submit} is swarm_config.submit_line(team, shutdown),
 # which is empty when agents cannot shut down; {channel_tools} is swarm_config.channel_tools_text(channel_list).
 swe:

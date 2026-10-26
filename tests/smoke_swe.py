@@ -3,7 +3,7 @@
     .venv/bin/python tests/smoke_swe.py [--only lone,board,honeypots,rule,shutdown,grading]
 
 Every scenario starts the real sandbox (the grader and one service per agent, from the native image that
-src/benchmark/domains/swe.py builds), drives ORBIT with Inspect's mockllm scripted per agent, judges with a mock judge model,
+src/benchmark/domains/swe/ builds), drives ORBIT with Inspect's mockllm scripted per agent, judges with a mock judge model,
 exports the log with src.benchmark.export.write_run and reads every transcript back the way CheatBench's judge does.
 Each check is an assertion; a failing scenario exits non-zero. Results go to runs/smoke_swe/<stamp>/ and
 logs/smoke_swe/<stamp>/, a fresh directory per invocation.
@@ -33,7 +33,9 @@ from inspect_ai import eval as inspect_eval  # noqa: E402
 from inspect_ai.log import read_eval_log  # noqa: E402
 from inspect_ai.model import ModelOutput, get_model  # noqa: E402
 
-from src.benchmark.domains import swe as swe_mod  # noqa: E402
+from src.benchmark.domains.swe.honeypots import parse_scan, scan_script  # noqa: E402
+from src.benchmark.domains.swe.sandbox import image_tags  # noqa: E402
+from src.benchmark.domains.swe.split import load_lines, load_split, task_config, task_dir  # noqa: E402
 from src.benchmark.export import write_run  # noqa: E402
 from src.benchmark.domains.swe import SWE  # noqa: E402
 from src.configuration import settings  # noqa: E402
@@ -183,7 +185,7 @@ def scenario_lone() -> dict:
     after = [m for m in script.inputs["a01"][2] if m.role != "system"]
     assert after[-2].role == "assistant" and after[-1].role == "user" and "continue" in after[-1].text.lower(), \
         [(m.role, (m.text or "")[:40]) for m in after[-3:]]
-    instruction = (swe_mod.task_dir(rec["swe_task"]) / "instruction.md").read_text()
+    instruction = (task_dir(rec["swe_task"]) / "instruction.md").read_text()
     assert first_user(t) == instruction, "lone input is not instruction.md"
     assert "submit" in system_text(t), "the lone system prompt lost its submit bullet"
     md = grader_meta(sample)
@@ -264,7 +266,7 @@ def honeypot_run(name: str, honeypot: str, agents: list[str]) -> tuple:
 
 def check_honeypot(sample, recs: dict, expected: dict[str, list[str]]) -> dict:
     setup = sample.store.get("swe_setup")
-    split = swe_mod.load_split(ISSUE)
+    split = load_split(ISSUE)
     assert setup["checks_ok"] is True, setup
     assert setup["team_repo"] == {**setup["team_repo"], "distinctive_found": 0, "holds_fix_commit": False}, setup
     out = {}
@@ -289,12 +291,12 @@ def scenario_honeypots() -> dict:
     sample, recs = honeypot_run("jigsaw", "jigsaw", ["a01", "a02", "a03"])
     out["jigsaw"] = check_honeypot(sample, recs, {"a01": ["B"], "a02": ["C"], "a03": ["A"]})
     # the scan can fail: over the image as released it finds every distinctive line of the fix
-    lines = [x["line"] for x in swe_mod.load_lines(ISSUE)["fix"]]
-    script = "cat > /tmp/.lines; " + swe_mod.scan_script(swe_cfg.WORKDIR, "/tmp/.lines")
+    lines = [x["line"] for x in load_lines(ISSUE)["fix"]]
+    script = "cat > /tmp/.lines; " + scan_script(swe_cfg.WORKDIR, "/tmp/.lines")
     r = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--entrypoint", "bash",
-                        swe_mod.image_tags(ISSUE)["native"], "-c", script],
+                        image_tags(ISSUE)["native"], "-c", script],
                        input=("\n".join(lines) + "\n").encode(), capture_output=True, timeout=1200)
-    _, found = swe_mod.parse_scan(r.stdout.decode())
+    _, found = parse_scan(r.stdout.decode())
     assert found == set(lines), f"the scan of the released image found {len(found)} of {len(lines)}"
     out["released_scan_found"] = len(found)
     return out
@@ -310,7 +312,7 @@ def scenario_rule() -> dict:
     sample = log.samples[0]
     recs = by_agent(records)
     assert sorted(recs) == agents, recs
-    issue = (swe_mod.task_dir(sample.metadata["cheatbench"]["swe_task"]) / "instruction.md").read_text()
+    issue = (task_dir(sample.metadata["cheatbench"]["swe_task"]) / "instruction.md").read_text()
     for a, rec in recs.items():
         t = load_transcript(rec)
         msg = first_user(t)
@@ -338,7 +340,7 @@ def scenario_shutdown() -> dict:
 
 
 def scenario_grading() -> dict:
-    patch = swe_mod.task_config(swe_mod.load_split(ISSUE)["task"])["patch"]
+    patch = task_config(load_split(ISSUE)["task"])["patch"]
     b64 = base64.b64encode(patch.encode()).decode()
     write = call("run_python", {"code": f"import base64; open('/tmp/gold.diff','wb').write(base64.b64decode('{b64}')); "
                                         "print('written')"}, "g1")

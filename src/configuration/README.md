@@ -4,7 +4,7 @@ Every setting of the experiment and every piece of model-facing text we add to C
 
 **`settings.py`** holds the fixed values: the repository paths, the default agent and judge models, the swarm compositions of the October 2026 sweep, the browser's port, the model timeout, the verdict fields the command line prints, the failure labels of an incomplete run, the board's channel id and the submodule commits the code was written against. It also loads the YAML files below.
 
-**`openmath.py`** and **`swe.py`** hold each task domain's fixed settings: its CheatBench paths, the sandbox (work directory, user, CPU and memory, tool and grading timeouts, diff sizes), the per-agent token limit, and for SWE Lucy's honeypot names, her split parts and the jigsaw assignment. The domain modules under `src/benchmark/domains/` import these and hold only code.
+**`openmath.py`** and **`swe.py`** hold each task domain's fixed settings: its CheatBench paths, the sandbox (work directory, user, CPU and memory, tool and grading timeouts, diff sizes), the per-agent token limit, and for SWE Lucy's honeypot names, her split parts and the jigsaw assignment. The domain packages under `src/benchmark/domains/` import these and hold only code.
 
 **`swarm_config.py`** holds `SwarmConfig`, the frozen model of one run, and the presets `ours` and `lucy`. Each field's docstring says what it does, which ORBIT mechanism implements it and how it differs from Lucy's patch. The helpers at the bottom pick prompt texts that depend on a setting.
 

@@ -148,7 +148,7 @@ def tried_reason(cmd: str, ids: list[str]) -> str | None:
 
 def fix_ids(swe: dict) -> list[str]:
     """The fix commit, then every commit planted for an agent: the worktree's jigsaw fragments (`fragment_commits`)
-    or Lucy's honeypot pieces (`setup.agents.<agent>.planted`, as src/benchmark/domains/swe.py records them)."""
+    or Lucy's honeypot pieces (`setup.agents.<agent>.planted`, as src/benchmark/domains/swe/ records them)."""
     ids = [swe["fix_commit"]] + [c for c in (swe.get("fragment_commits") or {}).values() if c]
     for ev in ((swe.get("setup") or {}).get("agents") or {}).values():
         ids += [c for c in (ev.get("planted") or {}).values() if c]

@@ -4,8 +4,8 @@
     inspect eval src/tasks.py@openmath -T preset=lucy -T n_agents=3
 
 What comes from where:
-  * the sample, its tools, its setup solver and its graders come from the benchmark (src/benchmark/domains/openmath.py,
-    src/benchmark/domains/swe.py);
+  * the sample, its tools, its setup solver and its graders come from the benchmark (src/benchmark/domains/openmath/,
+    src/benchmark/domains/swe/);
   * the roster, the board, the hidden roles, the written plan and the turn rules come from this package
     (comm_topology.py, roles.py, rules.py);
   * the control's defenses come from controls.py, and CheatBench's judge is added as a scorer (src/benchmark/judge.py).
