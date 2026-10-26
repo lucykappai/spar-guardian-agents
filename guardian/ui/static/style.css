@@ -1,5 +1,5 @@
 /* Results browser styles. No external fonts; light and dark follow prefers-color-scheme. Every colour is a token
-   on :root; the dark blocks only redefine tokens (export.py adds the [data-theme] variants an artifact viewer sets). */
+   on :root; the dark blocks only redefine tokens. */
 
 :root {
   color-scheme: light;
@@ -411,12 +411,10 @@ details.reasoning .pre { font-family: var(--sans); font-size: 13px; color: var(-
 .error-box { border: 1px solid var(--bad); background: var(--bad-bg); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
 .error-title { font-weight: 650; color: var(--bad); margin-bottom: 6px; overflow-wrap: anywhere; }
 .error-box .pre { background: var(--panel); }
-.static-note { color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 10px 12px; margin: 8px 0; max-width: 70ch; }
-.badge.snapshot { white-space: nowrap; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
-  /* The header scrolls away and wraps, so the run / timeline / context / sample tabs and the snapshot badge stay
+  /* The header scrolls away and wraps, so the run / timeline / context / sample tabs stay
      readable on a landscape phone or a narrow window. The 16 px side gutter of #main holds at every width. */
   :root { --header-h: 0px; }
   .topbar { position: static; height: auto; min-height: 48px; flex-wrap: wrap; padding: 6px 16px; gap: 6px 8px; }
@@ -644,9 +642,5 @@ a.hl:hover { text-decoration: none; background: var(--hover); }
 .adopt-svg.clickable { cursor: pointer; }
 .panel-grid { display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .adopt-fig { margin: 0; }
-.figure-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 14px; }
-.fig { margin: 0; }
-.fig img { display: block; width: 100%; height: auto; background: #fff; border: 1px solid var(--border); border-radius: 6px; }
-.fig figcaption { font-size: 13px; margin-top: 4px; }
 #explore-card .sec-head .field { margin-left: 8px; }
 #explore { scroll-margin-top: calc(var(--header-h) + 12px); }

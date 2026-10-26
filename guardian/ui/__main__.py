@@ -1,10 +1,11 @@
-"""Start the results browser.
+"""Start the results browser in the foreground.
 
     python -m guardian.ui [--runs runs] [--host 127.0.0.1] [--port 8765] [--open]
 
 Reads every run directory under --runs (run.json, episodes.jsonl, judge.jsonl,
 trajectories, communication, defense) and, on demand, the Inspect eval log each
 run.json points at, for per-call context windows. Serves the UI at /.
+`python -m guardian ui` starts this module in the background.
 """
 from __future__ import annotations
 
@@ -12,18 +13,18 @@ import argparse
 import webbrowser
 from pathlib import Path
 
+from guardian import config
+
 from .server import serve
 
-ROOT = Path(__file__).resolve().parents[2]
 
-
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--runs", default=str(ROOT / "runs"))
+    ap.add_argument("--runs", default=str(config.RUNS))
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=config.UI_PORT)
     ap.add_argument("--open", action="store_true", help="open the browser")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     url = f"http://{args.host}:{args.port}/"
     if args.open:
         webbrowser.open(url)

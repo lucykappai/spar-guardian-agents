@@ -1,8 +1,8 @@
 # Results browser API
 
-Start: `make ui` (or `scripts/ui`), which runs `python -m guardian.ui [--runs runs] [--port 8765] [--open]` from the repository
-root with `.venv` and opens the browser. The UI is served at `/` from `guardian/ui/static/` (`index.html`, `app.js`, `style.css`).
-All API responses are JSON.
+Start: `make ui`, or `.venv/bin/python -m guardian ui [--port 8765] [--no-open]` from the repository root. The UI is
+served at `/` and its assets at `/static/<file>` from `guardian/ui/static/` (`index.html`, `app.js`, `style.css`). All API
+responses are JSON.
 
 ## UI routes
 
@@ -11,27 +11,11 @@ All API responses are JSON.
 | `#/` | Summary: cheating by setting, composition grids, team reports against the judge |
 | `#/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=` | Runs: one row per run, opening to its agents |
 | `#/run/<run>` | run page; `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
-| `#/swarm?run=<run>` | Swarm: grids, outcome funnel, adoption curves, swarm runs with rasters, run explorer, figures |
+| `#/swarm?run=<run>` | Swarm: grids, outcome funnel, adoption curves, swarm runs with rasters, run explorer |
 
 A **setting** is the communication graph (`single`: a lone agent; `board`: every agent on one shared board), the roster size, and
 whether roles were hidden. `run.json` writes `topology: "swarm"` for a board with hidden roles; the API adds `graph` so the swarm reads
 as what it is, a board of N agents with roles.
-
-## Static export
-
-`make share` (`python -m guardian.ui.export`, then `python -m guardian.checks.check_share`) writes `guardian/build/share/`
-into a fresh directory: `index.html` (the complete page, for any static host), `artifact.html` (the same page without the document
-skeleton, for a publisher that adds its own: title, stylesheet, app, script), `data/runs.json`, `data/summary.json`,
-`data/figures.json`, `data/run/<run>/{run,sample,context,timeline}.json`, `data/run/<run>/transcripts.json`
-(`{<episode>: /api/runs/<run>/transcript/<episode>}` for every episode with a transcript), `figures/*.png` and `manifest.json`
-(every file with its size and SHA-256, the source hashes, the counts). A sample, context, timeline, run or transcript that would
-have answered 404 or 500 is stored in its place as `{"__error": {status, body}}`, and the export then exits 1 unless
-`--allow-errors`. The page sets `window.RESULTS_STATIC = {data, figures, generated, git, omitted}` before `app.js`, and the API
-client then reads the files instead of the endpoints. `/api/runs/<run>/context/<i>` is not exported; the context page says so and
-points at the local browser. The stylesheet in the page carries `[data-theme]` variants of the dark tokens for a viewer that sets
-an explicit theme. Serve the directory over HTTP to open it (`python3 -m http.server 8000` in it); from disk the data requests fail
-and the page says so. `make share-browser` runs `guardian/checks/share_browser.js` over the served bundle. A publish takes at
-most 255 files and 64 MB, so the bundle goes up in several publishes.
 
 ## Data model
 
@@ -131,5 +115,3 @@ RunAggregate = {run, control, topology, graph, roles: bool, mock: bool, model, f
                 regulators, disregulators, workers, composition, seed, report_cheated, has_report,
                 by_role: {worker|regulator|disregulator: {n, cheated, honeypots_seen, attempted, disclosed}} | null}
 ```
-
-### `GET /api/figures` → `[{name, size, modified}]` for the PNG files under `docs/figures`; `GET /figures/<file>` serves one of them (png, svg or pdf; plain file names only).

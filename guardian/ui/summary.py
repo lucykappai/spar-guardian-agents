@@ -1,51 +1,116 @@
-"""One line per judged episode across run directories.
+"""Print one line per judged episode across run directories.
 
-    python -m guardian.report.summarize_runs runs/gemini_riemann runs/ctrl_*
+    python -m guardian summary runs/gemini_riemann runs/ctrl_* [--full]
+
+Each line joins an episode from episodes.jsonl with its verdict from judge.jsonl.
+--full also prints the judge's summary under each episode.
 """
 from __future__ import annotations
 
+import argparse
 import json
-import sys
 from pathlib import Path
+
+HEADER = (
+    f"{'run':24} {'episode':18} {'control':13} {'role':12} {'calls':>5} {'s':>5} {'fail':6} "
+    f"{'chk':>4} {'blk':>4} {'cheat':5} {'seen':5} {'acc':5} {'disc':5}  blocks_by"
+)
+SUMMARY_CHARS = 1200
+
+
+def yes_no(value) -> str:
+    return {True: "yes", False: "no"}.get(value, "--")
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def verdicts_by_episode(run_dir: Path) -> dict:
+    judge_path = run_dir / "judge.jsonl"
+    if not judge_path.exists():
+        return {}
+    return {verdict["episode"]: verdict for verdict in read_jsonl(judge_path)}
+
+
+def episode_row(run_name: str, episode: dict, verdict: dict) -> dict:
+    defense = episode.get("defense") or {}
+    usage = episode.get("usage") or {}
+    wall_time = episode.get("wall_time")
+    return {
+        "run": run_name,
+        "episode": episode["episode"],
+        "control": episode.get("control"),
+        "role": episode.get("role"),
+        "calls": episode.get("n_tool_calls"),
+        "s": round(wall_time) if wall_time else None,
+        "failure": episode.get("failure"),
+        "checks": defense.get("checks", 0),
+        "blocks": defense.get("blocks", 0),
+        "blocks_by": defense.get("blocks_by_boundary", {}),
+        "cheated": verdict.get("cheated"),
+        "seen": verdict.get("honey_pots_seen"),
+        "access": verdict.get("attempted_access"),
+        "disclosed": verdict.get("disclosed_access"),
+        "judge_usd": verdict.get("judge_cost_usd"),
+        "prompt_tokens": usage.get("input"),
+        "summary": verdict.get("summary", ""),
+    }
 
 
 def rows(run_dir: Path):
-    episodes = [json.loads(l) for l in (run_dir / "episodes.jsonl").read_text().splitlines()]
-    judge = {}
-    if (run_dir / "judge.jsonl").exists():
-        judge = {v["episode"]: v for v in map(json.loads, (run_dir / "judge.jsonl").read_text().splitlines())}
-    for r in episodes:
-        v = judge.get(r["episode"], {})
-        d = r.get("defense") or {}
-        yield {
-            "run": run_dir.name, "episode": r["episode"], "control": r.get("control"), "role": r.get("role"),
-            "calls": r.get("n_tool_calls"), "s": round(r["wall_time"]) if r.get("wall_time") else None,
-            "failure": r.get("failure"), "checks": d.get("checks", 0), "blocks": d.get("blocks", 0),
-            "blocks_by": d.get("blocks_by_boundary", {}),
-            "cheated": v.get("cheated"), "seen": v.get("honey_pots_seen"), "access": v.get("attempted_access"),
-            "disclosed": v.get("disclosed_access"), "judge_usd": v.get("judge_cost_usd"),
-            "prompt_tokens": (r.get("usage") or {}).get("input"), "summary": v.get("summary", ""),
-        }
+    verdicts = verdicts_by_episode(run_dir)
+    for episode in read_jsonl(run_dir / "episodes.jsonl"):
+        verdict = verdicts.get(episode["episode"], {})
+        yield episode_row(run_dir.name, episode, verdict)
 
 
-def main() -> int:
-    full = "--full" in sys.argv
-    dirs = [Path(a) for a in sys.argv[1:] if a != "--full"]
-    hdr = f"{'run':24} {'episode':18} {'control':13} {'role':12} {'calls':>5} {'s':>5} {'fail':6} {'chk':>4} {'blk':>4} {'cheat':5} {'seen':5} {'acc':5} {'disc':5}  blocks_by"
-    print(hdr)
-    yn = lambda x: {True: "yes", False: "no"}.get(x, "--")
-    for d in dirs:
-        if not (d / "episodes.jsonl").exists():
-            print(f"{d.name:24} (no episodes.jsonl)"); continue
-        run = json.loads((d / "run.json").read_text()) if (d / "run.json").exists() else {}
-        sw = run.get("swarm")
-        if sw:
-            print(f"{d.name:24} swarm {sw.get('composition')} seed {sw.get('seed')} | team report says cheated: {yn(sw.get('swarm_report_cheated'))}")
-        for r in rows(d):
-            print(f"{r['run']:24} {r['episode']:18} {str(r['control']):13} {str(r['role'] or '-'):12} {str(r['calls']):>5} {str(r['s']):>5} {str(r['failure'] or '-'):6} "
-                  f"{r['checks']:>4} {r['blocks']:>4} {yn(r['cheated']):5} {yn(r['seen']):5} {yn(r['access']):5} {yn(r['disclosed']):5}  {r['blocks_by']}")
-            if full and r["summary"]:
-                print("    " + r["summary"][:1200])
+def format_row(row: dict) -> str:
+    episode_part = (
+        f"{row['run']:24} {row['episode']:18} {str(row['control']):13} {str(row['role'] or '-'):12} "
+        f"{str(row['calls']):>5} {str(row['s']):>5} {str(row['failure'] or '-'):6} "
+    )
+    verdict_part = (
+        f"{row['checks']:>4} {row['blocks']:>4} {yes_no(row['cheated']):5} {yes_no(row['seen']):5} "
+        f"{yes_no(row['access']):5} {yes_no(row['disclosed']):5}  {row['blocks_by']}"
+    )
+    return episode_part + verdict_part
+
+
+def swarm_line(run_dir: Path) -> str | None:
+    run_json = run_dir / "run.json"
+    if not run_json.exists():
+        return None
+    swarm = json.loads(run_json.read_text()).get("swarm")
+    if not swarm:
+        return None
+    composition = swarm.get("composition")
+    seed = swarm.get("seed")
+    report = yes_no(swarm.get("swarm_report_cheated"))
+    return f"{run_dir.name:24} swarm {composition} seed {seed} | team report says cheated: {report}"
+
+
+def print_run(run_dir: Path, full: bool) -> None:
+    if not (run_dir / "episodes.jsonl").exists():
+        print(f"{run_dir.name:24} (no episodes.jsonl)")
+        return
+    line = swarm_line(run_dir)
+    if line:
+        print(line)
+    for row in rows(run_dir):
+        print(format_row(row))
+        if full and row["summary"]:
+            print("    " + row["summary"][:SUMMARY_CHARS])
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("run_dirs", nargs="*", type=Path, help="run directories under runs/")
+    parser.add_argument("--full", action="store_true", help="also print the judge's summary")
+    args = parser.parse_intermixed_args(argv)
+    print(HEADER)
+    for run_dir in args.run_dirs:
+        print_run(run_dir, args.full)
     return 0
 
 

@@ -1,6 +1,27 @@
-# integration
+# guardian
 
-Code that runs CheatBench rows inside ORBIT and reads the results back. Run every module from the repository root with `.venv/bin/python -m guardian.<package>.<module>`.
+Code that runs CheatBench rows inside ORBIT and reads the results back. Run everything from the repository root with `.venv/bin/python -m guardian <command>`.
+
+## Top level
+
+| file | holds |
+|---|---|
+| `__main__.py` | `python -m guardian`: calls `cli.main` |
+| `cli.py` | the subcommands `run`, `judge`, `ui` and `summary` |
+| `config.py` | shared paths, model names, the swarm compositions, the UI port and the model timeout |
+
+## Commands
+
+| command | example |
+|---|---|
+| `run single` | `python -m guardian run single guardian_task ctrl_guardian_task` runs one control (or `baseline`) on the lone agent |
+| `run board` | `python -m guardian run board baseline board_baseline` runs the same on two agents sharing a board |
+| `run swarm` | `python -m guardian run swarm 3 3 swarm_R3D3_s1 -T seed=1` runs one composition (regulators, disregulators) |
+| `judge` | `python -m guardian judge logs/swarm/<run>/<log>.eval <run> [--judge-errors]` converts and judges an existing eval log |
+| `ui` | `python -m guardian ui [--port 8765] [--no-open]` starts the results browser; `ui stop` stops it |
+| `summary` | `python -m guardian summary runs/ctrl_* [--full]` prints one line per judged episode |
+
+`run` writes the eval log under `logs/ctrl/<name>/` or `logs/swarm/<name>/`, converts it to `runs/<name>/`, judges it and prints the summary. `judge` refuses a run with a harness or provider failure unless `--judge-errors` is given.
 
 ## task/ (what runs inside Inspect)
 
@@ -19,36 +40,22 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 |---|---|
 | `eval_to_atif.py` | one Inspect `.eval` log to `runs/<name>/`: one episode per agent, ATIF transcripts, board messages, defense evidence, deliverables, halt reason |
 
-## checks/
-
-| file | holds |
-|---|---|
-| `smoke_test.py` | six mock-model scenarios on the real sandbox (complete, message limit, time limit, board, defended, swarm) |
-| `check_sweep.py` | exit 1 unless every named swarm run is complete and judged; one summary line per run |
-| `check_share.py` | exit 1 unless the static bundle equals the live data, its figures match `docs/figures`, its page is exactly what the exporter builds, no endpoint is an error record, no text file is over 16 MB and no image over 15 MB, and no credential pattern or credential-like environment value appears |
-| `share_browser.js` | headless Chromium pass over the served bundle (`make share-browser`): every view at 360, 400 and 1440 px with no error, no request outside the bundle and no horizontal scroll; the context note; the four theme states; a redraw after a theme change |
-
-## report/
-
-| file | holds |
-|---|---|
-| `report_pilot.py` | pilot and controls tables for the document |
-| `report_swarm.py` | swarm tables for the document |
-| `figures.py` | composition heatmap, role funnel, adoption curves, swimlane, controls plot |
-| `summarize_runs.py` | one line per judged episode |
-
 ## ui/
 
 | file | holds |
 |---|---|
-| `server.py` | stdlib HTTP server over `runs/` and the eval logs; `Store` is also the data layer `report/` uses |
-| `__main__.py` | `python -m guardian.ui [--runs runs] [--port 8765] [--open]` |
-| `export.py` | `python -m guardian.ui.export`: the browser as a static bundle in a fresh directory (`index.html` complete, `artifact.html` for a publisher that adds the document skeleton, `data/`, `figures/`, `manifest.json`); exits 1 when an endpoint had to be stored as an error record; `make share` runs it and the check |
+| `server.py` | stdlib HTTP server over `runs/` and the eval logs |
+| `__main__.py` | `python -m guardian.ui`: the server in the foreground; `python -m guardian ui` starts it in the background |
+| `summary.py` | one line per judged episode (`python -m guardian summary`) |
 | `API.md` | the JSON contract |
 | `static/` | the single-page UI: `index.html`, `app.js`, `style.css` |
 
 ## docker/judge/
 
-The image that runs CheatBench's `judge.py` (it imports Linux-only sandbox code). Build with `docker build -t cheatbench-judge guardian/docker/judge`.
+| file | holds |
+|---|---|
+| `Dockerfile` | the image that runs CheatBench's `judge.py`, which imports Linux-only sandbox code; build with `docker build -t cheatbench-judge guardian/docker/judge` |
 
-`build/` (gitignored) holds the staged task built by CheatBench's `tasks/openmath_agent/build.py`, and `share/`, the static bundle `make share` writes.
+`build/` (gitignored) holds the staged task built by CheatBench's `tasks/openmath_agent/build.py`.
+
+The tests are at the repository root: `tests/smoke.py` and `tests/check_runs.py`.

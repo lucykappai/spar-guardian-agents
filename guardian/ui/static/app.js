@@ -1,7 +1,6 @@
 /* Results browser for ORBIT x CheatBench runs.
  *
- * Vanilla ES2020, no framework, no build step, no network access beyond the local API (or, in a
- * static bundle written by guardian/ui/export.py, the JSON files beside the page).
+ * Vanilla ES2020, no framework, no build step, no network access beyond the local API.
  * Every piece of run data (transcripts, tool output, board posts, reasons, errors) is
  * inserted with textContent or text nodes. Nothing from the API ever reaches innerHTML.
  *
@@ -18,7 +17,7 @@
  *  10. Chart helpers (SVG, Canvas, tooltip, colour ramp, ticks)
  *  11. View: timeline                #/run/<run>/timeline (swimlanes, exposure cascade, raster)
  *  12. Views: summary                #/        (cheating by setting, composition grids, team reports)
- *      and swarm visualizations     #/swarm   (grids, funnel, adoption curves, run explorer, figures)
+ *      and swarm visualizations     #/swarm   (grids, funnel, adoption curves, run explorer)
  *  13. Boot
  */
 'use strict';
@@ -140,97 +139,6 @@ class ApiError extends Error {
   }
 }
 
-// Static mode. guardian/ui/export.py writes every API response to files under data/ and the
-// figures under figures/, and sets window.RESULTS_STATIC before this script, so the same UI runs
-// with no server (a shared artifact, a static host). The per-call context windows stay out of the
-// bundle (hundreds of calls per run, about 200 KB each); the context page says so.
-const STATIC = (window.RESULTS_STATIC && typeof window.RESULTS_STATIC === 'object') ? window.RESULTS_STATIC : null;
-const STATIC_CALL_NOTE = 'The exact provider input of each call is read from the eval log and is not part of this shared copy; ' +
-  'the list, the usage and the output previews are. Open the run in the local browser (make ui) for the full call.';
-const BUNDLE_CACHE_MAX = 40;
-const bundleCache = new Map();   // file -> Promise of its parsed JSON, kept in least-recently-used order
-
-function bundleJson(file) {
-  if (bundleCache.has(file)) {
-    const p = bundleCache.get(file);
-    bundleCache.delete(file);
-    bundleCache.set(file, p);
-    return p;
-  }
-  const p = (async () => {
-    let res;
-    try {
-      res = await fetch(file, { headers: { Accept: 'application/json' } });
-    } catch (e) {
-      if (location.protocol === 'file:') {
-        throw new ApiError(file, 0, { error: 'This copy reads the files beside the page, and a browser refuses that from disk. ' +
-          'Serve the directory over HTTP (python3 -m http.server 8000 in it) and open http://127.0.0.1:8000/.', static_note: true });
-      }
-      throw new ApiError(file, 0, { error: `network error: ${e && e.message}` });
-    }
-    const text = await res.text();
-    if (!res.ok) throw new ApiError(file, res.status, { error: `HTTP ${res.status} for ${file}` });
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      throw new ApiError(file, res.status, { error: `non-JSON file ${file}` });
-    }
-  })();
-  bundleCache.set(file, p);
-  p.catch(() => { if (bundleCache.get(file) === p) bundleCache.delete(file); });
-  while (bundleCache.size > BUNDLE_CACHE_MAX) bundleCache.delete(bundleCache.keys().next().value);
-  return p;
-}
-
-/** An own property of a parsed object, never an inherited one (an episode named "constructor" is not a transcript). */
-function ownProp(o, k) {
-  return o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined;
-}
-
-/**
- * Where an API path lives in the bundle (the layout export.py writes): data/{runs,summary,figures}.json and, per
- * run, data/run/<run>/{run,sample,context,timeline,transcripts}.json; a transcript is picked out of the run's
- * transcripts file by episode.
- */
-function resolveStatic(path) {
-  let parts;
-  try {
-    parts = path.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent);
-  } catch (e) {
-    return null;
-  }
-  const data = STATIC.data || 'data/';
-  if (parts[0] !== 'api') return null;
-  if (parts.length === 2 && ['runs', 'summary', 'figures'].includes(parts[1])) return { file: data + parts[1] + '.json' };
-  if (parts[1] !== 'runs' || parts.length < 3) return null;
-  const dir = data + 'run/' + enc(parts[2]) + '/';
-  const rest = parts.slice(3);
-  if (!rest.length) return { file: dir + 'run.json' };
-  if (rest.length === 1 && ['sample', 'context', 'timeline'].includes(rest[0])) return { file: dir + rest[0] + '.json' };
-  if (rest[0] === 'transcript' && rest.length === 2) return { file: dir + 'transcripts.json', pick: b => ownProp(b, rest[1]) };
-  if (rest[0] === 'context' && rest.length === 2) return { unavailable: STATIC_CALL_NOTE };
-  return null;
-}
-
-async function staticJson(path) {
-  const m = resolveStatic(path);
-  if (!m) throw new ApiError(path, 404, { error: `not found: ${path}` });
-  if (m.unavailable) throw new ApiError(path, 404, { error: m.unavailable, static_note: true });
-  let b;
-  try {
-    b = await bundleJson(m.file);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) throw new ApiError(path, 404, { error: `not found: ${path}` });
-    throw e;
-  }
-  const v = m.pick ? m.pick(b) : b;
-  if (v === undefined) throw new ApiError(path, 404, { error: `not found: ${path}` });
-  if (v && typeof v === 'object' && v.__error) {
-    throw new ApiError(path, v.__error.status || 404, v.__error.body || { error: `not found: ${path}` });
-  }
-  return v;
-}
-
 const API_CACHE_MAX = 250;
 const apiCache = new Map();  // path -> Promise, kept in least-recently-used order
 // One model call can be hundreds of KB, so single calls get their own small cache.
@@ -257,7 +165,6 @@ function apiCall(path) { return cachedFetch(callCache, CALL_CACHE_MAX, path); }
 function apiFresh(path) { apiCache.delete(path); return api(path); }
 
 async function fetchJson(path) {
-  if (STATIC) return staticJson(path);
   let res;
   try {
     res = await fetch(path, { headers: { Accept: 'application/json' } });
@@ -284,11 +191,7 @@ const P = {
   call: (r, i) => `/api/runs/${enc(r)}/context/${i}`,
   timeline: r => `/api/runs/${enc(r)}/timeline`,
   summary: () => '/api/summary',
-  figures: () => '/api/figures',
 };
-
-/** A figure file: served by the server, or a file beside the page in a static bundle. */
-function figureUrl(name) { return (STATIC ? (STATIC.figures || 'figures/') : '/figures/') + enc(name); }
 
 /** Rewrite the hash without navigating; a frame that refuses URL state keeps the view as drawn. */
 function setHashQuietly(target) {
@@ -434,9 +337,6 @@ function section(title, ...children) {
 
 function errorBox(err, context) {
   const isApi = err instanceof ApiError;
-  if (isApi && err.body && err.body.static_note) {
-    return h('div', { class: 'static-note' }, context ? `${context}: ` : '', String(err.body.error));
-  }
   const body = isApi ? err.body : { error: String((err && err.message) || err) };
   const title = isApi
     ? `API error${err.status ? ' ' + err.status : ''} on ${err.path}`
@@ -626,11 +526,9 @@ function renderShell() {
         h('a', { class: 'nav-tab', id: 'nav-runs', href: '#/runs' }, 'Runs'),
         h('a', { class: 'nav-tab', id: 'nav-swarm', href: '#/swarm' }, 'Swarm')),
       h('nav', { class: 'crumbs', id: 'crumbs', 'aria-label': 'Breadcrumbs' }),
-      STATIC ? h('span', { class: 'badge b-plain snapshot', title: 'A static copy of the results browser: every page reads files exported with make share. ' +
-        `Exported ${fmtTime(STATIC.generated)}.` }, `snapshot ${String(STATIC.generated || '').slice(0, 10)}`) : null,
       h('button', {
         type: 'button', class: 'btn btn-small', title: 'Clear cached API responses and reload this view',
-        onclick: () => { apiCache.clear(); callCache.clear(); bundleCache.clear(); route(); },
+        onclick: () => { apiCache.clear(); callCache.clear(); route(); },
       }, 'Reload')),
     h('main', { id: 'main', tabindex: '-1' }));
 }
@@ -838,8 +736,8 @@ function runsQuery() {
   };
 }
 
-// Hidden roles: Okabe-Ito colour plus shape (circle worker, square regulator, triangle disregulator),
-// the encoding of guardian/report/figures.py. Red and green stay reserved for outcomes.
+// Hidden roles: Okabe-Ito colour plus shape (circle worker, square regulator, triangle disregulator).
+// Red and green stay reserved for outcomes.
 function roleBadge(role) {
   return h('span', { class: 'badge b-plain', title: 'hidden role in this swarm run' },
     ROLE_ORDER.includes(role) ? roleIcon(role, 10) : null, role);
@@ -1907,7 +1805,6 @@ async function viewContext({ run, query: q }, view) {
   if (urlFlag && CALL_FILTERS.some(([v]) => v === urlFlag)) st.flag = urlFlag;
   else if (urlFlag) showNote(`Unknown flag “${urlFlag}” in the link; showing calls with any flag.`);
   if (!detail) showNote('Could not load the run’s defense evidence, so blocked outputs are not marked.');
-  if (STATIC) showNote(STATIC_CALL_NOTE);
   if (bi.misaligned.length) {
     showNote(`Blocked outputs are marked in this list only where an agent’s calls line up with its defense checks. ` +
       `Not aligned: ${bi.misaligned.join('; ')}. Opening a call still shows its blocks.`);
@@ -3654,7 +3551,7 @@ function headline(items) {
 }
 
 async function viewSummary(r, view) {
-  const [sum, figs] = await Promise.all([apiFresh(P.summary()), api(P.figures()).catch(() => [])]);
+  const sum = await apiFresh(P.summary());
   const all = sum.runs || [];
   const mock = all.filter(x => x.mock);
   const ok = all.filter(x => !x.failed && !x.mock);
@@ -3695,9 +3592,7 @@ async function viewSummary(r, view) {
       h('div', { class: 'muted small' }, 'Left grid: share of judged agents who cheated. Right grid: the same by hidden role. ', link(R.swarm(), 'Swarm visualizations'), ' has the funnel, the adoption curves and every run’s timeline.')),
     section('Team reports against the judge',
       swarm.length ? swarmTable(swarm, null) : muted('No completed swarm run yet.'),
-      h('div', { class: 'muted small' }, 'The team report is the first line of swarm_report.txt. The judge counts an agent that inspected another agent’s archive; the report asks the team about use, copying, extraction or presentation, a broader question.')),
-    section('Figures of the document', figuresSection(figs),
-      h('div', { class: 'muted small' }, 'Rendered by make figures from the same run directories; the document includes the PDF versions.')));
+      h('div', { class: 'muted small' }, 'The team report is the first line of swarm_report.txt. The judge counts an agent that inspected another agent’s archive; the report asks the team about use, copying, extraction or presentation, a broader question.')));
 }
 
 // ---- swarm visualizations ------------------------------------------------------------
@@ -3829,28 +3724,8 @@ function adoptionCurves(curves, noLog, onOpen) {
       (noLog.length ? ` No readable eval log: ${noLog.join(', ')}.` : '')));
 }
 
-const FIGURE_CAPTION = {
-  'fig_composition_heatmap.png': 'Composition heatmap',
-  'fig_role_funnel.png': 'Role funnel',
-  'fig_adoption_curves.png': 'Adoption curves',
-  'fig_swimlane_swarm.png': 'Swimlane of one swarm run',
-  'fig_swimlane.png': 'Swimlane of the two-agent board',
-  'fig_controls.png': 'Controls',
-};
-
-/** The PNG figures of the document, as files under docs/figures. */
-function figuresSection(figs) {
-  if (!figs.length) return muted('No figure under docs/figures. Run make figures.');
-  const order = Object.keys(FIGURE_CAPTION);
-  const sorted = figs.slice().sort((a, b) => (order.indexOf(a.name) + 1 || 99) - (order.indexOf(b.name) + 1 || 99) || a.name.localeCompare(b.name));
-  return h('div', { class: 'figure-grid' }, sorted.map(f => h('figure', { class: 'fig' },
-    h('a', { href: figureUrl(f.name), target: '_blank', rel: 'noopener' },
-      h('img', { src: figureUrl(f.name), alt: FIGURE_CAPTION[f.name] || f.name, loading: 'lazy' })),
-    h('figcaption', null, FIGURE_CAPTION[f.name] || f.name, ' ', muted(`${f.name} · ${fmtTime(f.modified)}`, 'small')))));
-}
-
 async function viewSwarm({ query: q }, view) {
-  const [sum, runs, figs] = await Promise.all([apiFresh(P.summary()), apiFresh(P.runs()), api(P.figures()).catch(() => [])]);
+  const [sum, runs] = await Promise.all([apiFresh(P.summary()), apiFresh(P.runs())]);
   const all = sum.runs || [];
   const swarm = all.filter(x => !x.failed && isSwarmRow(x));
   const swarmFailed = all.filter(x => x.failed && isSwarmRow(x));
@@ -3968,9 +3843,7 @@ async function viewSwarm({ query: q }, view) {
     h('section', { class: 'card', id: 'explore-card' }, exploreAnchor,
       h('div', { class: 'sec-head' }, h('h2', null, 'Run explorer'), labeled('run', sel), noteBox),
       h('div', { class: 'muted small' }, 'Agent by turn raster, swimlanes with board-message arrows, and the exposure cascade of the chosen run.'),
-      exploreHost),
-    section('Figures of the document', figuresSection(figs),
-      h('div', { class: 'muted small' }, 'Rendered by make figures from the same run directories; the document includes the PDF versions.')));
+      exploreHost));
 }
 
 // =====================================================================================
@@ -3979,11 +3852,10 @@ async function viewSwarm({ query: q }, view) {
 
 renderShell();
 window.addEventListener('hashchange', route);
-// Canvases and sequential fills read their colours from the tokens when drawn, so a theme change after that
-// (the OS scheme, or a viewer setting data-theme on the root) draws the view again in place.
+// Canvases and sequential fills read their colours from the tokens when drawn, so a change of the OS colour
+// scheme draws the view again in place.
 function redrawForTheme() { keepScrollOnce = true; route(); }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawForTheme);
-new MutationObserver(redrawForTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 route();
 
 })();
