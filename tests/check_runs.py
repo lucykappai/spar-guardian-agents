@@ -5,7 +5,7 @@
     .venv/bin/python tests/check_runs.py runs/swarm_R0D0 runs/swarm_R10D0 ...
 
 With no run directories and no --expect, the expected compositions are
-guardian.config.SWARM_COMPOSITIONS. Run it from the repository root: eval log
+configuration.settings.SWARM_COMPOSITIONS. Run it from the repository root: eval log
 paths in run.json are relative to it.
 
 Exit 0 only when every run has a run.json with topology swarm, one episode per
@@ -230,9 +230,9 @@ def default_compositions() -> list[str]:
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     try:
-        from guardian.config import SWARM_COMPOSITIONS
+        from configuration.settings import SWARM_COMPOSITIONS
     except ImportError as e:
-        raise SystemExit(f"check_runs: cannot read guardian.config.SWARM_COMPOSITIONS ({e}); pass --expect") from e
+        raise SystemExit(f"check_runs: cannot read configuration.settings.SWARM_COMPOSITIONS ({e}); pass --expect") from e
     return list(SWARM_COMPOSITIONS)
 
 
@@ -242,7 +242,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--runs", default="runs", help="directory holding run directories (with --expect)")
     parser.add_argument("--expect", default=None,
                         help="comma-separated compositions R<r>D<d> expected under --runs "
-                             "(default: guardian.config.SWARM_COMPOSITIONS when no run directories are named)")
+                             "(default: configuration.settings.SWARM_COMPOSITIONS when no run directories are named)")
     return parser.parse_args(argv)
 
 

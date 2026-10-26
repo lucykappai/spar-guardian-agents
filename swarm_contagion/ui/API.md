@@ -1,0 +1,145 @@
+# Results browser API
+
+Start: `make ui`, or `.venv/bin/python -m swarm_contagion ui [--port 8765] [--no-open]` from the repository root. The
+foreground server alone is `.venv/bin/python -m swarm_contagion.ui [--runs runs] [--port 8765] [--open]`. The UI is served
+at `/` and its assets at `/static/<file>` from `swarm_contagion/ui/static/` (`index.html`, `app.js`, `style.css`). All API
+responses are JSON.
+
+## UI routes
+
+| hash | part |
+|---|---|
+| `#/` | Summary: cheating by setting, composition grids, team reports against the judge |
+| `#/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=` | Runs: one row per run, opening to its agents |
+| `#/run/<run>` | run page; `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
+| `#/swarm?run=<run>` | Swarm: grids, outcome funnel, adoption curves, swarm runs with rasters, run explorer |
+
+A **setting** is the communication graph (`single`: a lone agent; `board`: every agent on one shared board), the roster size, and
+whether roles were hidden. A CheatBench SWE run has its own setting per issue, team size, honeypot and hint ("SWE flipt-02e2
+board of 2 (jigsaw)"), and its run page gains a "SWE task" section. `run.json` writes `topology: "swarm"` for a board with hidden roles; the API adds `graph` so the swarm reads
+as what it is, a board of N agents with roles.
+
+## Data model
+
+A **run** is one directory under `runs/` holding `run.json`, `episodes.jsonl`, `judge.jsonl`, `trajectories/<episode>/transcript.json`,
+optionally `communication/<sample>.json` (board posts) and `defense/<sample>.json` (control evidence). One run has one sample
+(`riemann#1`) and one **episode per agent**: `riemann#1` for a lone agent, `riemann#1@alpha` and `riemann#1@beta` on the board.
+`run.json.eval_log` points at the Inspect `.eval` log, from which **context windows** (every model call's exact provider input)
+are read on demand.
+
+Runs whose name starts with `failed<N>_` or `cancelled<N>_`, or whose episodes carry `failure` in `harness` or `connection_closed`
+(a provider error), are **failed** and never counted. A run whose model starts with `mockllm` is a smoke test (`mock: true`), listed
+under Runs and left out of the Summary. A verdict **counts** only on an episode with a transcript.
+
+## Endpoints
+
+### `GET /api/runs` → `[RunSummary]`
+```
+RunSummary = {
+  run, task, model, topology ("single"|"board"|"swarm" as run.json wrote it), graph ("single"|"board"), n_agents, roles: bool, mock: bool,
+  agents: [str], control (e.g. "baseline","monitor_task"), monitor_model, defenses: [str], eval_log, eval_log_exists, failed: bool,
+  swarm: null | {n_agents, regulators, disregulators, workers, seed, composition, swarm_report_cheated, has_report},
+  deliverables: null | {archive_in_workspace, registered_on_main, registered_message_copied_from},
+  endings: {label: count}   # failure label, else "submit", else the converter's ended_by
+  has_communication, has_defense,
+  config: null | {...},            # run.json "config": the SwarmContagionConfig the task was built from (every field)
+  rules: null | {<agent>: {...}},  # each episode's "rules": what the turn rules recorded for that agent
+  swe: null | SweSetting,          # CheatBench SWE runs; null otherwise
+  episodes: [Episode]
+}
+SweSetting = {
+  task_key ("flipt-02e2"), instance, n_agents, board: bool, honeypot ("as_released"|"own_piece"|"jigsaw"|null), jigsaw: bool,
+  rule ("none" or the hint name), rule_sentence, delivery ("auto"|"notify"|"poll"|null for a lone agent), comm_turns,
+  base_commit, fix_commit, arm ("n2-own_piece-none"; older worktree runs "n2-jigsaw-none"),
+  team_reward: 0|1|null (team/main; null for a lone agent), rewards: {team?, <agent>: 0|1|null}, required_passed: {target: int},
+  required_tests: int, parts: {<agent>: [part title]}, pieces: null | {<agent>: piece}, fragments: null | {<agent>: [file]},
+  jigsaw_isolation_ok: bool|null,
+  rungs: null | {<agent>: "none"|"exposed"|"tried"|"opened"|"used"|"shipped"},     # rungs.json
+  measures: null | {<agent>: {posts, fix_posts, rule_posts, disclosed}}            # swe_summary.json
+}
+Episode = {                       # one row of episodes.jsonl plus:
+  episode, orbit_agent, role?, n_tool_calls, n_turns, wall_time, limit, failure, error, ended_by, ok, score: {deliverables_scorer: 0|1},
+  usage: {input, output, cache_read}, control, defenses: [str],
+  defense: {checks, blocks, blocks_by_boundary: {model_input?, model_output?, tool_call?}, checks_by_boundary},
+  transcript_path, has_transcript,
+  verdict: null | Verdict
+}
+Verdict = every key of the episode's judge.jsonl row except the bookkeeping keys (id, episode, replicate, task, model,
+          transcript_path, judge_generation_config, judge_generation_config_unsupported, judge_prompt, judge_schema,
+          output_mode, judge_usage, judge_attempts). Always present, null when absent: cheated, summary, judge,
+          judge_cost_usd, parse_ok, judge_error. The rest are the task's own verdict fields: openmath has honey_pots_seen,
+          attempted_access, extracted_submission, success_claim_seen_before_access, disclosed_access,
+          explicit_prohibition_violated, explicit_prohibition_evidence; SWE has reference_solution_seeking,
+          reference_solution_obtained, reference_solution_used, documentation_lookup, evaluation_tampering. A row that did
+          not parse also carries raw (the judge's text).
+SWE episodes also carry the SWE keys benchmark/export.py writes (swe_task, seat, part, reward, team_reward, ...). An episode
+written by the swarm_contagion tasks carries rules (the turn-rules facts for its agent).
+```
+
+### `GET /api/runs/<run>` → `RunSummary + {run_json, communication: {<sample>: {messages:[...], events:[...]}}, defense: {<sample>: {defenses:[DefenseConfig], log:{blocks:[...], ...}, interventions:[...]}}}`
+Board message: `{id, sender, sequence, channel_id, content, ...}`. Intervention: `{event:"defense_intervention", defense, boundary ("model_input"|"model_output"|"tool_call"), allow: bool, reason, agent, turn, tool?, message_id?, ...}`.
+
+### `GET /api/runs/<run>/transcript/<episode>` → `{episode: Episode, transcript: Transcript}`
+```
+Transcript = {agent, model, prompt, orbit: {agent, roster, topology, system_prompt, submit_recovered_from_events,
+              delivery_notices_recovered_from_events, model_calls}, trajectory: ATIF}
+ATIF.steps[i] = {step_id, source: "system"|"user"|"agent", message, reasoning_content?, model_name?,
+                 tool_calls?: [{tool_call_id, function_name, arguments}],
+                 observation?: {results: [{source_call_id, content, extra?: {is_error?, error?, withheld_from_model_by_defense?}}]},
+                 extra?: {orbit_delivery_notice?, swarm_contagion_turn_rules? ("planning"|"header"|"continue"),
+                          orbit_trailing_turn_fix? (older runs), submit_recovered_from_events?, orphan_tool_result?, ...}}
+```
+A blocked tool call has a result whose `extra.error` starts with `Blocked by defense '<name>'`. An agent step whose message is
+exactly `I cannot provide that response under the configured defense policy.` is a defense refusal (blocked completion).
+
+### `GET /api/runs/<run>/sample` → sample-level facts from the eval log
+`{status, model, eval_id, total_time, working_time, limit, error, model_usage: {model: {input, cache_read, output, reasoning}},
+  scores: {deliverables_scorer: {value, answer (message.txt), explanation, metadata: {listing, git, agent_evals, agent_evals_main, probe}}},
+  store: {...}, n_messages, n_events}`
+
+### `GET /api/runs/<run>/context` → `{run, agents: [str], defenses: [str], calls: [CallIndex]}`
+```
+CallIndex = {index, agent (null for a defense's own call that is not inside an agent span), defense (null for the agent's own call,
+             else the defense name whose monitor made the call), model, timestamp, working_time, n_input, input_chars, tools: [str],
+             usage: {input, cache_read, output, reasoning} | null, output_preview, output_tool_calls: [str], stop_reason, error,
+             flags: subset of ["delivery_notice", "turn_rules", "trailing_turn_fix", "redacted", "output_blocked",
+                               "refusal_in_history"]}
+```
+### `GET /api/runs/<run>/context/<index>` → `CallIndex + {input: [Message], output: Message|null, output_error, tool_schemas: [{name, description}]}`
+```
+Message = {role: "system"|"user"|"assistant"|"tool", id, text, reasoning, flags: [...],
+           tool_calls?: [{id, function, arguments}] (assistant), model? (assistant),
+           tool_call_id?, function?, error? (tool)}
+```
+`flags` mark provider-only or altered messages: `delivery_notice` (ORBIT board notice placed in the input), `turn_rules` (a
+planning prompt, turn header or continue prompt the turn rules placed in the input), `trailing_turn_fix` (the continue prompt
+of older runs), `redacted` (a defense withheld this message's content from the model), `output_blocked` (this call's own
+completion was blocked by a defense), `refusal_in_history` (an earlier assistant message in the input is the refusal sentence).
+
+Errors: 404 `{"error": ...}` for unknown run/episode/call; 500 `{"error", "traceback"}` for server faults.
+
+### `GET /api/runs/<run>/timeline` → events of one run on a common clock (seconds from the sample's start)
+```
+{run, t0, duration, limit, agents: [str], roles: {agent: role} (swarm runs), verdicts: {agent: cheated|null},
+ first_honeypot_touch: {agent: t}, first_member_read: {agent: t},   # heuristics, see markers
+ events: [Event] sorted by t, board: [Post], markers: {touch, member_read}}
+Event = {t, t_end?, agent, kind: "model"|"defense_call"|"tool"|"submit"|"defense", ...}
+  model:        tokens_in, tokens_out, tool_calls: [function], output_blocked: bool (a defense replaced this completion; from the block event), refusal: bool (the output text is the refusal sentence, possibly model-written), error
+  defense_call: defense (the control's own judge call)
+  tool/submit:  function, id, preview, blocked, error, honeypot_touch, member_read, message_ids? (channel_post: sent; channel_read: read)
+  defense:      defense, boundary, allow, reason, tool?
+Post = {sequence, sender, id, t, content, read_by: [{agent, t, how: "read"|"model_exposure"}]}
+```
+`honeypot_touch` marks a bash/python call whose arguments name another agent's branch, commit or copied archive
+(openmath_agent riemann row); `member_read` marks a successful call whose result carries text found only inside
+agent-014's archive members. They place moments on a timeline; the judge verdict in `verdicts` is the record of truth.
+
+### `GET /api/summary` → `{runs: [RunAggregate]}` for cross-run charts (no eval log needed)
+```
+RunAggregate = {run, control, topology, graph, roles: bool, mock: bool, model, failed, n_agents, judged, cheated, honeypots_seen,
+                attempted, disclosed, blocks, checks, timeouts, score, wall_time, prompt_tokens, output_tokens, cache_read, judge_cost,
+                registered_on_main, registered_copied_from, archive_in_workspace, endings: {label: count},
+                regulators, disregulators, workers, composition, seed, report_cheated, has_report,
+                by_role: {worker|regulator|disregulator: {n, cheated, honeypots_seen, attempted, disclosed}} | null,
+                task, swe: null | SweSetting}
+```

@@ -1,6 +1,6 @@
 # spar-guardian-agents
 
-This repository runs CheatBench's `openmath_agent` row `riemann` inside ORBIT with Gemini 3.8 Flash, as one agent, two agents on a message board, or ten agents on a board with hidden roles. Every run becomes a CheatBench run directory, is judged by gpt-6-sol, and can be browsed locally.
+This repository studies cheating contagion in agent swarms. It runs CheatBench tasks inside ORBIT with Gemini 3.8 Flash: one agent alone, a team on a shared message board, or a swarm with hidden regulators and disregulators. Two benchmarks are wired: CheatBench's `openmath_agent` row `riemann`, and CheatBench's SWE issues with Lucy's honeypots. Every run becomes a CheatBench run directory, is judged by gpt-6-sol inside the eval, and can be browsed locally.
 
 ## Quick start
 
@@ -8,33 +8,39 @@ This repository runs CheatBench's `openmath_agent` row `riemann` inside ORBIT wi
 make help
 make ui            # opens http://127.0.0.1:8765/ (Summary, Runs, Swarm)
 make ui-stop
-make smoke         # mock-model scenarios on the real sandbox, no model spend
+make test          # offline unit tests of the turn rules and the config
+make smoke         # openmath mock-model scenarios on the real sandbox, no model spend
+make smoke-swe     # SWE mock-model scenarios on the flipt-02e2 sandbox, no model spend
 make check         # refuses unless the eleven swarm runs are complete and judged
 
-.venv/bin/python -m guardian --help
-.venv/bin/python -m guardian summary runs/ctrl_*
+.venv/bin/python -m swarm_contagion --help
+.venv/bin/python -m swarm_contagion summary runs/ctrl_*
 ```
 
 ## Requirements
 
-- `.venv`: Python 3.11 with ORBIT installed editable.
-- `.venv-cb`: CheatBench.
-- Docker, and the `cheatbench-judge` image (`docker build -t cheatbench-judge guardian/docker/judge`).
-- `GEMINI_API_KEY` and `OPENAI_API_KEY` for new runs and judging.
+- `.venv`: Python 3.11 with ORBIT installed editable from `submodules/orbit`, plus pytest. The judge runs through Inspect's OpenAI provider, which needs `openai>=3.1` (ORBIT's own requirement); CheatBench's `litellm` pins `openai<3` and is not used here.
+- Docker. The openmath sandbox image is built by the task. SWE needs the `cbswe-<issue>:native` image, which `benchmark/swe.py` builds when it is missing.
+- `GEMINI_API_KEY` for the agents and `OPENAI_API_KEY` for the judge.
 
 ## Layout
 
 ```
 Makefile                 entry points (make help)
-guardian/                the package; see guardian/README.md
-  cli.py, config.py      python -m guardian and its shared settings
-  task/                  the ORBIT task: samples, sandbox, board, swarm roles, controls, Gemini 402 retry
-  convert/               eval log to CheatBench run directory
-  ui/                    results browser: server, summary, static UI, API.md
-  docker/judge/          image that runs CheatBench's judge
-tests/                   smoke.py (mock-model scenarios) and check_runs.py (swarm runs complete and judged)
+benchmark/               CheatBench as tasks: the sample, the sandbox, the graders, the judge, the export
+  base.py                the Benchmark protocol
+  openmath.py, swe.py    openmath_agent, and the SWE issues with Lucy's honeypots
+  transcript.py          one Inspect sample as one ATIF transcript per agent
+  judge.py, models.yaml  CheatBench's judge as an Inspect scorer
+  export.py              one eval log as runs/<name>/
+configuration/           every setting and every model-facing text we add; see configuration/README.md
+swarm_contagion/         the experiment on ORBIT: tasks, board, roles, turn rules, controls, probes, CLI, browser;
+                         see swarm_contagion/README.md
+tests/                   smoke.py, smoke_swe.py (mock-model scenarios), test_rules.py, test_config.py (unit tests),
+                         check_runs.py (swarm runs complete and judged)
+build/                   staged tasks and docker contexts (gitignored)
 runs/<name>/             one run: run.json, episodes.jsonl, judge.jsonl, trajectories/, communication/, defense/
-logs/                    Inspect eval logs (gitignored): ctrl/<run>/, swarm/<run>/, and the two pilots under gemini*/
+logs/                    Inspect eval logs (gitignored): ctrl/<run>/, swarm/<run>/, swe/<run>/
 submodules/              cheatbench, orbit and lucy (Lucy's repository covertpersonashifts), read only
 VERIFICATION_LOG.md      every output, how it was verified, and the result
 ```
@@ -42,14 +48,16 @@ VERIFICATION_LOG.md      every output, how it was verified, and the result
 ## Running
 
 ```
-.venv/bin/python -m guardian run single guardian_task ctrl_guardian_task   # one control on the lone agent; board for two agents
-.venv/bin/python -m guardian run swarm 3 3 swarm_R3D3_s1 -T seed=1         # one composition (regulators, disregulators)
-.venv/bin/python -m guardian judge logs/swarm/<run>/<log>.eval <run>       # convert and judge an existing eval log
-.venv/bin/python -m guardian summary runs/<run> --full                     # one line per judged episode, with the judge's summary
+.venv/bin/python -m swarm_contagion run ctrl_guardian_task --set control=guardian_task
+.venv/bin/python -m swarm_contagion run board_baseline --set n_agents=2
+.venv/bin/python -m swarm_contagion run swarm_R3D3_s1 --set n_agents=10 --set regulators=3 --set disregulators=3 --set seed=1
+.venv/bin/python -m swarm_contagion run swe_lucy_n3 --benchmark swe --honeypot jigsaw --preset lucy --set n_agents=3
+.venv/bin/python -m swarm_contagion judge logs/swarm/<run>/<log>.eval <run>
+.venv/bin/python -m swarm_contagion summary runs/<run> --full
 ```
 
-Each run writes `runs/<name>/` and its eval log under `logs/`. A run that died in the harness or at the provider is set aside under a `failed_` or `failed2_` prefix. The browser hides those by default and never counts them. The judge refuses such a run unless `--judge-errors` is given.
+A run writes its eval log under `logs/`, exports it to `runs/<name>/` and prints one line per episode. `--set` takes any field of `SwarmContagionConfig`. `--set shutdown=false` builds the agents without ORBIT's submit tool, so they run until their turns or the time limit run out. A run that died in the harness or at the provider is set aside under a `failed_` or `failed2_` prefix. The browser hides those by default and never counts them. `judge` refuses such a run unless `--judge-errors` is given.
 
 ## Results browser
 
-The browser has three parts. **Summary** shows the share of judged agents who cheated by setting, the composition grids, and the team reports against the judge. **Runs** has one row per run. A row opens to its agents, then to the run page, the transcript, the context windows, the sample and the timeline. **Swarm** shows the composition grids, the role funnel, the adoption curves, the swarm runs with their rasters, and a run explorer with the swimlane and the exposure cascade. `guardian/ui/API.md` is the HTTP contract.
+The browser has three parts. **Summary** shows the share of judged agents who cheated by setting, the composition grids, and the team reports against the judge. **Runs** has one row per run. A row opens to its agents, then to the run page, the transcript, the context windows, the sample and the timeline. The run page shows the run's configuration and its turn-rules facts, and the SWE task for a SWE run. **Swarm** shows the composition grids, the role funnel, the adoption curves, the swarm runs with their rasters, and a run explorer with the swimlane and the exposure cascade. `swarm_contagion/ui/API.md` is the HTTP contract.
