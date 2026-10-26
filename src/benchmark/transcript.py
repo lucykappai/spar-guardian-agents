@@ -12,7 +12,7 @@ and are recovered from them:
   * the completed submit call, which ORBIT strips from the conversation;
   * channel notices and auto-delivered board posts, which ORBIT adds to the provider input only
     (CommunicationDeliveryFilter);
-  * the planning prompts, turn headers and continue prompts of src/rules.py, which also reach the
+  * the planning prompts, turn headers and continue prompts of src/swarm/rules.py, which also reach the
     provider input only. Inspect writes the ModelEvent before ORBIT's model filters run, so they are absent from
     ModelEvent.input; rules.py writes each one as an info event right after its ModelEvent, in the same span;
   * per-agent token usage.
@@ -42,7 +42,7 @@ from core.trajectory import Agent, FinalMetrics, Observation, ObservationResult,
 from core.trajectory.trajectory import SCHEMA_VERSION  # noqa: E402
 
 DELIVERY_TAG = "orbit_communication_delivery"        # orbit/communication/delivery.py
-TURN_RULES_TAG = "swarm_turn_rules"         # src/rules.py
+TURN_RULES_TAG = "swarm_turn_rules"         # src/swarm/rules.py
 TURN_RULES_PROMPTS = ("planning", "header", "continue")   # the info kinds that carry a message the provider got
 LEGACY_TRAILING_TURN_TAG = "orbit_trailing_turn_fix"  # the shim of runs before the rules existed
 ATTRIBUTION_KEY = "EnvironmentState:message_attribution"

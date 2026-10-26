@@ -10,11 +10,11 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `cli.py` | argument parsing for `run`, `judge`, `ui` and `summary`; every command calls `run.py` |
 | `run.py` | what each command does: `inspect_ai.eval` in process, export, re-judging, the summary |
 | `tasks.py` | `swarm_task(benchmark, config)` and the `@task` entry points `openmath` and `swe` |
-| `comm_topology.py` | the board as ORBIT configuration: one shared channel, no invocation edges, a written plan |
-| `roles.py` | hidden roles and the instruction levels: who is regulator or disregulator, and the texts each one gets |
-| `rules.py` | Lucy's turn rules: the plan, the callback after each activation, and the model filter |
-| `controls.py` | `defenses_for(control, monitor_model)`: ORBIT's shipped defenses as named controls |
-| `probes.py` | Lucy's end-of-episode reflection and awareness questions, as an Inspect scorer |
+| `swarm/comm_topology.py` | the board as ORBIT configuration: one shared channel, no invocation edges, a written plan |
+| `swarm/roles.py` | hidden roles and the instruction levels: who is regulator or disregulator, and the texts each one gets |
+| `swarm/rules.py` | Lucy's turn rules: the plan, the callback after each activation, and the model filter |
+| `swarm/controls.py` | `defenses_for(control, monitor_model)`: ORBIT's shipped defenses as named controls |
+| `swarm/probes.py` | Lucy's end-of-episode reflection and awareness questions, as an Inspect scorer |
 | `measures/` | over run directories: the command line's summary (`summary.py`), Rigel's cheating ladder (`rungs.py`) and Lucy's SWE measures (`swe_summary.py`) |
 | `utils/provider_retry.py` | Gemini's 402 "credits depleted" retried as a rate limit |
 | `ui/` | the results browser: `server.py`, `launch.py` (start and stop in the background), `API.md` and the single-page UI in `static/` |

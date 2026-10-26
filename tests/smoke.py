@@ -39,8 +39,8 @@ from src.configuration.swarm_config import PRESETS, SwarmConfig  # noqa: E402
 from core.agents import trajectory_from_transcript  # noqa: E402
 from core.judge import is_judgeable  # noqa: E402
 from core.render import render_trajectory  # noqa: E402
-from src import rules  # noqa: E402
-from src.roles import level_text  # noqa: E402
+from src.swarm import rules  # noqa: E402
+from src.swarm.roles import level_text  # noqa: E402
 from src.tasks import swarm_task  # noqa: E402
 
 MODEL = "mockllm/model"

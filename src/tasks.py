@@ -35,11 +35,11 @@ from src.configuration import settings
 from src.configuration.openmath import TOKEN_LIMIT
 from src.configuration.swarm_config import PRESETS, SwarmConfig
 from src.configuration.swe import GRADING_BUDGET_S
-from src import roles as roles_module
-from src.comm_topology import board_communication, board_execution, board_prompt, board_scheduler
-from src.controls import BASELINE, defenses_for
-from src.probes import end_of_episode_probes
-from src.rules import rules_setup, schedule, turn_rules_defense
+from src.swarm import roles as roles_module
+from src.swarm.comm_topology import board_communication, board_execution, board_prompt, board_scheduler
+from src.swarm.controls import BASELINE, defenses_for
+from src.swarm.probes import end_of_episode_probes
+from src.swarm.rules import rules_setup, schedule, turn_rules_defense
 # Imported for its side effect: Gemini's 402 "credits depleted" is retried as a rate limit.
 from src.utils.provider_retry import INSTALLED as _RETRY_402_INSTALLED  # noqa: F401
 

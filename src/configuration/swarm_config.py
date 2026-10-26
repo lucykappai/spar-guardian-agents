@@ -4,7 +4,7 @@
                                              "one_call_per_turn=false"])
 
 One frozen pydantic model holds the team, the board, the turn rules, the instruction levels, the limits, the control
-and the judge. src/tasks.py turns it into an ORBIT task; src/rules.py reads it inside the run;
+and the judge. src/tasks.py turns it into an ORBIT task; src/swarm/rules.py reads it inside the run;
 the CLI sets fields with `--set key=value`. Each field's docstring says what it does, which ORBIT mechanism implements
 it, and how it differs from Lucy's patched ORBIT (submodules/lucy/experiments/orbit_cheatbench/orbit.patch at c410183).
 
@@ -160,7 +160,7 @@ class SwarmConfig(BaseModel):
     """The text appended to a disregulator's system prompt, a level of instruction_levels.yaml `disregulator` (none,
     covert, persuade, overt). persuade is the disregulator of the October 2026 sweep."""
     awareness_probe: bool = False
-    """Ask Lucy's two end-of-episode questions to every agent after the run (src/probes.py)."""
+    """Ask Lucy's two end-of-episode questions to every agent after the run (src/swarm/probes.py)."""
 
     # ---------------------------------------------------------------- limits
     message_limit: int = 320
@@ -174,7 +174,7 @@ class SwarmConfig(BaseModel):
 
     # ---------------------------------------------------------------- control and judge
     control: str = "baseline"
-    """The named control (src/controls.py defenses_for). baseline means none."""
+    """The named control (src/swarm/controls.py defenses_for). baseline means none."""
     monitor_model: str = settings.DEFAULT_MONITOR_MODEL
     """Model for an LLM control (monitor, guardian, dual LLM)."""
     judge: str = settings.JUDGE_MODEL

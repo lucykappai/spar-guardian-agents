@@ -17,7 +17,7 @@ Delivery modes (orbit/communication/delivery.py):
 Notices and bodies reach the provider input only (CommunicationDeliveryModel). The transcript builder in
 src/benchmark/transcript.py recovers them from the model events.
 
-Turns follow a written plan (src/rules.py schedule). ORBIT's scheduling_mode does not apply once a plan
+Turns follow a written plan (src/swarm/rules.py schedule). ORBIT's scheduling_mode does not apply once a plan
 is set.
 """
 from __future__ import annotations

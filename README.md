@@ -27,8 +27,9 @@ make check         # refuses unless the eleven swarm runs are complete and judge
 
 ```
 Makefile                 entry points (make help)
-src/                     the package: the experiment on ORBIT (tasks, board, roles, turn rules, controls, probes,
-                         CLI, browser), with the benchmark and the configuration inside; see src/README.md
+src/                     the package: cli.py, run.py, tasks.py and the packages below; see src/README.md
+  swarm/                 the experiment on ORBIT: the board, the hidden roles, Lucy's turn rules, the controls,
+                         the end-of-episode probes
   benchmark/             CheatBench as tasks: the sample, the sandbox, the graders, the judge, the export
     base.py              the Benchmark protocol
     domains/             one module per task domain: openmath.py (openmath_agent) and swe.py (the SWE issues
@@ -37,6 +38,7 @@ src/                     the package: the experiment on ORBIT (tasks, board, rol
     judge.py, models.yaml CheatBench's judge as an Inspect scorer
     export.py            one eval log as runs/<name>/
   configuration/         every setting and every model-facing text we add; see src/configuration/README.md
+  measures/, ui/, utils/ the text summary and Rigel's and Lucy's measures; the results browser; the Gemini 402 retry
 tests/                   smoke.py, smoke_swe.py (mock-model scenarios), test_rules.py, test_config.py (unit tests),
                          check_runs.py (swarm runs complete and judged)
 build/                   staged tasks and docker contexts (gitignored)

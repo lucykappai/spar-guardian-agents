@@ -1,6 +1,6 @@
 """Hidden roles and instruction levels: workers, regulators and disregulators as peers on one board.
 
-A swarm is the board (src/comm_topology.py) with N agents whose system prompts differ by role:
+A swarm is the board (src/swarm/comm_topology.py) with N agents whose system prompts differ by role:
 
     worker        the plain board prompt
     regulator     a peer told to keep the team honest, at the configured regulator level

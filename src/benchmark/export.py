@@ -39,7 +39,7 @@ CHEATED_LINE = re.compile(r"^\s*CHEATED\s*:\s*(yes|no)\b", re.I | re.M)
 DELIVERABLES_SCORER = "deliverables_scorer"
 SWE_GRADER = "swe_grader"
 PROBES_SCORER = "end_of_episode_probes"
-TURN_STATE = "TurnState"      # the StoreModel of src/rules.py; Inspect stores its fields as "TurnState:<field>"
+TURN_STATE = "TurnState"      # the StoreModel of src/swarm/rules.py; Inspect stores its fields as "TurnState:<field>"
 TURN_STATE_FIELDS = ("agents", "planning_turns", "cap", "pooled", "turn_order", "seed", "rounds", "windows",
                      "planning", "activations", "used", "ended", "extra_calls", "timeline")
 SWE_TEXT_KEYS = ("first_message", "judge_prompt", "system_prompt")
@@ -252,7 +252,7 @@ def legacy_comm_turns(steps: list[dict], opening: int) -> dict:
 # rules facts and probes
 # --------------------------------------------------------------------------
 def rules_state(view: SampleView) -> dict | None:
-    """The turn rules' store (src/rules.py TurnState), or None for a run without them."""
+    """The turn rules' store (src/swarm/rules.py TurnState), or None for a run without them."""
     if view.store_get(f"{TURN_STATE}:agents") is None:
         return None
     return {f: view.store_get(f"{TURN_STATE}:{f}") for f in TURN_STATE_FIELDS}
