@@ -3,8 +3,8 @@
     .venv/bin/python tests/smoke_swe.py [--only lone,board,honeypots,rule,shutdown,grading]
 
 Every scenario starts the real sandbox (the grader and one service per agent, from the native image that
-benchmark/swe.py builds), drives ORBIT with Inspect's mockllm scripted per agent, judges with a mock judge model,
-exports the log with benchmark.export.write_run and reads every transcript back the way CheatBench's judge does.
+src/benchmark/domains/swe.py builds), drives ORBIT with Inspect's mockllm scripted per agent, judges with a mock judge model,
+exports the log with src.benchmark.export.write_run and reads every transcript back the way CheatBench's judge does.
 Each check is an assertion; a failing scenario exits non-zero. Results go to runs/smoke_swe/<stamp>/ and
 logs/smoke_swe/<stamp>/, a fresh directory per invocation.
 
@@ -33,16 +33,16 @@ from inspect_ai import eval as inspect_eval  # noqa: E402
 from inspect_ai.log import read_eval_log  # noqa: E402
 from inspect_ai.model import ModelOutput, get_model  # noqa: E402
 
-from benchmark import swe as swe_mod  # noqa: E402
-from benchmark.export import write_run  # noqa: E402
-from benchmark.swe import SWE  # noqa: E402
-from configuration import settings  # noqa: E402
-from configuration.swarm_contagion_config import SwarmContagionConfig  # noqa: E402
+from src.benchmark.domains import swe as swe_mod  # noqa: E402
+from src.benchmark.export import write_run  # noqa: E402
+from src.benchmark.domains.swe import SWE  # noqa: E402
+from src.configuration import settings  # noqa: E402
+from src.configuration.swarm_contagion_config import SwarmContagionConfig  # noqa: E402
 from core.agents import trajectory_from_transcript  # noqa: E402
 from core.judge import is_judgeable  # noqa: E402
 from core.render import render_trajectory  # noqa: E402
-from swarm_contagion.measures.swe_summary import summarize  # noqa: E402
-from swarm_contagion.tasks import swarm_contagion_task  # noqa: E402
+from src.measures.swe_summary import summarize  # noqa: E402
+from src.tasks import swarm_contagion_task  # noqa: E402
 
 MODEL = "mockllm/model"
 ISSUE = "flipt-02e2"

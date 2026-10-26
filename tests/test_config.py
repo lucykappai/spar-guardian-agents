@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from configuration import settings
-from configuration.swarm_contagion_config import (PRESETS, SwarmContagionConfig, Window, board_read_clause,
+from src.configuration import settings
+from src.configuration.swarm_contagion_config import (PRESETS, SwarmContagionConfig, Window, board_read_clause,
                                                   channel_tools_text, read_sentence, role_count, submit_line)
 
 

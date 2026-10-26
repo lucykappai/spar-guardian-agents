@@ -1,4 +1,4 @@
-"""Offline tests of swarm_contagion/rules.py on Inspect's mock provider: no Docker, no credentials, no paid calls.
+"""Offline tests of src/rules.py on Inspect's mock provider: no Docker, no credentials, no paid calls.
 
 Each test builds a small ORBIT task (agents a01..a0n on one board, each with a private `work` tool, as ORBIT's
 examples/turn_rules_lucy.py does), runs it under a SwarmContagionConfig with the turn-rules defense, and reads what
@@ -22,12 +22,12 @@ from orbit import AgentSpec, SetupConfig, ToolFactory, multi_agent_task  # noqa:
 from orbit.configs.experiment import ExperimentConfig  # noqa: E402
 from pydantic import Field  # noqa: E402
 
-from benchmark.transcript import SampleView, episode_transcript  # noqa: E402
-from configuration.settings import load_prompts  # noqa: E402
-from configuration.swarm_contagion_config import PRESETS, SwarmContagionConfig, Window  # noqa: E402
-from swarm_contagion import rules  # noqa: E402
-from swarm_contagion.comm_topology import BOARD_ID, board_communication, board_execution, board_scheduler  # noqa: E402
-from swarm_contagion.probes import end_of_episode_probes  # noqa: E402
+from src.benchmark.transcript import SampleView, episode_transcript  # noqa: E402
+from src.configuration.settings import load_prompts  # noqa: E402
+from src.configuration.swarm_contagion_config import PRESETS, SwarmContagionConfig, Window  # noqa: E402
+from src import rules  # noqa: E402
+from src.comm_topology import BOARD_ID, board_communication, board_execution, board_scheduler  # noqa: E402
+from src.probes import end_of_episode_probes  # noqa: E402
 
 MODEL = "mockllm/turn-rules"
 PROMPTS = load_prompts()

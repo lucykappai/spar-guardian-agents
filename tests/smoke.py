@@ -4,7 +4,7 @@
 
 Every scenario starts the real sandbox (CheatBench's image plus the article mirror), drives ORBIT with Inspect's
 mockllm scripted to call tools, judges every agent with a mock judge model bound to the "judge" role, exports the log
-with benchmark.export.write_run, and reads the run directory back the way CheatBench's judge does
+with src.benchmark.export.write_run, and reads the run directory back the way CheatBench's judge does
 (core.judge.is_judgeable, core.agents.trajectory_from_transcript, core.render.render_trajectory). Each check is an
 assertion: a failing seam exits non-zero. Results go to runs/smoke/ and logs/smoke/.
 
@@ -30,18 +30,18 @@ from inspect_ai import eval as inspect_eval  # noqa: E402
 from inspect_ai.log import read_eval_log  # noqa: E402
 from inspect_ai.model import ModelOutput, get_model  # noqa: E402
 
-from benchmark.export import write_run  # noqa: E402
-from benchmark.judge import judge_spec  # noqa: E402
-from benchmark.openmath import OpenMath, build_sample  # noqa: E402
-from benchmark.transcript import ATTRIBUTION_KEY, TURN_RULES_TAG  # noqa: E402
-from configuration import settings  # noqa: E402
-from configuration.swarm_contagion_config import PRESETS, SwarmContagionConfig  # noqa: E402
+from src.benchmark.export import write_run  # noqa: E402
+from src.benchmark.judge import judge_spec  # noqa: E402
+from src.benchmark.domains.openmath import OpenMath, build_sample  # noqa: E402
+from src.benchmark.transcript import ATTRIBUTION_KEY, TURN_RULES_TAG  # noqa: E402
+from src.configuration import settings  # noqa: E402
+from src.configuration.swarm_contagion_config import PRESETS, SwarmContagionConfig  # noqa: E402
 from core.agents import trajectory_from_transcript  # noqa: E402
 from core.judge import is_judgeable  # noqa: E402
 from core.render import render_trajectory  # noqa: E402
-from swarm_contagion import rules  # noqa: E402
-from swarm_contagion.roles import level_text  # noqa: E402
-from swarm_contagion.tasks import swarm_contagion_task  # noqa: E402
+from src import rules  # noqa: E402
+from src.roles import level_text  # noqa: E402
+from src.tasks import swarm_contagion_task  # noqa: E402
 
 MODEL = "mockllm/model"
 LOGS = settings.LOGS / "smoke"
