@@ -6,8 +6,16 @@ import pytest
 from pydantic import ValidationError
 
 from src.configuration import settings
-from src.configuration.swarm_config import (PRESETS, SwarmConfig, Window, board_read_clause,
-                                                  channel_tools_text, read_sentence, role_count, submit_line)
+from src.configuration.swarm_config import (
+    PRESETS,
+    SwarmConfig,
+    Window,
+    board_read_clause,
+    channel_tools_text,
+    read_sentence,
+    role_count,
+    submit_line,
+)
 
 
 def test_defaults_and_properties():

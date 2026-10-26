@@ -12,9 +12,13 @@ from inspect_ai.dataset import Sample
 from inspect_ai.scorer import Scorer
 from inspect_ai.solver import Solver
 
-from src.benchmark.base import AgentTools, Benchmark, SUBMIT_PROMPT_DEVIATION
+from src.benchmark.base import SUBMIT_PROMPT_DEVIATION, AgentTools, Benchmark
 from src.benchmark.domains.openmath.probe import deliverables_scorer, environment_probe
-from src.benchmark.domains.openmath.sandbox import SETUP_SCRIPT, make_stage_tar, write_docker_context
+from src.benchmark.domains.openmath.sandbox import (
+    SETUP_SCRIPT,
+    make_stage_tar,
+    write_docker_context,
+)
 from src.configuration.openmath import BUILD, TASK, TASK_DIR, TOOL_KWARGS, WORKDIR
 
 DEVIATIONS = [

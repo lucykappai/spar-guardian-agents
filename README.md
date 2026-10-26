@@ -9,6 +9,7 @@ make help
 make ui            # opens http://127.0.0.1:8765/ (Summary, Runs, Swarm)
 make ui-stop
 make test          # offline unit tests of the turn rules and the config
+make lint          # ruff over src and tests
 make smoke         # openmath mock-model scenarios on the real sandbox, no model spend
 make smoke-swe     # SWE mock-model scenarios on the flipt-02e2 sandbox, no model spend
 make check         # refuses unless the eleven swarm runs are complete and judged

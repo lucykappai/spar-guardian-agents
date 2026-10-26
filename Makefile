@@ -2,7 +2,7 @@
 # Runs and judging go through the command line: .venv/bin/python -m src --help
 PY := .venv/bin/python
 
-.PHONY: help ui ui-stop smoke smoke-swe check test
+.PHONY: help ui ui-stop smoke smoke-swe check test lint
 
 help:  ## list the targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | column -t -s "$$(printf '\t')"
@@ -24,3 +24,6 @@ check:  ## refuse unless the eleven swarm runs are complete and judged
 
 test:  ## offline unit tests of the turn rules and the config (mock model, no Docker)
 	$(PY) -m pytest tests/test_rules.py tests/test_config.py -q
+
+lint:  ## ruff over src and tests (ruff.toml: 120 columns, sorted imports)
+	uvx ruff check src tests

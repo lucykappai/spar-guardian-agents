@@ -20,7 +20,7 @@ from pathlib import Path
 
 from src.configuration import settings
 from src.configuration.swarm_config import PRESETS
-from src import run as commands
+from src.measures import summary
 from src.ui import launch
 
 
@@ -31,15 +31,18 @@ def env_timeout() -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    # run.py imports Inspect, ORBIT and CheatBench, four seconds; only run and judge pay for them.
+    from src import run
     from src.benchmark.domains.openmath import OpenMath
     from src.benchmark.domains.swe import SWE
     config = PRESETS[args.preset].with_overrides(args.settings)
     benchmark = OpenMath(args.row) if args.benchmark == "openmath" else SWE(args.issue, args.honeypot, not args.no_grade)
-    return commands.run(args.name, benchmark, config, args.model, args.timeout)
+    return run.run(args.name, benchmark, config, args.model, args.timeout)
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
-    return commands.judge(Path(args.eval_log), args.run_name, args.judge, judge_errors=args.judge_errors)
+    from src import run  # the same four seconds as in cmd_run
+    return run.judge(Path(args.eval_log), args.run_name, args.judge, judge_errors=args.judge_errors)
 
 
 def cmd_ui(args: argparse.Namespace) -> int:
@@ -49,7 +52,7 @@ def cmd_ui(args: argparse.Namespace) -> int:
 
 
 def cmd_summary(args: argparse.Namespace) -> int:
-    return commands.summary([Path(p) for p in args.run_dirs], args.full)
+    return summary.main(list(args.run_dirs) + (["--full"] if args.full else []))
 
 
 def add_run_parser(subparsers) -> None:
@@ -111,9 +114,6 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except commands.Refusal as refusal:
-        print(refusal, file=sys.stderr)
-        return refusal.code
     except ValueError as error:
         print(error, file=sys.stderr)
         return 2

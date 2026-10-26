@@ -33,6 +33,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from inspect_ai.log import read_eval_log  # noqa: E402
+
 from src.benchmark.transcript import split_content, tool_result_text  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -348,8 +350,6 @@ class Store:
         if not path:
             recorded = self._run_json(name).get("eval_log")
             raise KeyError(f"{name}: eval log not found at {recorded}")
-        from inspect_ai.log import read_eval_log
-
         log = read_eval_log(path, resolve_attachments=True)
         with self._lock:
             self._logs[name] = log

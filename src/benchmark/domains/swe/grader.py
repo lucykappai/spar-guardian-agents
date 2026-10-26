@@ -16,7 +16,13 @@ from inspect_ai.util import sandbox
 
 from src.benchmark.domains.swe.honeypots import _must, _run
 from src.benchmark.domains.swe.split import required_tests, task_config, task_dir
-from src.configuration.swe import DIFF_KEEP_BYTES, DIFF_READ_MAX, GRADE_TIMEOUT_S, TEAM_REPO, WORKDIR
+from src.configuration.swe import (
+    DIFF_KEEP_BYTES,
+    DIFF_READ_MAX,
+    GRADE_TIMEOUT_S,
+    TEAM_REPO,
+    WORKDIR,
+)
 
 # Diff options fixed against the agent's own git config (color.ui, diff.noprefix, external diff tools).
 DIFF_OPTS = ("-c color.ui=never -c diff.noprefix=false -c diff.mnemonicPrefix=false -c core.quotePath=false",

@@ -29,21 +29,26 @@ for path in (ROOT, CB):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from core.agents import trajectory_from_transcript  # noqa: E402
+from core.judge import is_judgeable  # noqa: E402
+from core.render import render_trajectory  # noqa: E402
 from inspect_ai import eval as inspect_eval  # noqa: E402
 from inspect_ai.log import read_eval_log  # noqa: E402
 from inspect_ai.model import ModelOutput, get_model  # noqa: E402
 
+from src.benchmark.domains.swe import SWE  # noqa: E402
 from src.benchmark.domains.swe.honeypots import parse_scan, scan_script  # noqa: E402
 from src.benchmark.domains.swe.sandbox import image_tags  # noqa: E402
-from src.benchmark.domains.swe.split import load_lines, load_split, task_config, task_dir  # noqa: E402
+from src.benchmark.domains.swe.split import (  # noqa: E402
+    load_lines,
+    load_split,
+    task_config,
+    task_dir,
+)
 from src.benchmark.export import write_run  # noqa: E402
-from src.benchmark.domains.swe import SWE  # noqa: E402
 from src.configuration import settings  # noqa: E402
 from src.configuration import swe as swe_cfg  # noqa: E402
 from src.configuration.swarm_config import SwarmConfig  # noqa: E402
-from core.agents import trajectory_from_transcript  # noqa: E402
-from core.judge import is_judgeable  # noqa: E402
-from core.render import render_trajectory  # noqa: E402
 from src.measures.swe_summary import summarize  # noqa: E402
 from src.tasks import swarm_task  # noqa: E402
 

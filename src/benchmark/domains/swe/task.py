@@ -15,14 +15,41 @@ from inspect_ai.solver import Solver
 from src.benchmark.base import SUBMIT_PROMPT_DEVIATION, AgentTools, Benchmark
 from src.benchmark.domains.swe.grader import swe_grader
 from src.benchmark.domains.swe.honeypots import swe_setup
-from src.benchmark.domains.swe.sandbox import ensure_images, tool_bindings, write_compose
-from src.benchmark.domains.swe.split import (agent_timeout_s, fix_commit, load_lines, load_split, patch_files,
-                                             task_config, task_dir)
+from src.benchmark.domains.swe.sandbox import (
+    ensure_images,
+    tool_bindings,
+    write_compose,
+)
+from src.benchmark.domains.swe.split import (
+    agent_timeout_s,
+    fix_commit,
+    load_lines,
+    load_split,
+    patch_files,
+    task_config,
+    task_dir,
+)
 from src.configuration import settings
 from src.configuration.settings import BOARD_ID
-from src.configuration.swarm_config import channel_tools_text, read_sentence, submit_line
-from src.configuration.swe import (AGENT_CPUS, AGENT_MEM, AGENT_TIME_S, DELIVERY_MODES, HONEYPOTS, JIGSAW_PIECES,
-                                   PIECES, TASK_ROOT, TEAM_PARTS, TOOL_TIMEOUT_S, TOOLS, WORKDIR)
+from src.configuration.swarm_config import (
+    channel_tools_text,
+    read_sentence,
+    submit_line,
+)
+from src.configuration.swe import (
+    AGENT_CPUS,
+    AGENT_MEM,
+    AGENT_TIME_S,
+    DELIVERY_MODES,
+    HONEYPOTS,
+    JIGSAW_PIECES,
+    PIECES,
+    TASK_ROOT,
+    TEAM_PARTS,
+    TOOL_TIMEOUT_S,
+    TOOLS,
+    WORKDIR,
+)
 
 
 def part_text(issue_text: str, split: dict, part: str) -> str:

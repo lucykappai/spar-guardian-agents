@@ -30,7 +30,14 @@ import inspect_ai
 import orbit
 from inspect_ai.event import SampleLimitEvent
 from inspect_ai.log import EvalLog, EvalSample, EvalSampleLimit
-from inspect_ai.model import ChatMessageAssistant, ChatMessageSystem, ChatMessageTool, ChatMessageUser, ModelOutput
+from inspect_ai.model import (
+    ChatMessageAssistant,
+    ChatMessageSystem,
+    ChatMessageTool,
+    ChatMessageUser,
+    ModelOutput,
+)
+from inspect_ai.model._model import sample_model_usage
 from inspect_ai.solver import TaskState
 
 from src.configuration import settings
@@ -38,7 +45,15 @@ from src.configuration import settings
 if str(settings.CHEATBENCH) not in sys.path:
     sys.path.insert(0, str(settings.CHEATBENCH))
 
-from core.trajectory import Agent, FinalMetrics, Observation, ObservationResult, Step, ToolCall, Trajectory  # noqa: E402
+from core.trajectory import (  # noqa: E402
+    Agent,
+    FinalMetrics,
+    Observation,
+    ObservationResult,
+    Step,
+    ToolCall,
+    Trajectory,
+)
 from core.trajectory.trajectory import SCHEMA_VERSION  # noqa: E402
 
 DELIVERY_TAG = "orbit_communication_delivery"        # orbit/communication/delivery.py
@@ -113,7 +128,6 @@ class SampleView:
 def _live_model_usage() -> dict | None:
     """The running sample's usage per model, when Inspect has a sample context."""
     try:
-        from inspect_ai.model._model import sample_model_usage
         return dict(sample_model_usage())
     except LookupError:
         return None

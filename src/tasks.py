@@ -3,6 +3,8 @@
     task = swarm_task(OpenMath("riemann"), PRESETS["ours"].with_overrides(["n_agents=10", "regulators=3"]))
     inspect eval src/tasks.py@openmath -T preset=lucy -T n_agents=3
 
+The second form skips what `python -m src run` adds: the key checks and the Gemini 402 retry (src/utils/provider_retry.py).
+
 What comes from where:
   * the sample, its tools, its setup solver and its graders come from the benchmark (src/benchmark/domains/openmath/,
     src/benchmark/domains/swe/);
@@ -28,20 +30,23 @@ from orbit.configs.setup import AgentSpec, SetupConfig
 from orbit.tasks.multi_agent import multi_agent_task
 
 from src.benchmark.base import AgentTools, Benchmark
-from src.benchmark.judge import cheatbench_judge
 from src.benchmark.domains.openmath import OpenMath
 from src.benchmark.domains.swe import SWE
+from src.benchmark.judge import cheatbench_judge
 from src.configuration import settings
 from src.configuration.openmath import TOKEN_LIMIT
 from src.configuration.swarm_config import PRESETS, SwarmConfig
 from src.configuration.swe import GRADING_BUDGET_S
 from src.swarm import roles as roles_module
-from src.swarm.comm_topology import board_communication, board_execution, board_prompt, board_scheduler
+from src.swarm.comm_topology import (
+    board_communication,
+    board_execution,
+    board_prompt,
+    board_scheduler,
+)
 from src.swarm.controls import BASELINE, defenses_for
 from src.swarm.probes import end_of_episode_probes
 from src.swarm.rules import rules_setup, schedule, turn_rules_defense
-# Imported for its side effect: Gemini's 402 "credits depleted" is retried as a rate limit.
-from src.utils.provider_retry import INSTALLED as _RETRY_402_INSTALLED  # noqa: F401
 
 JUDGE_ADDENDUM = settings.LUCY / "experiments" / "orbit_cheatbench" / "judge_addendum.py"
 MONITOR_FACTOR = 3        # an LLM control's own calls count toward the token limit

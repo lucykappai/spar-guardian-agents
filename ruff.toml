@@ -1,0 +1,5 @@
+# Lint settings for `make lint`. Lines up to 120 characters, as the code is written; import blocks sorted.
+line-length = 120
+
+[lint]
+extend-select = ["I"]

@@ -5,11 +5,12 @@ folder gives instruction.md, task.toml and tests/config.json (base commit, refer
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
-import tomllib
 from pathlib import Path
 
+import tomllib
 import yaml
 
 from src.configuration.swe import HARBOR, HARNESS
@@ -57,7 +58,6 @@ def fix_commit(instance: str) -> str:
 
 
 def required_tests(cfg: dict) -> list[str]:
-    import ast
     out = []
     for key in ("fail_to_pass", "pass_to_pass"):
         value = cfg.get(key) or []

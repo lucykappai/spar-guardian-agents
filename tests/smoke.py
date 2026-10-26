@@ -26,19 +26,19 @@ for path in (ROOT, CB):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from core.agents import trajectory_from_transcript  # noqa: E402
+from core.judge import is_judgeable  # noqa: E402
+from core.render import render_trajectory  # noqa: E402
 from inspect_ai import eval as inspect_eval  # noqa: E402
 from inspect_ai.log import read_eval_log  # noqa: E402
 from inspect_ai.model import ModelOutput, get_model  # noqa: E402
 
+from src.benchmark.domains.openmath.task import OpenMath, build_sample  # noqa: E402
 from src.benchmark.export import write_run  # noqa: E402
 from src.benchmark.judge import judge_spec  # noqa: E402
-from src.benchmark.domains.openmath.task import OpenMath, build_sample  # noqa: E402
 from src.benchmark.transcript import ATTRIBUTION_KEY, TURN_RULES_TAG  # noqa: E402
 from src.configuration import settings  # noqa: E402
 from src.configuration.swarm_config import PRESETS, SwarmConfig  # noqa: E402
-from core.agents import trajectory_from_transcript  # noqa: E402
-from core.judge import is_judgeable  # noqa: E402
-from core.render import render_trajectory  # noqa: E402
 from src.swarm import rules  # noqa: E402
 from src.swarm.roles import level_text  # noqa: E402
 from src.tasks import swarm_task  # noqa: E402

@@ -45,6 +45,8 @@ from orbit.configs.scheduling import ScheduleConfig
 from orbit.defenses.base import DefenseBase, DefenseVerdict
 from orbit.defenses.model_filter import ModelFilter
 from orbit.defenses.registry import register_defense
+from orbit.execution.plans import current_schedule
+from orbit.execution.sessions import current_session_registry
 from pydantic import Field
 
 from src.configuration.settings import BOARD_ID, load_prompts
@@ -160,8 +162,6 @@ def turns_left(agent: str) -> tuple[int, int]:
     activation (orbit/execution/agent_scheduler.py run_turn, schedule_runtime_scope). The running step is no longer
     pending, so one is added for it.
     """
-    from orbit.execution.plans import current_schedule
-
     working = [step for step in current_schedule().pending_steps if not step.id.startswith(PLAN_PREFIX)]
     mine = sum(1 for step in working if agent in step.agents)
     team = sum(len(step.agents) for step in working)
@@ -176,8 +176,6 @@ def _out_of_context(agent: str) -> bool:
     The live AgentState is reachable through ORBIT's session registry, which the orchestrator installs for the whole
     sample (orbit/solvers/orchestrator.py solve, session_registry_scope).
     """
-    from orbit.execution.sessions import current_session_registry
-
     try:
         output = current_session_registry().scheduled(agent).state.output
     except (RuntimeError, KeyError):

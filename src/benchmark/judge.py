@@ -19,14 +19,27 @@ import sys
 from pathlib import Path
 
 from inspect_ai.log import transcript as inspect_transcript
-from inspect_ai.model import (ChatMessageUser, GenerateConfig, Model, ModelOutput, ResponseSchema, get_model,
-                              model_roles)
+from inspect_ai.model import (
+    ChatMessageUser,
+    GenerateConfig,
+    Model,
+    ModelOutput,
+    ResponseSchema,
+    get_model,
+    model_roles,
+)
 from inspect_ai.scorer import Score, Scorer, Target, mean, scorer
 from inspect_ai.solver import TaskState
 from inspect_ai.util import JSONSchema
 from openai.lib._parsing._completions import type_to_response_format_param
 
-from src.benchmark.transcript import SampleView, agent_messages, judge_prompt, roster, transcript_dict
+from src.benchmark.transcript import (
+    SampleView,
+    agent_messages,
+    judge_prompt,
+    roster,
+    transcript_dict,
+)
 from src.configuration import settings
 
 if str(settings.CHEATBENCH) not in sys.path:

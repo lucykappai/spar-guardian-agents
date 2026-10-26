@@ -1,32 +1,63 @@
-"""What each command does: run a task in process, re-judge an eval log, print the summary.
+"""The run and judge commands: run a task in process, or judge a finished eval log again.
 
     run("swarm_R3D3_s1", OpenMath(), config, model="google/gemini-3.8-flash", timeout=2700)
     judge(Path("logs/swarm/swarm_R3D3/<log>.eval"), "swarm_R3D3", "gpt-6-sol", judge_errors=False)
-    summary([Path("runs/swarm_R3D3")], full=True)
 
 A run calls inspect_ai.eval with the task from tasks.py, writes its log under logs/<kind>/<name>/, exports it to
 runs/<name>/ with src/benchmark/export.py and prints one line per episode. CheatBench's judge runs inside the eval as a
 scorer, bound to the model role "judge". Re-judging reads a finished log, judges every agent again with
-src/benchmark/judge.py and exports the log with the new verdicts. Each refused precondition raises Refusal with the exit
-code the command line returns.
+src/benchmark/judge.py and exports the log with the new verdicts. A refused precondition prints its reason to stderr,
+and the command returns the exit code the command line passes on.
 """
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import os
+import sys
 from pathlib import Path
 
+import inspect_ai
+from inspect_ai.log import read_eval_log
+from inspect_ai.model import get_model
+
+from src.benchmark import judge as judging
+from src.benchmark.domains.swe import SWE
+from src.benchmark.export import write_run
+from src.benchmark.transcript import (
+    SampleView,
+    agent_messages,
+    error_and_failure,
+    judge_prompt,
+    roster,
+    transcript_dict,
+)
 from src.configuration import settings
 from src.configuration.swarm_config import SwarmConfig
+from src.measures import summary
+from src.tasks import JUDGE_ADDENDUM, hidden_roles, swarm_task
+from src.utils import provider_retry
 
 
 class Refusal(Exception):
-    """A precondition failed: print the message and exit with the code."""
+    """A precondition failed: the message is printed and the code returned."""
 
     def __init__(self, message: str, code: int) -> None:
         super().__init__(message)
         self.code = code
+
+
+def command(fn):
+    """A command prints its Refusal to stderr and returns the refusal's exit code."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Refusal as refusal:
+            print(refusal, file=sys.stderr)
+            return refusal.code
+    return wrapper
 
 
 # --------------------------------------------------------------------------
@@ -46,11 +77,10 @@ def require_provider_key(model: str) -> None:
         require_env("OPENROUTER_API_KEY", "OPENROUTER_API_KEY must be set", 1)
 
 
-def require_judge_key(judge: str, code: int) -> None:
+def require_judge_key(judge_name: str, code: int) -> None:
     """The judge's key, named by its src/benchmark/models.yaml entry (OPENAI_API_KEY for gpt-6-sol)."""
-    from src.benchmark.judge import require_judge_key as check
     try:
-        check(judge)
+        judging.require_judge_key(judge_name)
     except RuntimeError as error:
         raise Refusal(f"{error} for the judge", code) from error
 
@@ -60,8 +90,6 @@ def require_judge_key(judge: str, code: int) -> None:
 # --------------------------------------------------------------------------
 def log_kind(benchmark, config: SwarmConfig) -> str:
     """logs/<kind>/: swe for SWE, swarm for a run with hidden roles, ctrl for a lone agent or a plain board."""
-    from src.benchmark.domains.swe import SWE
-    from src.tasks import hidden_roles
     if isinstance(benchmark, SWE):
         return "swe"
     return "swarm" if hidden_roles(benchmark, config) else "ctrl"
@@ -76,7 +104,6 @@ def has_incomplete_episode(episodes: Path) -> bool:
 
 def export(eval_log: Path, run_name: str, verdicts: dict | None = None) -> Path:
     """Write runs/<run_name>/ from the log and print what was written."""
-    from src.benchmark.export import write_run
     run_dir = settings.RUNS / run_name
     print(f"== export {eval_log} -> {run_dir}", flush=True)
     print(json.dumps(write_run(eval_log, run_dir, verdicts=verdicts), indent=1), flush=True)
@@ -86,15 +113,13 @@ def export(eval_log: Path, run_name: str, verdicts: dict | None = None) -> Path:
     return run_dir
 
 
+@command
 def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | None) -> int:
     """Run one task, export it to runs/<name>/ and print the summary. Returns 0, or 3 when the eval did not succeed."""
-    import inspect_ai
-
-    from src.tasks import swarm_task
     require_provider_key(model)
     require_judge_key(config.judge, 1)
-    from src.benchmark.judge import judge_model_config
-    judge_model, _ = judge_model_config(config.judge)
+    provider_retry.install()
+    judge_model, _ = judging.judge_model_config(config.judge)
     log_dir = settings.LOGS / log_kind(benchmark, config) / name
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"== eval {benchmark.name} n_agents={config.n_agents} control={config.control} -> {log_dir}", flush=True)
@@ -104,7 +129,7 @@ def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | No
     if not log.samples and not Path(log.location).exists():
         raise Refusal("no eval log written", 3)
     run_dir = export(Path(log.location), name)
-    summary([run_dir], full=False)
+    summary.main([str(run_dir)])
     return 0 if log.status == "success" else 3
 
 
@@ -118,27 +143,23 @@ def _episode(view, agents: list[str], agent: str) -> str:
 
 async def _judge_views(views: list, judge_name: str) -> dict[str, dict]:
     """Every agent of every sample judged again; verdict rows keyed by episode."""
-    from inspect_ai.model import get_model
-
-    from src.benchmark.judge import judge_model_config, judge_prices, judge_row, judge_spec, judge_trajectory
-    from src.benchmark.transcript import agent_messages, judge_prompt, roster, transcript_dict
-    from src.tasks import JUDGE_ADDENDUM
-    model_name, config = judge_model_config(judge_name)
-    prices = judge_prices(judge_name)
+    model_name, config = judging.judge_model_config(judge_name)
+    prices = judging.judge_prices(judge_name)
     model = get_model(model_name)
     verdicts = {}
     for view in views:
         cb = (view.metadata or {}).get("cheatbench", {})
         addendum = JUDGE_ADDENDUM if (cb.get("config") or {}).get("judge_addendum") else None
-        spec = judge_spec(settings.CHEATBENCH / "tasks" / cb["task"], cb["task"], addendum=addendum)
+        spec = judging.judge_spec(settings.CHEATBENCH / "tasks" / cb["task"], cb["task"], addendum=addendum)
         agents = roster(view)
         judged = [a for a in agents if agent_messages(view, a)]
-        results = await asyncio.gather(*(judge_trajectory(spec, transcript_dict(view, a, judge_prompt(view, a)),
-                                                          model, config, prices) for a in judged))
+        results = await asyncio.gather(*(judging.judge_trajectory(spec, transcript_dict(view, a, judge_prompt(view, a)),
+                                                                  model, config, prices) for a in judged))
         for agent, result in zip(judged, results):
             episode = _episode(view, agents, agent)
-            verdicts[episode] = judge_row(result, id=view.id, episode=episode, replicate=view.epoch, task=spec.task,
-                                          model=view.model, judge=judge_name, spec=spec, transcript_path=None)
+            verdicts[episode] = judging.judge_row(result, id=view.id, episode=episode, replicate=view.epoch,
+                                                  task=spec.task, model=view.model, judge=judge_name, spec=spec,
+                                                  transcript_path=None)
     return verdicts
 
 
@@ -150,11 +171,9 @@ def print_verdicts(judge_jsonl: Path) -> None:
         print("summary:", verdict.get("summary"))
 
 
+@command
 def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool = False) -> int:
     """Judge a finished eval log again and export it to runs/<run_name>/ with the new verdicts."""
-    from inspect_ai.log import read_eval_log
-
-    from src.benchmark.transcript import SampleView, error_and_failure
     require_judge_key(judge_name, 2)
     eval_log = eval_log.resolve()
     if not eval_log.is_file():
@@ -174,11 +193,3 @@ def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool 
         raise Refusal("the judge wrote no verdicts", 4)
     print_verdicts(judge_jsonl)
     return 0
-
-
-# --------------------------------------------------------------------------
-# summary
-# --------------------------------------------------------------------------
-def summary(run_dirs: list[Path], full: bool) -> int:
-    from src.measures import summary as summary_module
-    return summary_module.main([str(path) for path in run_dirs] + (["--full"] if full else []))

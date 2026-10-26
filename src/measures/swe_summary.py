@@ -21,6 +21,7 @@ missing). Ported from the lucy-plan worktree (integration/report/swe_summary.py)
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from pathlib import Path
@@ -181,8 +182,6 @@ def print_arms(summaries: list[dict]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import argparse
-
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("run_dirs", nargs="+", help="run directories (runs/<run>) to summarise")

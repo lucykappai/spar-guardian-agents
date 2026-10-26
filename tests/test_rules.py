@@ -11,10 +11,16 @@ import uuid
 
 os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
 
-from inspect_ai import Task, eval as inspect_eval  # noqa: E402
+from inspect_ai import Task  # noqa: E402
+from inspect_ai import eval as inspect_eval
 from inspect_ai.dataset import Sample  # noqa: E402
 from inspect_ai.log import read_eval_log  # noqa: E402
-from inspect_ai.model import ChatCompletionChoice, ChatMessageAssistant, ModelOutput, get_model  # noqa: E402
+from inspect_ai.model import (  # noqa: E402
+    ChatCompletionChoice,
+    ChatMessageAssistant,
+    ModelOutput,
+    get_model,
+)
 from inspect_ai.scorer import Score, Target, scorer  # noqa: E402
 from inspect_ai.tool import Tool, ToolCall, tool  # noqa: E402
 from inspect_ai.util import StoreModel, store_as  # noqa: E402
@@ -26,7 +32,12 @@ from src.benchmark.transcript import SampleView, episode_transcript  # noqa: E40
 from src.configuration.settings import load_prompts  # noqa: E402
 from src.configuration.swarm_config import PRESETS, SwarmConfig, Window  # noqa: E402
 from src.swarm import rules  # noqa: E402
-from src.swarm.comm_topology import BOARD_ID, board_communication, board_execution, board_scheduler  # noqa: E402
+from src.swarm.comm_topology import (  # noqa: E402
+    BOARD_ID,
+    board_communication,
+    board_execution,
+    board_scheduler,
+)
 from src.swarm.probes import end_of_episode_probes  # noqa: E402
 
 MODEL = "mockllm/turn-rules"

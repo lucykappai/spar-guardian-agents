@@ -14,7 +14,12 @@ from __future__ import annotations
 import json
 import re
 
-from inspect_ai.model import ChatMessageAssistant, ChatMessageTool, ChatMessageUser, get_model
+from inspect_ai.model import (
+    ChatMessageAssistant,
+    ChatMessageTool,
+    ChatMessageUser,
+    get_model,
+)
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
 

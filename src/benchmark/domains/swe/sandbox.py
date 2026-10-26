@@ -14,10 +14,10 @@ from pathlib import Path
 
 import yaml
 from inspect_ai.tool import ToolDef, bash, python
+from orbit.tools import ToolContext, ToolFactory
 
 from src.benchmark.domains.swe.split import load_split, task_config, task_dir
 from src.configuration.swe import AGENT_CPUS, AGENT_MEM, BUILD, TOOL_TIMEOUT_S, WORKDIR
-from orbit.tools import ToolContext, ToolFactory
 
 # The recipe's text is hashed into the native image's label, so any change to it (the comment line included)
 # rebuilds the image, which takes about half an hour. The comment line keeps the module's old path for that reason.

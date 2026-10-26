@@ -7,8 +7,8 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | file | holds |
 |---|---|
 | `__main__.py` | `python -m src`: calls `cli.main` |
-| `cli.py` | argument parsing for `run`, `judge`, `ui` and `summary`; every command calls `run.py` |
-| `run.py` | what each command does: `inspect_ai.eval` in process, export, re-judging, the summary |
+| `cli.py` | argument parsing; `run` and `judge` call `run.py`, `ui` calls `ui/launch.py`, `summary` calls `measures/summary.py` |
+| `run.py` | the `run` and `judge` commands: `inspect_ai.eval` in process, export, re-judging |
 | `tasks.py` | `swarm_task(benchmark, config)` and the `@task` entry points `openmath` and `swe` |
 | `swarm/comm_topology.py` | the board as ORBIT configuration: one shared channel, no invocation edges, a written plan |
 | `swarm/roles.py` | hidden roles and the instruction levels: who is regulator or disregulator, and the texts each one gets |
