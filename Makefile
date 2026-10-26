@@ -14,30 +14,30 @@ ui:  ## open the results browser (starts the server when needed)
 ui-stop:  ## stop the results browser started by make ui
 	@scripts/ui stop
 
-share:  ## export the results browser as a static bundle (integration/build/share) and check it
-	$(PY) -m integration.ui.export
-	$(PY) -m integration.checks.check_share
+share:  ## export the results browser as a static bundle (guardian/build/share) and check it
+	$(PY) -m guardian.ui.export
+	$(PY) -m guardian.checks.check_share
 
 share-browser:  ## headless pass over the exported bundle (needs node and Playwright with Chromium)
 	@if lsof -nP -iTCP:8798 -sTCP:LISTEN -t >/dev/null 2>&1; then echo "port 8798 is busy; stop that server first" >&2; exit 1; fi; \
-	python3 -m http.server 8798 --bind 127.0.0.1 --directory integration/build/share >/dev/null 2>&1 & echo $$! > integration/build/share-http.pid; sleep 1; \
-	NODE_PATH=$${NODE_PATH:-/opt/homebrew/lib/node_modules} node integration/checks/share_browser.js http://127.0.0.1:8798/; rc=$$?; \
-	kill $$(cat integration/build/share-http.pid); rm -f integration/build/share-http.pid; exit $$rc
+	python3 -m http.server 8798 --bind 127.0.0.1 --directory guardian/build/share >/dev/null 2>&1 & echo $$! > guardian/build/share-http.pid; sleep 1; \
+	NODE_PATH=$${NODE_PATH:-/opt/homebrew/lib/node_modules} node guardian/checks/share_browser.js http://127.0.0.1:8798/; rc=$$?; \
+	kill $$(cat guardian/build/share-http.pid); rm -f guardian/build/share-http.pid; exit $$rc
 
 smoke:  ## six mock-model scenarios on the real sandbox, no model spend
-	$(PY) -m integration.checks.smoke_test
+	$(PY) -m guardian.checks.smoke_test
 
 check:  ## refuse unless the eleven swarm runs are complete and judged
-	$(PY) -m integration.checks.check_sweep --expect $(SWARM)
+	$(PY) -m guardian.checks.check_sweep --expect $(SWARM)
 
 tables:  ## regenerate docs/generated/*.tex from the run directories
-	$(PY) -m integration.report.report_pilot runs/gemini_riemann runs/gemini_board
-	$(PY) -m integration.report.report_pilot $(CTRL) --macro ctrl --out docs/generated/controls_results.tex
-	$(PY) -m integration.report.report_swarm
+	$(PY) -m guardian.report.report_pilot runs/gemini_riemann runs/gemini_board
+	$(PY) -m guardian.report.report_pilot $(CTRL) --macro ctrl --out docs/generated/controls_results.tex
+	$(PY) -m guardian.report.report_swarm
 
 figures:  ## regenerate docs/figures from the run directories
-	$(PY) -m integration.report.figures --runs runs --out docs/figures --swimlane gemini_board
-	$(PY) -m integration.report.figures --runs runs --out /tmp/figures_swarm --swimlane swarm_R3D3
+	$(PY) -m guardian.report.figures --runs runs --out docs/figures --swimlane gemini_board
+	$(PY) -m guardian.report.figures --runs runs --out /tmp/figures_swarm --swimlane swarm_R3D3
 	cp /tmp/figures_swarm/fig_swimlane.pdf docs/figures/fig_swimlane_swarm.pdf
 	cp /tmp/figures_swarm/fig_swimlane.png docs/figures/fig_swimlane_swarm.png
 

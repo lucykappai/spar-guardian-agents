@@ -1,6 +1,6 @@
 // Headless pass over a served static bundle of the results browser (make share-browser).
 //
-//   NODE_PATH=/opt/homebrew/lib/node_modules node integration/checks/share_browser.js http://127.0.0.1:8798/
+//   NODE_PATH=/opt/homebrew/lib/node_modules node guardian/checks/share_browser.js http://127.0.0.1:8798/
 //
 // Needs Playwright with Chromium. Exit 1 on any failure. Checks, each against the live page: every main view at
 // 360, 400 and 1440 px loads with no console error, no page error, no response of 400 or more, no request outside

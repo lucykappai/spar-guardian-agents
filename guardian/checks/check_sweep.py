@@ -1,7 +1,7 @@
 """Refuse unless every named swarm run is complete and judged.
 
-    python -m integration.checks.check_sweep runs/swarm_R0D0 runs/swarm_R10D0 ...
-    python -m integration.checks.check_sweep --expect R0D0,R10D0,R0D10 [--runs runs]
+    python -m guardian.checks.check_sweep runs/swarm_R0D0 runs/swarm_R10D0 ...
+    python -m guardian.checks.check_sweep --expect R0D0,R10D0,R0D10 [--runs runs]
 
 Exit 0 only when every run has a run.json with topology swarm, one episode per
 agent with the role the run.json assigns, no harness or provider failure, a

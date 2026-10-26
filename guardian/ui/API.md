@@ -1,7 +1,7 @@
 # Results browser API
 
-Start: `make ui` (or `scripts/ui`), which runs `python -m integration.ui [--runs runs] [--port 8765] [--open]` from the repository
-root with `.venv` and opens the browser. The UI is served at `/` from `integration/ui/static/` (`index.html`, `app.js`, `style.css`).
+Start: `make ui` (or `scripts/ui`), which runs `python -m guardian.ui [--runs runs] [--port 8765] [--open]` from the repository
+root with `.venv` and opens the browser. The UI is served at `/` from `guardian/ui/static/` (`index.html`, `app.js`, `style.css`).
 All API responses are JSON.
 
 ## UI routes
@@ -19,7 +19,7 @@ as what it is, a board of N agents with roles.
 
 ## Static export
 
-`make share` (`python -m integration.ui.export`, then `python -m integration.checks.check_share`) writes `integration/build/share/`
+`make share` (`python -m guardian.ui.export`, then `python -m guardian.checks.check_share`) writes `guardian/build/share/`
 into a fresh directory: `index.html` (the complete page, for any static host), `artifact.html` (the same page without the document
 skeleton, for a publisher that adds its own: title, stylesheet, app, script), `data/runs.json`, `data/summary.json`,
 `data/figures.json`, `data/run/<run>/{run,sample,context,timeline}.json`, `data/run/<run>/transcripts.json`
@@ -30,7 +30,7 @@ have answered 404 or 500 is stored in its place as `{"__error": {status, body}}`
 client then reads the files instead of the endpoints. `/api/runs/<run>/context/<i>` is not exported; the context page says so and
 points at the local browser. The stylesheet in the page carries `[data-theme]` variants of the dark tokens for a viewer that sets
 an explicit theme. Serve the directory over HTTP to open it (`python3 -m http.server 8000` in it); from disk the data requests fail
-and the page says so. `make share-browser` runs `integration/checks/share_browser.js` over the served bundle. A publish takes at
+and the page says so. `make share-browser` runs `guardian/checks/share_browser.js` over the served bundle. A publish takes at
 most 255 files and 64 MB, so the bundle goes up in several publishes.
 
 ## Data model

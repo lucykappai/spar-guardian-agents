@@ -1,6 +1,6 @@
 """Check a static export of the results browser. Exit 1 on any problem.
 
-    python -m integration.checks.check_share [--runs runs] [--bundle integration/build/share] [--allow-errors]
+    python -m guardian.checks.check_share [--runs runs] [--bundle guardian/build/share] [--allow-errors]
 
 Every check is against the thing itself:
   * every file in manifest.json exists with its recorded size and SHA-256, nothing else is in the directory, no text
@@ -16,7 +16,7 @@ Every check is against the thing itself:
     stylesheet has both [data-theme] dark blocks with color-scheme dark, and the page loads nothing external;
   * no credential pattern appears in any decoded JSON string or page text, and no value of a credential-like
     environment variable (API keys, tokens, secrets, passwords) appears anywhere in the bundle.
-A headless browser pass over the served bundle is integration/checks/share_browser.js (make share-browser).
+A headless browser pass over the served bundle is guardian/checks/share_browser.js (make share-browser).
 """
 from __future__ import annotations
 
@@ -33,9 +33,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from integration.ui.export import (OMITTED, dumps, endpoint, full_page, is_error, page_body,  # noqa: E402
+from guardian.ui.export import (OMITTED, dumps, endpoint, full_page, is_error, page_body,  # noqa: E402
                                    source_hashes, themed_css)
-from integration.ui.server import FIGURES, STATIC, Store, figures_list  # noqa: E402
+from guardian.ui.server import FIGURES, STATIC, Store, figures_list  # noqa: E402
 
 MAX_TEXT = 16 * 1000 * 1000
 MAX_BINARY = 15 * 1000 * 1000
@@ -77,7 +77,7 @@ def strings_of(v):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--runs", default=str(ROOT / "runs"))
-    ap.add_argument("--bundle", default=str(ROOT / "integration" / "build" / "share"))
+    ap.add_argument("--bundle", default=str(ROOT / "guardian" / "build" / "share"))
     ap.add_argument("--allow-errors", action="store_true", help="accept endpoints stored as error records")
     args = ap.parse_args()
     bundle = Path(args.bundle)

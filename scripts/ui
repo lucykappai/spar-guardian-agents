@@ -6,7 +6,7 @@
 #   scripts/ui stop         stop the server on the port: the pid it recorded, else whatever listens there
 #   PORT=8766 scripts/ui    another port; each port has its own pid file and log, logs/ui-<port>.{pid,log}
 #
-# The server is python -m integration.ui. Only a process whose command names integration.ui is ever killed.
+# The server is python -m guardian.ui. Only a process whose command names guardian.ui is ever killed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -18,7 +18,7 @@ PIDFILE="$ROOT/logs/ui-$PORT.pid"
 LOG="$ROOT/logs/ui-$PORT.log"
 
 listener_pid() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1; }
-is_browser() { [ -n "${1:-}" ] && ps -p "$1" -o command= 2>/dev/null | grep -q "integration.ui"; }
+is_browser() { [ -n "${1:-}" ] && ps -p "$1" -o command= 2>/dev/null | grep -q "guardian.ui"; }
 
 if [ "${1:-}" = "stop" ]; then
   pid=""
@@ -37,7 +37,7 @@ if [ "${1:-}" = "stop" ]; then
 fi
 
 if [ -z "$(listener_pid || true)" ]; then
-  nohup "$PY" -m integration.ui --port "$PORT" >> "$LOG" 2>&1 &
+  nohup "$PY" -m guardian.ui --port "$PORT" >> "$LOG" 2>&1 &
   echo $! > "$PIDFILE"
   echo "started results browser on port $PORT (pid $!, log logs/ui-$PORT.log)"
   for _ in $(seq 1 100); do curl -fs "${URL}api/summary" >/dev/null 2>&1 && break; sleep 0.1; done

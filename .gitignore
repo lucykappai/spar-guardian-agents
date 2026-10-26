@@ -1,6 +1,6 @@
 .venv/
 .venv-cb/
-integration/build/
+guardian/build/
 logs/
 runs/
 __pycache__/

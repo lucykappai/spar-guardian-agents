@@ -24,7 +24,7 @@ mkdir -p "$LOG_DIR"
 CTRL_ARG=()
 [ "$CONTROL" = "baseline" ] || CTRL_ARG=(-T "control=$CONTROL")
 echo "== eval $TASK_FN control=$CONTROL -> $LOG_DIR"
-"$ROOT/.venv/bin/inspect" eval "$ROOT/integration/task/openmath_agent.py@$TASK_FN" \
+"$ROOT/.venv/bin/inspect" eval "$ROOT/guardian/task/openmath_agent.py@$TASK_FN" \
   --model google/gemini-3.8-flash --log-dir "$LOG_DIR" --display plain "${CTRL_ARG[@]}" "$@"
 EVAL_LOG="$(ls -t "$LOG_DIR"/*.eval | head -1)"
 [ -f "$EVAL_LOG" ] || { echo "no eval log written" >&2; exit 3; }

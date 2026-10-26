@@ -1,6 +1,6 @@
 """Seam C: an Inspect .eval log from an ORBIT run -> the run directory CheatBench's judge reads.
 
-    python -m integration.convert.eval_to_atif logs/<run>.eval runs/<name> [--task-root PATH]
+    python -m guardian.convert.eval_to_atif logs/<run>.eval runs/<name> [--task-root PATH]
 
 Writes
     runs/<name>/run.json
@@ -221,7 +221,7 @@ def agent_events(sample, agent: str, kind: str) -> list:
     return [e for e in sample.events if e.event == kind and owner(e.span_id) == agent]
 
 
-TRAILING_TURN_TAG = "orbit_trailing_turn_fix"   # integration/task/controls.py
+TRAILING_TURN_TAG = "orbit_trailing_turn_fix"   # guardian/task/controls.py
 
 
 def delivery_notices(model_events) -> list[tuple[str | None, str, str]]:

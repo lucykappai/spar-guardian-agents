@@ -1,8 +1,8 @@
 # Swarm visualization research
 
-Survey by an Opus research agent on 2026-10-11 (WebSearch and WebFetch), unedited. It informs the views in `integration/ui/static/app.js` and the figures in `integration/report/figures.py`.
+Survey by an Opus research agent on 2026-10-11 (WebSearch and WebFetch), unedited. It informs the views in `guardian/ui/static/app.js` and the figures in `guardian/report/figures.py`.
 
-I found no standard way to draw multi-agent LLM runs or their hidden roles. The six views below adapt what existing tools and papers do. Most of the data they need is already served by `GET /api/runs/<run>/timeline` and `GET /api/summary` in `/Users/unrulyabstractions/work/spar-guardian-agents/integration/ui/API.md`. `/Users/unrulyabstractions/work/spar-guardian-agents/integration/ui/static/app.js` draws no SVG or canvas charts yet.
+I found no standard way to draw multi-agent LLM runs or their hidden roles. The six views below adapt what existing tools and papers do. Most of the data they need is already served by `GET /api/runs/<run>/timeline` and `GET /api/summary` in `/Users/unrulyabstractions/work/spar-guardian-agents/guardian/ui/API.md`. `/Users/unrulyabstractions/work/spar-guardian-agents/guardian/ui/static/app.js` draws no SVG or canvas charts yet.
 
 ## What the field does
 

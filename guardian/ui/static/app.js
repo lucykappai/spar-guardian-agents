@@ -1,7 +1,7 @@
 /* Results browser for ORBIT x CheatBench runs.
  *
  * Vanilla ES2020, no framework, no build step, no network access beyond the local API (or, in a
- * static bundle written by integration/ui/export.py, the JSON files beside the page).
+ * static bundle written by guardian/ui/export.py, the JSON files beside the page).
  * Every piece of run data (transcripts, tool output, board posts, reasons, errors) is
  * inserted with textContent or text nodes. Nothing from the API ever reaches innerHTML.
  *
@@ -140,7 +140,7 @@ class ApiError extends Error {
   }
 }
 
-// Static mode. integration/ui/export.py writes every API response to files under data/ and the
+// Static mode. guardian/ui/export.py writes every API response to files under data/ and the
 // figures under figures/, and sets window.RESULTS_STATIC before this script, so the same UI runs
 // with no server (a shared artifact, a static host). The per-call context windows stay out of the
 // bundle (hundreds of calls per run, about 200 KB each); the context page says so.
@@ -839,7 +839,7 @@ function runsQuery() {
 }
 
 // Hidden roles: Okabe-Ito colour plus shape (circle worker, square regulator, triangle disregulator),
-// the encoding of integration/report/figures.py. Red and green stay reserved for outcomes.
+// the encoding of guardian/report/figures.py. Red and green stay reserved for outcomes.
 function roleBadge(role) {
   return h('span', { class: 'badge b-plain', title: 'hidden role in this swarm run' },
     ROLE_ORDER.includes(role) ? roleIcon(role, 10) : null, role);

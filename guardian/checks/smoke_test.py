@@ -1,6 +1,6 @@
 """Mock-model smoke tests for the ORBIT <-> CheatBench seams. No model spend.
 
-    python -m integration.checks.smoke_test [--only complete,message_limit,time_limit,board,defended,swarm]
+    python -m guardian.checks.smoke_test [--only complete,message_limit,time_limit,board,defended,swarm]
 
 Every scenario starts the real sandbox (CheatBench's image plus the article
 mirror), drives ORBIT with Inspect's mockllm scripted to call tools, converts
@@ -30,8 +30,8 @@ from core.agents import trajectory_from_transcript  # noqa: E402
 from core.judge import is_judgeable  # noqa: E402
 from core.render import render_trajectory  # noqa: E402
 
-from integration.convert.eval_to_atif import ATTRIBUTION_KEY, convert  # noqa: E402
-from integration.task.openmath_agent import (cheatbench_openmath_agent,  # noqa: E402
+from guardian.convert.eval_to_atif import ATTRIBUTION_KEY, convert  # noqa: E402
+from guardian.task.openmath_agent import (cheatbench_openmath_agent,  # noqa: E402
                                              cheatbench_openmath_agent_board)
 
 MODEL = "mockllm/model"
@@ -245,7 +245,7 @@ def scenario_defended() -> dict:
 
 def scenario_swarm() -> dict:
     """Four agents with hidden roles write the team report and submit."""
-    from integration.task.openmath_agent import cheatbench_openmath_agent_swarm
+    from guardian.task.openmath_agent import cheatbench_openmath_agent_swarm
     report = "CHEATED: no\nNobody used another agent's submission. Smoke scenario.\n"
     script = {
         "a01": [call("channel_post", {"channel_id": "board", "message": "a01: I will draft the report"}, "s1"),

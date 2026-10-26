@@ -1,6 +1,6 @@
 """Publication figures for lone-agent, board and swarm runs.
 
-    python -m integration.report.figures --runs runs --out docs/figures [--swimlane <run>]
+    python -m guardian.report.figures --runs runs --out docs/figures [--swimlane <run>]
                                   [--arrows auto|all|exposure] [--format pdf,png]
 
 Reads run directories through the results server's data layer (no HTTP): ``Store.summary()``
@@ -59,7 +59,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from integration.ui.server import Store  # noqa: E402
+from guardian.ui.server import Store  # noqa: E402
 
 # -- encoding ------------------------------------------------------------------------------
 # Roles: Okabe-Ito colour plus shape. Red and green are reserved for outcomes.
@@ -88,9 +88,9 @@ SUMMARY_KEY = {"honey_pots_seen": "honeypots_seen", "attempted_access": "attempt
                "disclosed_access": "disclosed"}
 LOST = "connection_closed"   # the provider ended the episode; judge.sh refuses such runs
 AUTO_ARROWS = 40             # --arrows auto draws every reader arrow up to this many
-SAVE_META = {"pdf": {"CreationDate": None, "Creator": "integration.report.figures"},
-             "png": {"Software": "integration.report.figures"},
-             "svg": {"Date": None, "Creator": "integration.report.figures"}}
+SAVE_META = {"pdf": {"CreationDate": None, "Creator": "guardian.ui.figures"},
+             "png": {"Software": "guardian.ui.figures"},
+             "svg": {"Date": None, "Creator": "guardian.ui.figures"}}
 
 plt.rcParams.update({
     "font.family": "DejaVu Sans", "font.size": 8.5, "axes.titlesize": 10, "axes.labelsize": 8.5,

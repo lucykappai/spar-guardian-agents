@@ -1,6 +1,6 @@
 """Export the results browser as a static bundle: the page with the UI inlined and every API response as a file.
 
-    python -m integration.ui.export [--runs runs] [--out integration/build/share] [--allow-errors]
+    python -m guardian.ui.export [--runs runs] [--out guardian/build/share] [--allow-errors]
 
 The bundle needs no server. It is written into a fresh directory that replaces --out once every endpoint answered, so
 nothing from an earlier export survives; a refused export (below) stays under <out>.tmp and --out is unchanged. Layout:
@@ -43,7 +43,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from integration.ui.server import FIGURES, STATIC, Store, figures_list  # noqa: E402
+from guardian.ui.server import FIGURES, STATIC, Store, figures_list  # noqa: E402
 
 TITLE = "ORBIT x CheatBench results"
 OMITTED = "/api/runs/<run>/context/<i>: the exact provider input of one model call is read from the eval log and is not exported"
@@ -196,7 +196,7 @@ def export(runs_dir: Path, out: Path, allow_errors: bool = False) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--runs", default=str(ROOT / "runs"))
-    ap.add_argument("--out", default=str(ROOT / "integration" / "build" / "share"))
+    ap.add_argument("--out", default=str(ROOT / "guardian" / "build" / "share"))
     ap.add_argument("--allow-errors", action="store_true", help="exit 0 even when an endpoint was stored as an error record")
     args = ap.parse_args()
     out = Path(args.out)

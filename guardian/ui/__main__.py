@@ -1,6 +1,6 @@
 """Start the results browser.
 
-    python -m integration.ui [--runs runs] [--host 127.0.0.1] [--port 8765] [--open]
+    python -m guardian.ui [--runs runs] [--host 127.0.0.1] [--port 8765] [--open]
 
 Reads every run directory under --runs (run.json, episodes.jsonl, judge.jsonl,
 trajectories, communication, defense) and, on demand, the Inspect eval log each

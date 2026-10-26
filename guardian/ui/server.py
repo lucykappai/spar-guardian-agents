@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from integration.convert.eval_to_atif import split_content, tool_result_text  # noqa: E402
+from guardian.convert.eval_to_atif import split_content, tool_result_text  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 FIGURES = ROOT / "docs" / "figures"

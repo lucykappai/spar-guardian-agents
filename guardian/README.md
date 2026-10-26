@@ -1,6 +1,6 @@
 # integration
 
-Code that runs CheatBench rows inside ORBIT and reads the results back. Run every module from the repository root with `.venv/bin/python -m integration.<package>.<module>`.
+Code that runs CheatBench rows inside ORBIT and reads the results back. Run every module from the repository root with `.venv/bin/python -m guardian.<package>.<module>`.
 
 ## task/ (what runs inside Inspect)
 
@@ -42,13 +42,13 @@ Code that runs CheatBench rows inside ORBIT and reads the results back. Run ever
 | file | holds |
 |---|---|
 | `server.py` | stdlib HTTP server over `runs/` and the eval logs; `Store` is also the data layer `report/` uses |
-| `__main__.py` | `python -m integration.ui [--runs runs] [--port 8765] [--open]` |
-| `export.py` | `python -m integration.ui.export`: the browser as a static bundle in a fresh directory (`index.html` complete, `artifact.html` for a publisher that adds the document skeleton, `data/`, `figures/`, `manifest.json`); exits 1 when an endpoint had to be stored as an error record; `make share` runs it and the check |
+| `__main__.py` | `python -m guardian.ui [--runs runs] [--port 8765] [--open]` |
+| `export.py` | `python -m guardian.ui.export`: the browser as a static bundle in a fresh directory (`index.html` complete, `artifact.html` for a publisher that adds the document skeleton, `data/`, `figures/`, `manifest.json`); exits 1 when an endpoint had to be stored as an error record; `make share` runs it and the check |
 | `API.md` | the JSON contract |
 | `static/` | the single-page UI: `index.html`, `app.js`, `style.css` |
 
 ## docker/judge/
 
-The image that runs CheatBench's `judge.py` (it imports Linux-only sandbox code). Build with `docker build -t cheatbench-judge integration/docker/judge`.
+The image that runs CheatBench's `judge.py` (it imports Linux-only sandbox code). Build with `docker build -t cheatbench-judge guardian/docker/judge`.
 
 `build/` (gitignored) holds the staged task built by CheatBench's `tasks/openmath_agent/build.py`, and `share/`, the static bundle `make share` writes.
