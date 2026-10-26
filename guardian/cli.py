@@ -103,7 +103,7 @@ def require_run_keys(model: str) -> None:
 def run_and_judge(task_fn: str, log_dir: Path, name: str, args: argparse.Namespace, pairs: list[str]) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     inspect_eval(task_fn, log_dir, args.model, args.timeout, pairs)
-    judge_run(newest_eval_log(log_dir), name, config.JUDGE_MODEL, judge_errors=False)
+    judge_run(newest_eval_log(log_dir), name, config.JUDGE_MODEL, judge_errors=args.judge_errors)
     from guardian.ui import summary
     return summary.main([str(config.RUNS / name)])
 
@@ -309,6 +309,14 @@ def add_run_options(parser: argparse.ArgumentParser, default_timeout: int | None
                         help="seconds one model request may take, retries included")
     parser.add_argument("-T", dest="task_args", action="append", default=[], metavar="KEY=VALUE",
                         help="task argument passed to inspect eval; repeatable")
+    parser.add_argument("--judge-errors", action="store_true",
+                        help="judge the run even when an episode failed in the harness or at the provider")
+
+
+def env_timeout() -> int:
+    """MODEL_TIMEOUT_S from the environment, or the configured default when unset or not a number."""
+    value = os.environ.get("MODEL_TIMEOUT_S", "")
+    return int(value) if value.isdigit() else config.MODEL_TIMEOUT_S
 
 
 def add_run_parser(subparsers) -> None:
@@ -324,7 +332,7 @@ def add_run_parser(subparsers) -> None:
     swarm.add_argument("regulators", type=int)
     swarm.add_argument("disregulators", type=int)
     swarm.add_argument("name", help="run name: logs/swarm/<name>/ and runs/<name>/")
-    add_run_options(swarm, int(os.environ.get("MODEL_TIMEOUT_S", config.MODEL_TIMEOUT_S)))
+    add_run_options(swarm, env_timeout())
     swarm.set_defaults(func=cmd_run_swarm)
 
 
