@@ -42,7 +42,7 @@ RunSummary = {
   deliverables: null | {archive_in_workspace, registered_on_main, registered_message_copied_from},
   endings: {label: count}   # failure label, else "submit", else the converter's ended_by
   has_communication, has_defense,
-  config: null | {...},            # run.json "config": the SwarmContagionConfig the task was built from (every field)
+  config: null | {...},            # run.json "config": the SwarmConfig the task was built from (every field)
   rules: null | {<agent>: {...}},  # each episode's "rules": what the turn rules recorded for that agent
   swe: null | SweSetting,          # CheatBench SWE runs; null otherwise
   episodes: [Episode]
@@ -86,7 +86,7 @@ Transcript = {agent, model, prompt, orbit: {agent, roster, topology, system_prom
 ATIF.steps[i] = {step_id, source: "system"|"user"|"agent", message, reasoning_content?, model_name?,
                  tool_calls?: [{tool_call_id, function_name, arguments}],
                  observation?: {results: [{source_call_id, content, extra?: {is_error?, error?, withheld_from_model_by_defense?}}]},
-                 extra?: {orbit_delivery_notice?, swarm_contagion_turn_rules? ("planning"|"header"|"continue"),
+                 extra?: {orbit_delivery_notice?, swarm_turn_rules? ("planning"|"header"|"continue"),
                           orbit_trailing_turn_fix? (older runs), submit_recovered_from_events?, orphan_tool_result?, ...}}
 ```
 A blocked tool call has a result whose `extra.error` starts with `Blocked by defense '<name>'`. An agent step whose message is

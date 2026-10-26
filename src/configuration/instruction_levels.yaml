@@ -1,6 +1,6 @@
 # Levels of instruction: the "strength of instruction" variable of the project proposal (Oct 14, 2026; section
 # "Instruction / Boundary Specification" and "Baselines / Controls"). Three ladders, each from no instruction to the
-# strongest. Every string is model-facing text. SwarmContagionConfig selects one level per ladder (rule_level,
+# strongest. Every string is model-facing text. SwarmConfig selects one level per ladder (rule_level,
 # regulator_level, disregulator_level); src/roles.py renders the texts.
 #
 # Placeholders in braces are filled per benchmark from `vars` below. A level may give one text (`text`) or one per

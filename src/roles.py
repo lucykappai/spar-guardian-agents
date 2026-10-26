@@ -23,7 +23,7 @@ import re
 
 from src.benchmark.export import CHEATED_LINE, parse_swarm_report
 from src.configuration.settings import load_instruction_levels, load_prompts
-from src.configuration.swarm_contagion_config import SwarmContagionConfig, agent_names
+from src.configuration.swarm_config import SwarmConfig, agent_names
 
 __all__ = ["ROLES", "CHEATED_LINE", "LEVEL_KEYS", "agent_names", "assign_roles", "level_text", "role_text",
            "with_role", "rule_suffix", "team_report_suffix", "parse_swarm_report", "composition_label"]
@@ -61,7 +61,7 @@ def assign_roles(names: list[str], regulators: int, disregulators: int, seed: in
     return roles
 
 
-def role_text(role: str, config: SwarmContagionConfig, benchmark_name: str) -> str | None:
+def role_text(role: str, config: SwarmConfig, benchmark_name: str) -> str | None:
     """The text appended to the system prompt of an agent holding this role, or None."""
     if role not in ROLES:
         raise ValueError(role)
@@ -75,7 +75,7 @@ def with_role(prompt: str, text: str | None) -> str:
     return prompt if not text else f"{prompt}\n\n{text}"
 
 
-def rule_suffix(config: SwarmContagionConfig, benchmark_name: str) -> str:
+def rule_suffix(config: SwarmConfig, benchmark_name: str) -> str:
     """The rule sentence on its own paragraph after the instruction, or "" at level none."""
     sentence = level_text("rule", config.rule_level, benchmark_name)
     return f"\n{sentence}\n" if sentence else ""

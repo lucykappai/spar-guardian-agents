@@ -1088,7 +1088,7 @@ async function viewRun({ run }, view) {
     epSection, boardSection, evidence);
 }
 
-// The run's SwarmContagionConfig as the task built it (run.json "config"), one field per row.
+// The run's SwarmConfig as the task built it (run.json "config"), one field per row.
 function configKv(config) {
   const value = v => (typeof v === 'boolean' ? yn(v, 'plain', 'plain') : typeof v === 'object' && v !== null ? mono(asText(v)) : mono(String(v)));
   return kv(Object.entries(config).map(([k, v]) => [k.replace(/_/g, ' '), v == null ? null : value(v)]), 'kv-grid');
@@ -1489,7 +1489,7 @@ function renderStep(s) {
   const flags = new Set();
   if (ex.orbit_delivery_notice) flags.add('notice');
   if (ex.orbit_trailing_turn_fix) flags.add('trailing');
-  if (ex.swarm_contagion_turn_rules) flags.add('rules');
+  if (ex.swarm_turn_rules) flags.add('rules');
   if (ex.withheld_from_model_by_defense) flags.add('withheld');
   if (ex.defense_refusal) flags.add('refusal');
   else if (ex.refusal_text_written_by_model || (src === 'agent' && msg.trim() === REFUSAL)) flags.add('refusal-text');
@@ -1510,14 +1510,14 @@ function renderStep(s) {
     h('span', { class: 'step-src' }, src),
     s.model_name ? muted(s.model_name, 'small') : null,
     [...flags].map(f => badge(...FLAG_BADGE[f])),
-    extraBadges(ex, ['orbit_delivery_notice', 'orbit_trailing_turn_fix', 'swarm_contagion_turn_rules', 'withheld_from_model_by_defense', 'withheld_text',
+    extraBadges(ex, ['orbit_delivery_notice', 'orbit_trailing_turn_fix', 'swarm_turn_rules', 'withheld_from_model_by_defense', 'withheld_text',
       'defense_refusal', 'blocked_output_message_id', 'refusal_text_written_by_model']),
     h('span', { class: 'spacer' }),
     s.llm_call_count != null ? muted(plural(s.llm_call_count, 'model call'), 'small') : null));
   if (providerOnly) {
     el.appendChild(h('div', { class: 'caption caption-notice' },
       flags.has('rules')
-        ? `Provider-only: ${ex.swarm_contagion_turn_rules} prompt placed by the turn rules, not part of the agent conversation.`
+        ? `Provider-only: ${ex.swarm_turn_rules} prompt placed by the turn rules, not part of the agent conversation.`
         : flags.has('trailing')
         ? 'Provider-only: continue prompt appended by the integration (trailing-turn fix), not part of the agent conversation.'
         : 'Provider-only: ORBIT delivery notice placed in the model input, not part of the agent conversation.'));

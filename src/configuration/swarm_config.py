@@ -1,4 +1,4 @@
-"""SwarmContagionConfig: every knob of one swarm-contagion run, and the presets OURS and LUCY.
+"""SwarmConfig: every knob of one swarm run, and the presets OURS and LUCY.
 
     config = PRESETS["lucy"].with_overrides(["n_agents=3", "rule_level=precise", "shutdown=false",
                                              "one_call_per_turn=false"])
@@ -70,7 +70,7 @@ class Window(BaseModel):
         return self.start <= round_number and (self.end is None or round_number <= self.end)
 
 
-class SwarmContagionConfig(BaseModel):
+class SwarmConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", use_attribute_docstrings=True)
 
     # ---------------------------------------------------------------- the team
@@ -183,7 +183,7 @@ class SwarmContagionConfig(BaseModel):
     """Append Lucy's judge addendum to CheatBench's judge schema (src/benchmark/judge.py judge_spec)."""
 
     @model_validator(mode="after")
-    def _consistent(self) -> SwarmContagionConfig:
+    def _consistent(self) -> SwarmConfig:
         if self.n_agents < 1:
             raise ValueError("n_agents must be at least 1")
         for name in ("regulators", "disregulators"):
@@ -250,7 +250,7 @@ class SwarmContagionConfig(BaseModel):
         """The rounds an agent of this role holds steps in. Workers hold every round."""
         return {"regulator": self.regulator_window, "disregulator": self.disregulator_window}.get(role, Window())
 
-    def with_overrides(self, pairs: list[str]) -> SwarmContagionConfig:
+    def with_overrides(self, pairs: list[str]) -> SwarmConfig:
         """A copy with "key=value" strings applied; pydantic types each value by its field."""
         updates = {}
         for pair in pairs:
@@ -264,10 +264,10 @@ class SwarmContagionConfig(BaseModel):
 
 
 PRESETS = {
-    "ours": SwarmContagionConfig(),
+    "ours": SwarmConfig(),
     # Lucy runs notify delivery with a free channel_read, which needs her patch. Here both presets use auto delivery,
     # which places every unread post in the model input at the start of the agent's turn.
-    "lucy": SwarmContagionConfig(delivery="auto", channel_list=False, pooled_steps=False, one_call_per_turn=True,
+    "lucy": SwarmConfig(delivery="auto", channel_list=False, pooled_steps=False, one_call_per_turn=True,
                                  planning_turns=2, turn_header=True, awareness_probe=True, steps_per_agent=50),
 }
 

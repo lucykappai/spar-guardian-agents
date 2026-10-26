@@ -1,9 +1,8 @@
-"""What each command does: run a task in process, re-judge an eval log, print the summary, start or stop the browser.
+"""What each command does: run a task in process, re-judge an eval log, print the summary.
 
     run("swarm_R3D3_s1", OpenMath(), config, model="google/gemini-3.8-flash", timeout=2700)
     judge(Path("logs/swarm/swarm_R3D3/<log>.eval"), "swarm_R3D3", "gpt-6-sol", judge_errors=False)
     summary([Path("runs/swarm_R3D3")], full=True)
-    ui_start(8765, open_browser=True); ui_stop(8765)
 
 A run calls inspect_ai.eval with the task from tasks.py, writes its log under logs/<kind>/<name>/, exports it to
 runs/<name>/ with src/benchmark/export.py and prints one line per episode. CheatBench's judge runs inside the eval as a
@@ -16,20 +15,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import signal
-import subprocess
-import sys
-import time
-import urllib.request
-import webbrowser
 from pathlib import Path
 
 from src.configuration import settings
-from src.configuration.swarm_contagion_config import SwarmContagionConfig
-
-UI_MODULE = "src.ui"
-UI_WAIT_TRIES = 100
-UI_WAIT_STEP_S = 0.1
+from src.configuration.swarm_config import SwarmConfig
 
 
 class Refusal(Exception):
@@ -69,7 +58,7 @@ def require_judge_key(judge: str, code: int) -> None:
 # --------------------------------------------------------------------------
 # run
 # --------------------------------------------------------------------------
-def log_kind(benchmark, config: SwarmContagionConfig) -> str:
+def log_kind(benchmark, config: SwarmConfig) -> str:
     """logs/<kind>/: swe for SWE, swarm for a run with hidden roles, ctrl for a lone agent or a plain board."""
     from src.benchmark.domains.swe import SWE
     from src.tasks import hidden_roles
@@ -97,11 +86,11 @@ def export(eval_log: Path, run_name: str, verdicts: dict | None = None) -> Path:
     return run_dir
 
 
-def run(name: str, benchmark, config: SwarmContagionConfig, model: str, timeout: int | None) -> int:
+def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | None) -> int:
     """Run one task, export it to runs/<name>/ and print the summary. Returns 0, or 3 when the eval did not succeed."""
     import inspect_ai
 
-    from src.tasks import swarm_contagion_task
+    from src.tasks import swarm_task
     require_provider_key(model)
     require_judge_key(config.judge, 1)
     from src.benchmark.judge import judge_model_config
@@ -109,7 +98,7 @@ def run(name: str, benchmark, config: SwarmContagionConfig, model: str, timeout:
     log_dir = settings.LOGS / log_kind(benchmark, config) / name
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"== eval {benchmark.name} n_agents={config.n_agents} control={config.control} -> {log_dir}", flush=True)
-    task = swarm_contagion_task(benchmark, config, name=name)
+    task = swarm_task(benchmark, config, name=name)
     [log] = inspect_ai.eval(task, model=model, log_dir=str(log_dir), display="plain", timeout=timeout,
                             model_roles={"judge": judge_model})
     if not log.samples and not Path(log.location).exists():
@@ -191,88 +180,5 @@ def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool 
 # summary
 # --------------------------------------------------------------------------
 def summary(run_dirs: list[Path], full: bool) -> int:
-    from src.ui import summary as summary_module
+    from src.measures import summary as summary_module
     return summary_module.main([str(path) for path in run_dirs] + (["--full"] if full else []))
-
-
-# --------------------------------------------------------------------------
-# the results browser
-# --------------------------------------------------------------------------
-def ui_python() -> str:
-    venv_python = settings.ROOT / ".venv" / "bin" / "python"
-    return str(venv_python) if os.access(venv_python, os.X_OK) else sys.executable
-
-
-def listener_pid(port: int) -> int | None:
-    result = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"], capture_output=True, text=True)
-    lines = result.stdout.split()
-    return int(lines[0]) if lines else None
-
-
-def is_browser(pid: int | None) -> bool:
-    if pid is None:
-        return False
-    result = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True)
-    return UI_MODULE in result.stdout
-
-
-def read_pid_file(pid_file: Path) -> int | None:
-    try:
-        return int(pid_file.read_text().strip())
-    except (OSError, ValueError):
-        return None
-
-
-def server_answers(url: str) -> bool:
-    try:
-        with urllib.request.urlopen(url + "api/summary", timeout=5):
-            return True
-    except OSError:
-        return False
-
-
-def _ui_files(port: int) -> tuple[Path, Path]:
-    settings.LOGS.mkdir(parents=True, exist_ok=True)
-    return settings.LOGS / f"ui-{port}.pid", settings.LOGS / f"ui-{port}.log"
-
-
-def ui_start(port: int, *, open_browser: bool = True) -> int:
-    """Start the browser in the background unless something already listens on the port; print its URL."""
-    pid_file, log_file = _ui_files(port)
-    url = f"http://127.0.0.1:{port}/"
-    if listener_pid(port) is None:
-        with open(log_file, "ab") as log:
-            process = subprocess.Popen([ui_python(), "-m", UI_MODULE, "--port", str(port)], cwd=settings.ROOT,
-                                       stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                                       start_new_session=True)
-        pid_file.write_text(f"{process.pid}\n")
-        print(f"started results browser on port {port} (pid {process.pid}, log logs/{log_file.name})")
-        for _ in range(UI_WAIT_TRIES):
-            if server_answers(url):
-                break
-            time.sleep(UI_WAIT_STEP_S)
-        if not server_answers(url):
-            raise Refusal(f"server did not answer on {url}; see logs/{log_file.name}", 1)
-    else:
-        print(f"results browser already listening on {url}")
-    print(url)
-    if open_browser:
-        webbrowser.open(url)
-    return 0
-
-
-def ui_stop(port: int) -> int:
-    """Stop the browser on the port, found by its pid file or its listener; never kill another program."""
-    pid_file, _ = _ui_files(port)
-    pid = read_pid_file(pid_file)
-    if not is_browser(pid):
-        pid = listener_pid(port)
-    if is_browser(pid):
-        os.kill(pid, signal.SIGTERM)
-        print(f"stopped results browser on port {port} (pid {pid})")
-    elif pid is not None:
-        raise Refusal(f"pid {pid} listens on port {port} but is not the results browser; not killed", 1)
-    else:
-        print(f"nothing listens on port {port}")
-    pid_file.unlink(missing_ok=True)
-    return 0

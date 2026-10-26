@@ -1,6 +1,6 @@
 # src
 
-The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `SwarmContagionConfig` into an Inspect task, runs it, exports it and serves the results. Lucy's turn rules run on ORBIT's public API, with no patch to ORBIT. Run everything from the repository root with `.venv/bin/python -m src <command>`.
+The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `SwarmConfig` into an Inspect task, runs it, exports it and serves the results. Lucy's turn rules run on ORBIT's public API, with no patch to ORBIT. Run everything from the repository root with `.venv/bin/python -m src <command>`.
 
 ## Layout
 
@@ -8,16 +8,16 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 |---|---|
 | `__main__.py` | `python -m src`: calls `cli.main` |
 | `cli.py` | argument parsing for `run`, `judge`, `ui` and `summary`; every command calls `run.py` |
-| `run.py` | what each command does: `inspect_ai.eval` in process, export, re-judging, the summary, the browser's start and stop |
-| `tasks.py` | `swarm_contagion_task(benchmark, config)` and the `@task` entry points `openmath` and `swe` |
+| `run.py` | what each command does: `inspect_ai.eval` in process, export, re-judging, the summary |
+| `tasks.py` | `swarm_task(benchmark, config)` and the `@task` entry points `openmath` and `swe` |
 | `comm_topology.py` | the board as ORBIT configuration: one shared channel, no invocation edges, a written plan |
 | `roles.py` | hidden roles and the instruction levels: who is regulator or disregulator, and the texts each one gets |
 | `rules.py` | Lucy's turn rules: the plan, the callback after each activation, and the model filter |
 | `controls.py` | `defenses_for(control, monitor_model)`: ORBIT's shipped defenses as named controls |
 | `probes.py` | Lucy's end-of-episode reflection and awareness questions, as an Inspect scorer |
-| `measures/` | Rigel's cheating ladder (`rungs.py`) and Lucy's SWE measures (`swe_summary.py`) over run directories |
+| `measures/` | over run directories: the command line's summary (`summary.py`), Rigel's cheating ladder (`rungs.py`) and Lucy's SWE measures (`swe_summary.py`) |
 | `utils/provider_retry.py` | Gemini's 402 "credits depleted" retried as a rate limit |
-| `ui/` | the results browser: `server.py`, `summary.py`, `API.md` and the single-page UI in `static/` |
+| `ui/` | the results browser: `server.py`, `launch.py` (start and stop in the background), `API.md` and the single-page UI in `static/` |
 
 ## Commands
 
@@ -35,7 +35,7 @@ The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the mo
 
 ## What each option does
 
-`src/configuration/swarm_contagion_config.py` holds the fields, each with a docstring. The table says how each one reaches ORBIT.
+`src/configuration/swarm_config.py` holds the fields, each with a docstring. The table says how each one reaches ORBIT.
 
 | option | default | ORBIT mechanism |
 |---|---|---|

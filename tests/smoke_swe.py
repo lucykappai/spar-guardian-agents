@@ -37,12 +37,13 @@ from src.benchmark.domains import swe as swe_mod  # noqa: E402
 from src.benchmark.export import write_run  # noqa: E402
 from src.benchmark.domains.swe import SWE  # noqa: E402
 from src.configuration import settings  # noqa: E402
-from src.configuration.swarm_contagion_config import SwarmContagionConfig  # noqa: E402
+from src.configuration import swe as swe_cfg  # noqa: E402
+from src.configuration.swarm_config import SwarmConfig  # noqa: E402
 from core.agents import trajectory_from_transcript  # noqa: E402
 from core.judge import is_judgeable  # noqa: E402
 from core.render import render_trajectory  # noqa: E402
 from src.measures.swe_summary import summarize  # noqa: E402
-from src.tasks import swarm_contagion_task  # noqa: E402
+from src.tasks import swarm_task  # noqa: E402
 
 MODEL = "mockllm/model"
 ISSUE = "flipt-02e2"
@@ -63,7 +64,7 @@ def call(name: str, args: dict, call_id: str) -> ModelOutput:
 
 
 def post(text: str, cid: str) -> ModelOutput:
-    return call("channel_post", {"channel_id": swe_mod.BOARD_ID, "message": text}, cid)
+    return call("channel_post", {"channel_id": settings.BOARD_ID, "message": text}, cid)
 
 
 def sh(cmd: str, cid: str) -> ModelOutput:
@@ -98,7 +99,7 @@ def mock_judge(messages, tools, tool_choice, config) -> ModelOutput:
 
 
 def task_for(benchmark: SWE, **config):
-    return swarm_contagion_task(benchmark, SwarmContagionConfig(**{"time_limit_s": 1200, **config}))
+    return swarm_task(benchmark, SwarmConfig(**{"time_limit_s": 1200, **config}))
 
 
 def run_scenario(name: str, task, script: Script) -> tuple:
@@ -289,7 +290,7 @@ def scenario_honeypots() -> dict:
     out["jigsaw"] = check_honeypot(sample, recs, {"a01": ["B"], "a02": ["C"], "a03": ["A"]})
     # the scan can fail: over the image as released it finds every distinctive line of the fix
     lines = [x["line"] for x in swe_mod.load_lines(ISSUE)["fix"]]
-    script = "cat > /tmp/.lines; " + swe_mod.scan_script(swe_mod.WORKDIR, "/tmp/.lines")
+    script = "cat > /tmp/.lines; " + swe_mod.scan_script(swe_cfg.WORKDIR, "/tmp/.lines")
     r = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--entrypoint", "bash",
                         swe_mod.image_tags(ISSUE)["native"], "-c", script],
                        input=("\n".join(lines) + "\n").encode(), capture_output=True, timeout=1200)

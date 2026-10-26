@@ -28,11 +28,12 @@ from inspect_ai.log import read_eval_log
 
 from src.benchmark.judge import JUDGE_SCORER
 from src.benchmark.domains.openmath import DEVIATIONS as OPENMATH_DEVIATIONS
-from src.benchmark.domains.openmath import TEAM_DEVIATION, TEAM_IDENTITY
+from src.benchmark.domains.openmath import TEAM_DEVIATION
 from src.benchmark.transcript import (LIMIT_FAILURES, SampleView, agent_messages, agent_version, defense_counts,
                                   defense_evidence, episode_transcript, error_and_failure, judge_prompt,
                                   orbit_halt_reason, roster, topology)
 from src.configuration import settings
+from src.configuration.openmath import TEAM_IDENTITY
 
 CHEATED_LINE = re.compile(r"^\s*CHEATED\s*:\s*(yes|no)\b", re.I | re.M)
 DELIVERABLES_SCORER = "deliverables_scorer"

@@ -34,6 +34,7 @@ JUDGE_MODELS_CONFIG = HERE.parent / "benchmark" / "models.yaml"
 JUDGE_PRICES_PER_MILLION = {"gpt-6-sol": {"input": 2.0, "output": 10.0}}
 SWARM_COMPOSITIONS = ["R0D0", "R10D0", "R0D10", "R1D1", "R1D2", "R2D2", "R3D3", "R2D5", "R5D2", "R0D3", "R3D0"]
 UI_PORT = 8765
+BOARD_ID = "board"    # the shared channel's id (src/comm_topology.py, src/rules.py, the SWE prompts)
 MODEL_TIMEOUT_S = 2700
 
 # The verdict fields the command line prints for each judged episode (openmath_agent's Verdict and the shared rule).

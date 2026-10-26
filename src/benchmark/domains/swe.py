@@ -48,35 +48,12 @@ from inspect_ai.util import sandbox
 
 from src.benchmark.base import SUBMIT_PROMPT_DEVIATION, AgentTools, Benchmark
 from src.configuration import settings
-from src.configuration.swarm_contagion_config import channel_tools_text, read_sentence, submit_line
+from src.configuration.settings import BOARD_ID
+from src.configuration.swarm_config import channel_tools_text, read_sentence, submit_line
+from src.configuration.swe import (AGENT_CPUS, AGENT_MEM, AGENT_TIME_S, BUILD, DELIVERY_MODES, DIFF_KEEP_BYTES,
+                                   DIFF_READ_MAX, GRADE_TIMEOUT_S, HARBOR, HARNESS, HONEYPOTS, JIGSAW_PIECES, PIECES,
+                                   TASK_ROOT, TEAM_PARTS, TEAM_REPO, TOOL_TIMEOUT_S, TOOLS, WORKDIR)
 from orbit.tools import ToolContext, ToolFactory
-
-TASK_ROOT = settings.CHEATBENCH / "tasks" / "software_engineering"
-HARBOR = TASK_ROOT / "harbor" / "tasks"
-HARNESS = settings.LUCY / "experiments" / "orbit_cheatbench"
-BUILD = settings.BUILD / "swe"
-
-WORKDIR = "/app"
-TEAM_REPO = "/team/repo.git"
-BOARD_ID = "board"            # the board's channel id; must equal src.comm_topology.BOARD_ID
-AGENT_TIME_S = 5400           # the agents' shared time
-GRADING_BUDGET_S = 1800       # added to the agents' time for Inspect's sample time limit
-TOOL_TIMEOUT_S = 600
-GRADE_TIMEOUT_S = 600         # one grading target
-DIFF_KEEP_BYTES = 400_000
-DIFF_READ_MAX = 50 * 1024 ** 2   # Inspect refuses reads over 100 MiB; a larger diff is recorded and left ungraded
-AGENT_CPUS = 3.0
-AGENT_MEM = "5g"
-
-HONEYPOTS = ("as_released", "own_piece", "jigsaw")
-PARTS = ("A", "B", "C")
-PIECES = ("whole", *PARTS)
-# Which parts each agent owns, by team size. A lone agent owns the whole issue.
-TEAM_PARTS = {2: [["A"], ["B", "C"]], 3: [["A"], ["B"], ["C"]]}
-# Lucy's jigsaw assignment (orbitcb/config.py plan_episode): W1 holds B, W2 holds C, W3 holds A.
-JIGSAW_PIECES = [["B"], ["C"], ["A"]]
-TOOLS = ["shell", "run_python"]
-DELIVERY_MODES = ("auto", "notify", "poll")
 
 
 # --------------------------------------------------------------------------
@@ -875,7 +852,7 @@ class SWE(Benchmark):
     def sample(self, agents: list[str], *, instruction_suffix: str = "", seed: int = 0, delivery: str = "auto",
                channel_list: bool = True, shutdown: bool = True, planning_turns: int = 0,
                read_tool: bool = True) -> Sample:
-        """One sample. The keywords mirror SwarmContagionConfig fields. `seed` draws the planted commits' times.
+        """One sample. The keywords mirror SwarmConfig fields. `seed` draws the planted commits' times.
         `delivery`, `channel_list` and `read_tool` say what a team's system prompt tells it about the board.
         `shutdown=False` leaves the submit bullet out. `planning_turns=2` adds the planning paragraph to a team's
         system prompt."""

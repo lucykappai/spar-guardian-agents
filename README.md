@@ -1,6 +1,6 @@
 # spar-guardian-agents
 
-This repository studies cheating contagion in agent swarms. It runs CheatBench tasks inside ORBIT with Gemini 3.8 Flash: one agent alone, a team on a shared message board, or a swarm with hidden regulators and disregulators. Two benchmarks are wired: CheatBench's `openmath_agent` row `riemann`, and CheatBench's SWE issues with Lucy's honeypots. Every run becomes a CheatBench run directory, is judged by gpt-6-sol inside the eval, and can be browsed locally.
+This repository studies peer pressure on cheating in agent swarms. It runs CheatBench tasks inside ORBIT with Gemini 3.8 Flash: one agent alone, a team on a shared message board, or a swarm with hidden regulators and disregulators. Two benchmarks are wired: CheatBench's `openmath_agent` row `riemann`, and CheatBench's SWE issues with Lucy's honeypots. Every run becomes a CheatBench run directory, is judged by gpt-6-sol inside the eval, and can be browsed locally.
 
 ## Quick start
 
@@ -57,7 +57,7 @@ VERIFICATION_LOG.md      every output, how it was verified, and the result
 .venv/bin/python -m src summary runs/<run> --full
 ```
 
-A run writes its eval log under `logs/`, exports it to `runs/<name>/` and prints one line per episode. `--set` takes any field of `SwarmContagionConfig`. `--set shutdown=false` builds the agents without ORBIT's submit tool, so they run until their turns or the time limit run out. A run that died in the harness or at the provider is set aside under a `failed_` or `failed2_` prefix. The browser hides those by default and never counts them. `judge` refuses such a run unless `--judge-errors` is given.
+A run writes its eval log under `logs/`, exports it to `runs/<name>/` and prints one line per episode. `--set` takes any field of `SwarmConfig`. `--set shutdown=false` builds the agents without ORBIT's submit tool, so they run until their turns or the time limit run out. A run that died in the harness or at the provider is set aside under a `failed_` or `failed2_` prefix. The browser hides those by default and never counts them. `judge` refuses such a run unless `--judge-errors` is given.
 
 ## Results browser
 

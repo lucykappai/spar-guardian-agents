@@ -42,7 +42,7 @@ WITHHELD = "[Content withheld by a configured defense.]"
 FLAG_KEYS = {
     "orbit_communication_delivery": "delivery_notice",
     "orbit_trailing_turn_fix": "trailing_turn_fix",
-    "swarm_contagion_turn_rules": "turn_rules",
+    "swarm_turn_rules": "turn_rules",
     "orbit_defense_redacted": "redacted",
 }
 

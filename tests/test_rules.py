@@ -1,7 +1,7 @@
 """Offline tests of src/rules.py on Inspect's mock provider: no Docker, no credentials, no paid calls.
 
 Each test builds a small ORBIT task (agents a01..a0n on one board, each with a private `work` tool, as ORBIT's
-examples/turn_rules_lucy.py does), runs it under a SwarmContagionConfig with the turn-rules defense, and reads what
+examples/turn_rules_lucy.py does), runs it under a SwarmConfig with the turn-rules defense, and reads what
 the provider received (the mock sees the input after every model filter) and what the store recorded.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pydantic import Field  # noqa: E402
 
 from src.benchmark.transcript import SampleView, episode_transcript  # noqa: E402
 from src.configuration.settings import load_prompts  # noqa: E402
-from src.configuration.swarm_contagion_config import PRESETS, SwarmContagionConfig, Window  # noqa: E402
+from src.configuration.swarm_config import PRESETS, SwarmConfig, Window  # noqa: E402
 from src import rules  # noqa: E402
 from src.comm_topology import BOARD_ID, board_communication, board_execution, board_scheduler  # noqa: E402
 from src.probes import end_of_episode_probes  # noqa: E402
@@ -124,7 +124,7 @@ def scripted_model(scripts: dict[str, list[ModelOutput]], recorder: list[dict]):
 
 # ------------------------------------------------------------------------------------------------ the task
 
-def build_task(config: SwarmContagionConfig, *, scorer_=None, roles: dict[str, str] | None = None) -> Task:
+def build_task(config: SwarmConfig, *, scorer_=None, roles: dict[str, str] | None = None) -> Task:
     names = config.names
     agents = [AgentSpec(name=n, role="engineer", tools=["work"], max_messages=10_000, submit=config.shutdown,
                         system_prompt=f"You are {n}, an engineer. Call work to make progress.") for n in names]
@@ -150,7 +150,7 @@ def build_task(config: SwarmContagionConfig, *, scorer_=None, roles: dict[str, s
     return task
 
 
-def run(config: SwarmContagionConfig, scripts: dict, tmp_path, *, scorer_=None, roles=None, with_log=False):
+def run(config: SwarmConfig, scripts: dict, tmp_path, *, scorer_=None, roles=None, with_log=False):
     recorder: list[dict] = []
     [log] = inspect_eval(build_task(config, scorer_=scorer_, roles=roles), model=scripted_model(scripts, recorder),
                          log_dir=str(tmp_path), display="none", log_realtime=False, max_retries=0)
@@ -263,7 +263,7 @@ def test_lucy_rules_for_a_lone_agent(tmp_path):
 
 # ------------------------------------------------------------------------------------------------ our rules
 
-OURS3 = SwarmContagionConfig(n_agents=3, steps_per_agent=2)
+OURS3 = SwarmConfig(n_agents=3, steps_per_agent=2)
 
 
 def test_pooled_steps_go_to_the_team(tmp_path):
@@ -281,7 +281,7 @@ def test_pooled_steps_go_to_the_team(tmp_path):
 
 
 def test_out_of_context_ends_an_agent(tmp_path):
-    config = SwarmContagionConfig(n_agents=2, steps_per_agent=3)
+    config = SwarmConfig(n_agents=2, steps_per_agent=3)
     scripts = {"a01": [do("A")], "a02": [out_of_context()]}
     sample, _ = run(config, scripts, tmp_path)
     assert store(sample, "ended") == {"a02": "context"}
@@ -289,7 +289,7 @@ def test_out_of_context_ends_an_agent(tmp_path):
 
 
 def test_continue_prompt_after_a_model_turn(tmp_path):
-    config = SwarmContagionConfig(steps_per_agent=3)
+    config = SwarmConfig(steps_per_agent=3)
     sample, rec = run(config, {"a01": [text("first"), text("second"), submit()]}, tmp_path)
     assert rec[0]["tag"] is None and rec[0]["last"] == "Fix the issue together."
     for r in rec[1:]:
@@ -298,7 +298,7 @@ def test_continue_prompt_after_a_model_turn(tmp_path):
 
 
 def test_shutdown_off_removes_submit(tmp_path):
-    config = SwarmContagionConfig(n_agents=2, steps_per_agent=2, shutdown=False)
+    config = SwarmConfig(n_agents=2, steps_per_agent=2, shutdown=False)
     sample, rec = run(config, {"a01": [submit(), do("A")], "a02": [do("B")]}, tmp_path)
     for r in rec:
         assert "submit" not in r["tools"]
@@ -309,7 +309,7 @@ def test_shutdown_off_removes_submit(tmp_path):
 
 def test_random_order_is_seeded(tmp_path):
     names = ["a01", "a02", "a03", "a04"]
-    config = SwarmContagionConfig(n_agents=4, steps_per_agent=6, turn_order="random", seed=7)
+    config = SwarmConfig(n_agents=4, steps_per_agent=6, turn_order="random", seed=7)
 
     def ids(c):
         return [s.id for s in rules.schedule(c, names).steps]
@@ -327,7 +327,7 @@ def test_random_order_is_seeded(tmp_path):
 
 
 def test_end_of_episode_probes(tmp_path):
-    config = SwarmContagionConfig(n_agents=2, steps_per_agent=1)
+    config = SwarmConfig(n_agents=2, steps_per_agent=1)
     sample, _ = run(config, {"a01": [do("A")], "a02": [do("B")]}, tmp_path, scorer_=end_of_episode_probes())
     score = sample.scores["end_of_episode_probes"]
     assert score.value == 2
@@ -340,7 +340,7 @@ def test_end_of_episode_probes(tmp_path):
 # ------------------------------------------------------------------------------------------------ windows and reads
 
 def test_a_late_regulator_enters_at_its_start_round(tmp_path):
-    config = SwarmContagionConfig(n_agents=3, regulators=1, steps_per_agent=4, pooled_steps=False,
+    config = SwarmConfig(n_agents=3, regulators=1, steps_per_agent=4, pooled_steps=False,
                                   regulator_window=Window(start=3))
     roles = {"a01": "worker", "a02": "regulator", "a03": "worker"}
     steps = [s.id for s in rules.schedule(config, config.names, roles).steps]
@@ -358,7 +358,7 @@ def test_a_late_regulator_enters_at_its_start_round(tmp_path):
 
 
 def test_an_early_leaver_has_no_step_after_its_end_round(tmp_path):
-    config = SwarmContagionConfig(n_agents=3, disregulators=1, steps_per_agent=4, pooled_steps=False,
+    config = SwarmConfig(n_agents=3, disregulators=1, steps_per_agent=4, pooled_steps=False,
                                   planning_turns=2, disregulator_window=Window(start=1, end=2))
     roles = {"a01": "disregulator", "a02": "worker", "a03": "worker"}
     steps = [s.id for s in rules.schedule(config, config.names, roles).steps]
@@ -373,7 +373,7 @@ def test_an_early_leaver_has_no_step_after_its_end_round(tmp_path):
 
 
 def test_a_late_agent_skips_planning(tmp_path):
-    config = SwarmContagionConfig(n_agents=2, regulators=1, steps_per_agent=3, pooled_steps=False,
+    config = SwarmConfig(n_agents=2, regulators=1, steps_per_agent=3, pooled_steps=False,
                                   planning_turns=2, regulator_window=Window(start=2))
     roles = {"a01": "worker", "a02": "regulator"}
     plan = rules.schedule(config, config.names, roles).steps
@@ -385,7 +385,7 @@ def test_a_late_agent_skips_planning(tmp_path):
 
 
 def test_pooled_steps_respect_windows(tmp_path):
-    config = SwarmContagionConfig(n_agents=3, regulators=1, steps_per_agent=2, regulator_window=Window(start=1, end=2))
+    config = SwarmConfig(n_agents=3, regulators=1, steps_per_agent=2, regulator_window=Window(start=1, end=2))
     roles = {"a01": "worker", "a02": "regulator", "a03": "worker"}
     sample, _ = run(config, {"a01": [submit()], "a02": [do("B")], "a03": [do("C")]}, tmp_path, roles=roles)
     # a01's freed step falls in round 3, outside a02's window, so a03 takes it.
@@ -393,7 +393,7 @@ def test_pooled_steps_respect_windows(tmp_path):
 
 
 def test_read_tool_off_withholds_channel_read(tmp_path):
-    config = SwarmContagionConfig(n_agents=2, steps_per_agent=1, read_tool=False)
+    config = SwarmConfig(n_agents=2, steps_per_agent=1, read_tool=False)
     _, rec = run(config, {"a01": [do("A")], "a02": [do("B")]}, tmp_path)
     for r in rec:
         assert r["tools"] == ["channel_list", "channel_post", "submit", "work"]
@@ -415,7 +415,7 @@ def test_header_once_per_turn_under_legacy(tmp_path):
 
 def test_pooled_header_has_no_cap(tmp_path):
     """With pooled turns an agent may hold more turns than the cap, so the header names no cap."""
-    config = SwarmContagionConfig(n_agents=3, steps_per_agent=2, turn_header=True)
+    config = SwarmConfig(n_agents=3, steps_per_agent=2, turn_header=True)
     sample, rec = run(config, {"a01": [submit()], "a02": [do("B")], "a03": [do("C")]}, tmp_path)
     headers = [r["last"] for r in rec if r["tag"] and r["tag"]["kind"] == "header"]
     assert headers and all(h.startswith("Turns left: ") and " of " not in h for h in headers), headers

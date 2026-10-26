@@ -57,8 +57,8 @@ import sys
 from pathlib import Path
 
 from src.configuration import settings
+from src.configuration.swe import HARBOR
 
-HARBOR = settings.CHEATBENCH / "tasks" / "software_engineering" / "harbor" / "tasks"
 BUILD = settings.BUILD / "swe"
 
 # --- verbatim from rungs_check.py:35-43 -------------------------------------------------------

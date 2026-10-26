@@ -42,7 +42,7 @@ from core.trajectory import Agent, FinalMetrics, Observation, ObservationResult,
 from core.trajectory.trajectory import SCHEMA_VERSION  # noqa: E402
 
 DELIVERY_TAG = "orbit_communication_delivery"        # orbit/communication/delivery.py
-TURN_RULES_TAG = "swarm_contagion_turn_rules"         # src/rules.py
+TURN_RULES_TAG = "swarm_turn_rules"         # src/rules.py
 TURN_RULES_PROMPTS = ("planning", "header", "continue")   # the info kinds that carry a message the provider got
 LEGACY_TRAILING_TURN_TAG = "orbit_trailing_turn_fix"  # the shim of runs before the rules existed
 ATTRIBUTION_KEY = "EnvironmentState:message_attribution"

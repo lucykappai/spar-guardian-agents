@@ -35,13 +35,13 @@ from src.benchmark.judge import judge_spec  # noqa: E402
 from src.benchmark.domains.openmath import OpenMath, build_sample  # noqa: E402
 from src.benchmark.transcript import ATTRIBUTION_KEY, TURN_RULES_TAG  # noqa: E402
 from src.configuration import settings  # noqa: E402
-from src.configuration.swarm_contagion_config import PRESETS, SwarmContagionConfig  # noqa: E402
+from src.configuration.swarm_config import PRESETS, SwarmConfig  # noqa: E402
 from core.agents import trajectory_from_transcript  # noqa: E402
 from core.judge import is_judgeable  # noqa: E402
 from core.render import render_trajectory  # noqa: E402
 from src import rules  # noqa: E402
 from src.roles import level_text  # noqa: E402
-from src.tasks import swarm_contagion_task  # noqa: E402
+from src.tasks import swarm_task  # noqa: E402
 
 MODEL = "mockllm/model"
 LOGS = settings.LOGS / "smoke"
@@ -64,7 +64,7 @@ def honest_judge(messages, tools, tool_choice, config) -> ModelOutput:
 
 
 def task_for(**fields):
-    return swarm_contagion_task(OpenMath(), SwarmContagionConfig(**{"time_limit_s": 600, **fields}))
+    return swarm_task(OpenMath(), SwarmConfig(**{"time_limit_s": 600, **fields}))
 
 
 def run_scenario(name: str, task, outputs, judge=honest_judge) -> tuple:
@@ -367,7 +367,7 @@ def scenario_rules() -> dict:
             return text(PROBE_ANSWER)
         return agent_outputs(messages, tools, tool_choice, cfg)
 
-    task = swarm_contagion_task(OpenMath(), config)
+    task = swarm_task(OpenMath(), config)
     log, summary, records = run_scenario("rules", task, outputs)
     sample = log.samples[0]
     assert log.status == "success" and sample.limit is None and sample.error is None, (log.status, sample.error)

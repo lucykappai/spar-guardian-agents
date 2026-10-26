@@ -1,4 +1,4 @@
-"""SwarmContagionConfig: validation, presets, overrides, instruction levels, role shares, windows and the
+"""SwarmConfig: validation, presets, overrides, instruction levels, role shares, windows and the
 setting-dependent prompt texts."""
 from __future__ import annotations
 
@@ -6,23 +6,23 @@ import pytest
 from pydantic import ValidationError
 
 from src.configuration import settings
-from src.configuration.swarm_contagion_config import (PRESETS, SwarmContagionConfig, Window, board_read_clause,
+from src.configuration.swarm_config import (PRESETS, SwarmConfig, Window, board_read_clause,
                                                   channel_tools_text, read_sentence, role_count, submit_line)
 
 
 def test_defaults_and_properties():
-    c = SwarmContagionConfig()
+    c = SwarmConfig()
     assert (c.n_agents, c.shutdown, c.delivery, c.quantum) == (1, True, "auto", "model_step")
     assert (c.rule_level, c.regulator_level, c.disregulator_level) == ("none", "role", "persuade")
     assert (c.max_message_chars, c.max_context_chars, c.max_inbox_messages, c.read_tool) == (4000, 16000, 10, True)
     assert not c.board and c.names == ["a01"] and c.max_turns == 60
-    c = SwarmContagionConfig(n_agents=10, regulators=3, disregulators=2, planning_turns=2, steps_per_agent=5)
+    c = SwarmConfig(n_agents=10, regulators=3, disregulators=2, planning_turns=2, steps_per_agent=5)
     assert c.board and c.workers == 5 and c.names[-1] == "a10" and c.max_turns == 52
     assert c.monitor_model == settings.DEFAULT_MONITOR_MODEL and c.judge == settings.JUDGE_MODEL
 
 
 def test_presets():
-    assert PRESETS["ours"] == SwarmContagionConfig()
+    assert PRESETS["ours"] == SwarmConfig()
     lucy = PRESETS["lucy"]
     board = (lucy.delivery, lucy.channel_list, lucy.pooled_steps, lucy.one_call_per_turn)
     assert board == ("auto", False, False, True)
@@ -56,12 +56,12 @@ def test_presets():
 ])
 def test_invalid(fields):
     with pytest.raises(ValidationError):
-        SwarmContagionConfig(**fields)
+        SwarmConfig(**fields)
 
 
 def test_frozen():
     with pytest.raises(ValidationError):
-        SwarmContagionConfig().n_agents = 3
+        SwarmConfig().n_agents = 3
 
 
 def test_with_overrides_types_values():
@@ -79,7 +79,7 @@ def test_with_overrides_types_values():
 @pytest.mark.parametrize("pairs", [["n_agents"], ["=3"], ["nope=1"], ["n_agents=many"], ["shutdown=maybe"]])
 def test_with_overrides_rejects(pairs):
     with pytest.raises((ValueError, ValidationError)):
-        SwarmContagionConfig().with_overrides(pairs)
+        SwarmConfig().with_overrides(pairs)
 
 
 def test_shutdown_off_needs_model_step():
@@ -90,14 +90,14 @@ def test_shutdown_off_needs_model_step():
 
 
 def test_every_field_is_documented():
-    for name, field in SwarmContagionConfig.model_fields.items():
+    for name, field in SwarmConfig.model_fields.items():
         assert field.description, name
 
 
 def test_role_shares_round_half_up():
     assert [role_count(share, 10) for share in (0.04, 0.15, 0.25, 0.35, 0.45)] == [1, 2, 3, 4, 5]
     assert role_count(3, 10) == 3 and role_count(0, 10) == 0
-    c = SwarmContagionConfig(n_agents=10, regulators=0.3, disregulators=0.2)
+    c = SwarmConfig(n_agents=10, regulators=0.3, disregulators=0.2)
     assert (c.regulator_count, c.disregulator_count, c.workers) == (3, 2, 5)
 
 
@@ -106,7 +106,7 @@ def test_windows():
     assert Window.model_validate("3:") == Window(start=3) == Window.model_validate("3")
     w = Window(start=2, end=3)
     assert [r for r in range(1, 6) if w.contains(r)] == [2, 3]
-    c = SwarmContagionConfig(n_agents=3, regulators=1, steps_per_agent=5, regulator_window=Window(start=2, end=5))
+    c = SwarmConfig(n_agents=3, regulators=1, steps_per_agent=5, regulator_window=Window(start=2, end=5))
     assert c.window("regulator") == Window(start=2, end=5)
     assert c.window("worker") == c.window("disregulator") == Window()
 
@@ -115,7 +115,7 @@ def test_instruction_levels_match_the_ladders():
     levels = settings.load_instruction_levels()
     for ladder in ("rule", "regulator", "disregulator"):
         for level in levels[ladder]["order"]:
-            SwarmContagionConfig(**{f"{ladder}_level": level})
+            SwarmConfig(**{f"{ladder}_level": level})
 
 
 def test_prompt_helpers():

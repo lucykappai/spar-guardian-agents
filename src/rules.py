@@ -47,15 +47,14 @@ from orbit.defenses.model_filter import ModelFilter
 from orbit.defenses.registry import register_defense
 from pydantic import Field
 
-from src.configuration.settings import load_prompts
-from src.configuration.swarm_contagion_config import SwarmContagionConfig, Window
-from src.comm_topology import BOARD_ID
+from src.configuration.settings import BOARD_ID, load_prompts
+from src.configuration.swarm_config import SwarmConfig, Window
 
-TURN_RULES_TYPE = "swarm_contagion.turn_rules.v1"
+TURN_RULES_TYPE = "swarm.turn_rules.v1"
 TURN_RULES_NAME = "turn_rules"
-TURN_RULES_TAG = "swarm_contagion_turn_rules"
+TURN_RULES_TAG = "swarm_turn_rules"
 DELIVERY_TAG = "orbit_communication_delivery"        # orbit/communication/delivery.py _DELIVERY_TAG
-ACTOR = "swarm_contagion.rules"
+ACTOR = "swarm.rules"
 PLAN_PREFIX = "plan"
 PLANNING_TOOLS = frozenset({"channel_post", "channel_read"})
 # A target that names no agent builds no DefenseBoundary, so the filter runs without a check event per message.
@@ -92,19 +91,19 @@ def round_order(agents: list[str], turn_order: str, seed: int, round_number: int
     return order
 
 
-def windows(config: SwarmContagionConfig, agents: list[str], roles: dict[str, str] | None = None) -> dict[str, Window]:
+def windows(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None) -> dict[str, Window]:
     """Each agent's window of rounds, from its role. Without roles every agent holds every round."""
     return {agent: config.window((roles or {}).get(agent, "worker")) for agent in agents}
 
 
-def planners(config: SwarmContagionConfig, agents: list[str], roles: dict[str, str] | None = None) -> list[str]:
+def planners(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None) -> list[str]:
     """The agents that take the planning turns: those whose window opens at round 1."""
     if not config.planning_turns:
         return []
     return [agent for agent, window in windows(config, agents, roles).items() if window.start == 1]
 
 
-def schedule(config: SwarmContagionConfig, agents: list[str], roles: dict[str, str] | None = None) -> ScheduleConfig:
+def schedule(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None) -> ScheduleConfig:
     """Planning steps, then steps_per_agent rounds of one single-agent step per agent whose window holds the round."""
     planning = planners(config, agents, roles)
     steps: list[dict[str, Any]] = [
@@ -120,7 +119,7 @@ def schedule(config: SwarmContagionConfig, agents: list[str], roles: dict[str, s
     return ScheduleConfig(steps=steps, after_activation=f"{__name__}.after_activation")
 
 
-def initial_state(config: SwarmContagionConfig, agents: list[str], roles: dict[str, str] | None = None) -> dict:
+def initial_state(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None) -> dict:
     """The TurnState fields a sample starts with."""
     planning = set(planners(config, agents, roles))
     return {"agents": list(agents), "planning_turns": config.planning_turns, "cap": config.steps_per_agent,
@@ -131,9 +130,9 @@ def initial_state(config: SwarmContagionConfig, agents: list[str], roles: dict[s
 
 
 @solver
-def rules_setup(config: SwarmContagionConfig | dict, agents: list[str], roles: dict[str, str] | None = None) -> Solver:
+def rules_setup(config: SwarmConfig | dict, agents: list[str], roles: dict[str, str] | None = None) -> Solver:
     """Task setup: write the initial TurnState into the sample's store."""
-    rules = SwarmContagionConfig.model_validate(config)
+    rules = SwarmConfig.model_validate(config)
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         st = store_as(TurnState)
@@ -264,7 +263,7 @@ class TurnRulesFilter(ModelFilter):
     name = TURN_RULES_NAME
     priority = 90       # after prompt filters (10); ORBIT's delivery notice is added outside the filter chain
 
-    def __init__(self, config: SwarmContagionConfig) -> None:
+    def __init__(self, config: SwarmConfig) -> None:
         self.config = config
         self.prompts = load_prompts()
 
@@ -376,7 +375,7 @@ class TurnRulesDefense(DefenseBase):
 
     def __init__(self, config: DefenseConfig) -> None:
         super().__init__(config)
-        self.rules = SwarmContagionConfig.model_validate(config.config)
+        self.rules = SwarmConfig.model_validate(config.config)
 
     def get_model_filters(self) -> list[ModelFilter]:
         return [TurnRulesFilter(self.rules)]
@@ -397,7 +396,7 @@ except ValueError:
     pass            # already registered in this process
 
 
-def turn_rules_defense(config: SwarmContagionConfig) -> DefenseConfig:
+def turn_rules_defense(config: SwarmConfig) -> DefenseConfig:
     """The DefenseConfig that installs the filter on every agent.
 
     A target naming no agent builds no DefenseBoundary, while ORBIT collects the model filters of every defense for

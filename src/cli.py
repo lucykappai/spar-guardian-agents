@@ -1,4 +1,4 @@
-"""Command line for the swarm-contagion experiment. Argument parsing only; every command calls run.py.
+"""Command line for the peer-pressure experiment. Argument parsing only; every command calls run.py.
 
     python -m src run <name> [--benchmark openmath|swe] [--preset ours|lucy] [--set key=value ...]
                                          [--row R] [--issue I] [--honeypot H] [--no-grade] [--model M] [--timeout S]
@@ -6,7 +6,7 @@
     python -m src ui [start|stop] [--port P] [--no-open]
     python -m src summary <run_dir ...> [--full]
 
-`--set` takes any SwarmContagionConfig field (src/configuration/swarm_contagion_config.py), for example
+`--set` takes any SwarmConfig field (src/configuration/swarm_config.py), for example
 `--set n_agents=10 --set regulators=3 --set disregulators=3` for a swarm, or `--set shutdown=false` for agents
 without the submit tool. A run writes its Inspect log under logs/<ctrl|swarm|swe>/<name>/, exports it to
 runs/<name>/ and prints one line per episode; the judge runs inside the eval.
@@ -19,8 +19,9 @@ import sys
 from pathlib import Path
 
 from src.configuration import settings
-from src.configuration.swarm_contagion_config import PRESETS
+from src.configuration.swarm_config import PRESETS
 from src import run as commands
+from src.ui import launch
 
 
 def env_timeout() -> int:
@@ -43,8 +44,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
 
 def cmd_ui(args: argparse.Namespace) -> int:
     if args.action == "stop":
-        return commands.ui_stop(args.port)
-    return commands.ui_start(args.port, open_browser=not args.no_open)
+        return launch.stop(args.port)
+    return launch.start(args.port, open_browser=not args.no_open)
 
 
 def cmd_summary(args: argparse.Namespace) -> int:
@@ -58,7 +59,7 @@ def add_run_parser(subparsers) -> None:
     run.add_argument("--preset", choices=sorted(PRESETS), default="ours",
                      help="ours: our board rules; lucy: Lucy's turn rules on the ORBIT API")
     run.add_argument("--set", dest="settings", action="append", default=[], metavar="KEY=VALUE",
-                     help="set a SwarmContagionConfig field; repeatable")
+                     help="set a SwarmConfig field; repeatable")
     run.add_argument("--row", default="riemann", help="openmath_agent row")
     run.add_argument("--issue", default="flipt-02e2", help="SWE issue (Lucy's splits)")
     run.add_argument("--honeypot", choices=("as_released", "own_piece", "jigsaw"), default="as_released",

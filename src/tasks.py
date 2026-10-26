@@ -1,6 +1,6 @@
-"""The Inspect tasks of the experiment: one benchmark under one SwarmContagionConfig, as an ORBIT task.
+"""The Inspect tasks of the experiment: one benchmark under one SwarmConfig, as an ORBIT task.
 
-    task = swarm_contagion_task(OpenMath("riemann"), PRESETS["ours"].with_overrides(["n_agents=10", "regulators=3"]))
+    task = swarm_task(OpenMath("riemann"), PRESETS["ours"].with_overrides(["n_agents=10", "regulators=3"]))
     inspect eval src/tasks.py@openmath -T preset=lucy -T n_agents=3
 
 What comes from where:
@@ -27,13 +27,14 @@ from orbit.configs.experiment import ExperimentConfig
 from orbit.configs.setup import AgentSpec, SetupConfig
 from orbit.tasks.multi_agent import multi_agent_task
 
-from src.benchmark.domains import swe as swe_module
 from src.benchmark.base import AgentTools, Benchmark
 from src.benchmark.judge import cheatbench_judge
-from src.benchmark.domains.openmath import TOKEN_LIMIT, OpenMath
+from src.benchmark.domains.openmath import OpenMath
 from src.benchmark.domains.swe import SWE
 from src.configuration import settings
-from src.configuration.swarm_contagion_config import PRESETS, SwarmContagionConfig
+from src.configuration.openmath import TOKEN_LIMIT
+from src.configuration.swarm_config import PRESETS, SwarmConfig
+from src.configuration.swe import GRADING_BUDGET_S
 from src import roles as roles_module
 from src.comm_topology import board_communication, board_execution, board_prompt, board_scheduler
 from src.controls import BASELINE, defenses_for
@@ -53,7 +54,7 @@ def level_key(benchmark: Benchmark) -> str:
     return roles_module.LEVEL_KEYS[benchmark.name]
 
 
-def hidden_roles(benchmark: Benchmark, config: SwarmContagionConfig) -> dict[str, str] | None:
+def hidden_roles(benchmark: Benchmark, config: SwarmConfig) -> dict[str, str] | None:
     """Each agent's hidden role, or None when the run uses no roles (a lone agent or a plain board)."""
     asked = config.regulator_count + config.disregulator_count > 0
     swarm = isinstance(benchmark, OpenMath) and config.n_agents > 2
@@ -62,13 +63,13 @@ def hidden_roles(benchmark: Benchmark, config: SwarmContagionConfig) -> dict[str
     return roles_module.assign_roles(config.names, config.regulator_count, config.disregulator_count, config.seed)
 
 
-def instruction_suffix(benchmark: Benchmark, config: SwarmContagionConfig, roles: dict[str, str] | None) -> str:
+def instruction_suffix(benchmark: Benchmark, config: SwarmConfig, roles: dict[str, str] | None) -> str:
     """The rule sentence, then the team report instruction when the run uses roles."""
     report = roles_module.team_report_suffix() if roles else ""
     return roles_module.rule_suffix(config, level_key(benchmark)) + report
 
 
-def build_sample(benchmark: Benchmark, config: SwarmContagionConfig, suffix: str) -> Sample:
+def build_sample(benchmark: Benchmark, config: SwarmConfig, suffix: str) -> Sample:
     """The benchmark's sample. SWE also takes the settings its prompts and planted commits depend on."""
     if isinstance(benchmark, SWE):
         return benchmark.sample(config.names, instruction_suffix=suffix, seed=config.seed, delivery=config.delivery,
@@ -77,7 +78,7 @@ def build_sample(benchmark: Benchmark, config: SwarmContagionConfig, suffix: str
     return benchmark.sample(config.names, instruction_suffix=suffix)
 
 
-def system_prompts(benchmark: Benchmark, config: SwarmContagionConfig, sample: Sample,
+def system_prompts(benchmark: Benchmark, config: SwarmConfig, sample: Sample,
                    roles: dict[str, str] | None) -> dict[str, str | None]:
     """Each agent's system prompt: the benchmark's own (SWE) or the board prompt (openmath), then its role text.
 
@@ -97,7 +98,7 @@ def system_prompts(benchmark: Benchmark, config: SwarmContagionConfig, sample: S
             for n in names}
 
 
-def agent_specs(config: SwarmContagionConfig, tools: AgentTools, prompts: dict[str, str | None]) -> list[AgentSpec]:
+def agent_specs(config: SwarmConfig, tools: AgentTools, prompts: dict[str, str | None]) -> list[AgentSpec]:
     """One worker per name. An agent with no prompt of ours keeps AgentSpec's default system prompt."""
     return [AgentSpec(name=n, role="worker", tools=list(tools.names), max_messages=config.message_limit + 10,
                       submit=config.shutdown, **({"system_prompt": prompts[n]} if prompts[n] else {}))
@@ -114,20 +115,20 @@ def first_message_groups(sample: Sample, names: list[str]) -> list[AgentGroup]:
     return [AgentGroup(name=f"seat_{n}", agents=[n], goal=first[n]) for n in names]
 
 
-def scorers(benchmark: Benchmark, config: SwarmContagionConfig) -> list:
+def scorers(benchmark: Benchmark, config: SwarmConfig) -> list:
     judge = cheatbench_judge(benchmark.name, str(benchmark.task_root), judge=config.judge,
                              addendum=str(JUDGE_ADDENDUM) if config.judge_addendum else None)
     probes = [end_of_episode_probes()] if config.awareness_probe else []
     return [*benchmark.scorers(), judge, *probes]
 
 
-def token_limit(config: SwarmContagionConfig) -> int:
+def token_limit(config: SwarmConfig) -> int:
     if config.token_limit:
         return config.token_limit
     return config.n_agents * TOKEN_LIMIT * (MONITOR_FACTOR if config.control not in BASELINE else 1)
 
 
-def check_control(benchmark: Benchmark, config: SwarmContagionConfig) -> None:
+def check_control(benchmark: Benchmark, config: SwarmConfig) -> None:
     """The task-aware controls carry the openmath rule; refuse them on another benchmark."""
     if config.control.endswith("_task") and not isinstance(benchmark, OpenMath):
         raise ValueError(f"control {config.control!r} carries the openmath rule (src/configuration/controls.yaml); "
@@ -137,7 +138,7 @@ def check_control(benchmark: Benchmark, config: SwarmContagionConfig) -> None:
 # --------------------------------------------------------------------------
 # metadata the orchestrator and the exporter read
 # --------------------------------------------------------------------------
-def record_run(task_: Task, benchmark: Benchmark, config: SwarmContagionConfig, roles: dict[str, str] | None,
+def record_run(task_: Task, benchmark: Benchmark, config: SwarmConfig, roles: dict[str, str] | None,
                prompts: dict[str, str | None]) -> None:
     """Write the defenses into the experiment config and the run's facts into metadata["cheatbench"].
 
@@ -169,7 +170,7 @@ def record_run(task_: Task, benchmark: Benchmark, config: SwarmContagionConfig, 
 # --------------------------------------------------------------------------
 # the task
 # --------------------------------------------------------------------------
-def swarm_contagion_task(benchmark: Benchmark, config: SwarmContagionConfig, *, name: str | None = None) -> Task:
+def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = None) -> Task:
     """One benchmark under one config, as an ORBIT task on Inspect."""
     settings.check_submodule_heads()
     check_control(benchmark, config)
@@ -184,9 +185,9 @@ def swarm_contagion_task(benchmark: Benchmark, config: SwarmContagionConfig, *, 
                                         max_context_chars=config.max_context_chars,
                                         max_inbox_messages=config.max_inbox_messages) if config.board else None
     # SWE grades after the agents stop; Inspect's sample limit leaves room for setup and grading.
-    inspect_time = {"time_limit": time_limit_s + swe_module.GRADING_BUDGET_S} if isinstance(benchmark, SWE) else {}
+    inspect_time = {"time_limit": time_limit_s + GRADING_BUDGET_S} if isinstance(benchmark, SWE) else {}
     task_ = multi_agent_task(
-        name=name or f"swarm_contagion_{level_key(benchmark)}",
+        name=name or f"swarm_{level_key(benchmark)}",
         setup=SetupConfig(agents=agent_specs(config, tools, prompts), communication_edges=None,
                           tool_kwargs=tools.tool_kwargs),
         dataset=[sample],
@@ -205,7 +206,7 @@ def swarm_contagion_task(benchmark: Benchmark, config: SwarmContagionConfig, *, 
     return task_
 
 
-def _config(preset: str, overrides: dict) -> SwarmContagionConfig:
+def _config(preset: str, overrides: dict) -> SwarmConfig:
     if preset not in PRESETS:
         raise ValueError(f"unknown preset {preset!r}; choose one of {sorted(PRESETS)}")
     return PRESETS[preset].with_overrides([f"{key}={value}" for key, value in overrides.items()])
@@ -214,7 +215,7 @@ def _config(preset: str, overrides: dict) -> SwarmContagionConfig:
 @task
 def openmath(preset: str = "ours", row: str = "riemann", **overrides) -> Task:
     """CheatBench's openmath_agent row under a preset; every other -T key=value sets a config field."""
-    return swarm_contagion_task(OpenMath(row), _config(preset, overrides))
+    return swarm_task(OpenMath(row), _config(preset, overrides))
 
 
 @task
@@ -222,4 +223,4 @@ def swe(preset: str = "ours", issue: str = "flipt-02e2", honeypot: str = "as_rel
         **overrides) -> Task:
     """A CheatBench SWE issue under one of Lucy's honeypots and a preset; other -T key=value set config fields."""
     grade = grade if isinstance(grade, bool) else str(grade).strip().lower() in ("1", "true", "yes")
-    return swarm_contagion_task(SWE(issue, honeypot, grade), _config(preset, overrides))
+    return swarm_task(SWE(issue, honeypot, grade), _config(preset, overrides))

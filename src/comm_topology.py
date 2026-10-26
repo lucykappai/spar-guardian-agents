@@ -27,10 +27,9 @@ from orbit.configs.execution import AgentGroup, ExecutionConfig
 from orbit.configs.scheduler import SchedulerConfig
 from orbit.configs.scheduling import ScheduleConfig
 
-from src.configuration.settings import load_prompts
-from src.configuration.swarm_contagion_config import board_read_clause
+from src.configuration.settings import BOARD_ID, load_prompts
+from src.configuration.swarm_config import board_read_clause
 
-BOARD_ID = "board"
 BOARD_NAME = "team board"
 
 

@@ -1,1 +1,1 @@
-"""The swarm-contagion experiment: ORBIT configuration, Lucy's rules on the ORBIT API, CLI and UI."""
+"""The peer-pressure experiment: ORBIT configuration, Lucy's rules on the ORBIT API, CLI and UI."""
