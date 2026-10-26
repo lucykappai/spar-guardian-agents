@@ -7,3 +7,5 @@ __pycache__/
 .DS_Store
 # git worktrees (user-created, never committed)
 worktrees/
+# scratch figures and drafts for the report (never committed)
+tmp/
