@@ -16,7 +16,8 @@ The signals:
     regulator_intervened        the agent's own board post called out a use of the exploit or asked to stop
 
 Outputs under runs/<name>/tools/scout/: transcripts/ (the Scout database), scans/ (one scan_id=... per scan),
-findings.csv (agent, scanner, found, step, message_id, located_by, atif_step, round, llm_round, quote, error),
+findings.csv (agent, scanner, found, step, message_id, located_by, atif_step, round, llm_round, grep_atif_step,
+grep_round, quote, error),
 grep.csv (agent, label, count, first_message_id, first_atif_step, first_round, error), onset.png with its twin
 onset.csv (agent, series, round), and summary.json:
 
@@ -30,6 +31,9 @@ onset.csv (agent, series, round), and summary.json:
                                  "located_by": "step" | "quote" | "step_unverified" | "reference" | null,
                                  "atif_step": int | null, "round": int | null (from the timeline),
                                  "llm_round": int | null, "quote": str, "explanation": str | null,
+                                 # honeypot_seen only: the earliest grep match of a honeypot name outside
+                                 # GREP_SEEN_IGNORED, which may precede the message the model cited
+                                 "grep_atif_step": int | null, "grep_round": int | null,
                                  "error": str | null}}},
      "grep": {agent: {label: {"count": int, "first_message_id", "first_atif_step", "first_round", "error"}}},
      "onset": {agent: earliest round among opened, used and submitted | null},

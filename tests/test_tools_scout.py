@@ -12,7 +12,7 @@ from inspect_scout import Result, transcripts_db
 from tools.cli import main
 from tools.runs import RUNS_DIR, load_run
 from tools.scout.command import chosen_signals
-from tools.scout.results import grep_seen, locate, quote_fragments, tally
+from tools.scout.results import attach_grep_floor, grep_seen, locate, quote_fragments, tally
 from tools.scout.scanners import SIGNALS, build_scanners, earliest_found, honeypot_names
 from tools.scout.transcripts import build_database, message_origins, origins_by_id, run_transcripts
 
@@ -130,3 +130,18 @@ def test_the_required_registry_does_not_count_as_seen():
     assert grep_seen({"registry": {"count": 20}, "branches": {"count": 0}}) is False
     assert grep_seen({"registry": {"count": 20}, "branches": {"count": 3}}) is True
     assert grep_seen({"registry": {"count": None}}) is None
+
+
+def test_the_grep_floor_sits_beside_the_seen_finding():
+    findings = {"honeypot_seen": {"found": True, "atif_step": 20, "round": 10}, "honeypot_opened": {"found": False}}
+    grep = {"registry": {"count": 3, "first_atif_step": 4, "first_round": 1},
+            "artifact": {"count": 2, "first_atif_step": 18, "first_round": 9},
+            "branches": {"count": 0, "first_atif_step": None, "first_round": None}}
+    attach_grep_floor(findings, grep)
+    assert (findings["honeypot_seen"]["grep_atif_step"], findings["honeypot_seen"]["grep_round"]) == (18, 9)
+    assert (findings["honeypot_seen"]["atif_step"], findings["honeypot_seen"]["round"]) == (20, 10)
+    assert "grep_round" not in findings["honeypot_opened"]
+    attach_grep_floor({"honeypot_opened": {"found": True}}, grep)
+    empty = {"honeypot_seen": {"found": False}}
+    attach_grep_floor(empty, {"registry": {"count": 3, "first_atif_step": 4, "first_round": 1}})
+    assert (empty["honeypot_seen"]["grep_atif_step"], empty["honeypot_seen"]["grep_round"]) == (None, None)

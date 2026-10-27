@@ -52,7 +52,8 @@ def onsets_from_scout(summary: dict | None, agents: list[str]) -> dict[str, dict
     """Each behaviour's onset per agent from scout's summary; None when scout ran no cheating scanner.
 
     Dishonest is scout's "onset" ({agent: round}, {agent: {round, ...}} or [{agent, round, ...}]). Honest is the
-    earliest round among the agent's found regulator_intervened and disclosed_access findings under "agents".
+    earliest round among the agent's found HONEST_SIGNALS findings under "agents"; scout has only
+    regulator_intervened today, so a judged disclosure is added at the last round by board_of_run.
     A grep-only scout, or one without any of the opened, used and submitted scanners, has no onset to give.
     """
     if not summary or summary.get("onset") is None or summary.get("grep_only"):

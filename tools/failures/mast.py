@@ -12,9 +12,9 @@ cuts it: when trace plus examples pass 1048570 characters, the trace keeps its f
 
 The notebook's numbering differs from definitions.txt for two modes: the prompt calls 3.2 "No or Incorrect
 Verification" and 3.3 "Weak Verification", while definitions.txt names 3.2 "Weak Verification" and 3.3 "No or
-Incorrect Verification". The model does not settle on either. On 2026-10-27 gpt-6-luna answered "3.2 Weak
-Verification" on riemann_minimal and worktime_minimal but "3.2 No or Incorrect Verification" on flipt_minimal. A label
-is therefore read by its number, and mast.json keeps the name the reply gave each number (reply_names). `renamed`
+Incorrect Verification". The model does not settle on either: one reply names 3.2 one way and the next reply the
+other way. A label is therefore read by its number, and mast.json keeps the name the reply gave each number
+(reply_names). `renamed`
 lists the modes whose reply name differs from the prompt's name, so a reader can tell which of the two modes a 3.2 or
 3.3 label means in that reply.
 

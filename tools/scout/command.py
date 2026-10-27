@@ -10,6 +10,7 @@ from inspect_scout import scan, scan_results_df, transcripts_from
 
 from tools.runs import Run, load_run, model_string, tools_dir, write_summary
 from tools.scout.results import (
+    attach_grep_floor,
     grep_findings,
     onset_of,
     plot_onset,
@@ -63,6 +64,8 @@ def scout_run(run: Run, signals: list[str], model: str | None) -> tuple[dict, in
         for agent, finding in signal_findings(frames[signal], labels, ids).items():
             agents.setdefault(agent, {})[signal] = finding
     grep = grep_findings(frames[GREP_NAME], ids) if GREP_NAME in frames else {}
+    for agent, findings in agents.items():
+        attach_grep_floor(findings, grep.get(agent) or {})
     errors = [str(error) for error in status.errors]
     errors += [f"{agent} {signal}: {finding['error']}" for agent, findings in agents.items()
                for signal, finding in findings.items() if finding["error"]]
