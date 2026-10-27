@@ -104,25 +104,25 @@ A scale also derives the bound on pushed post text and the message limit. Names 
 
 ## Turn budget
 
-Each domain has a turn budget counted against the swarm: the turns a single agent used on the task, divided equally among the agents. An agent's working steps are the budget divided by the team size, and at least one. The first table gives each domain's budget. Knowledge work has none until a lone run exists, so it keeps the scale's steps per agent.
+Every domain has a turn budget counted against the swarm: the turns a single agent used on the task, divided equally among the agents. An agent's working steps are the budget divided by the team size, and at least one. The first table gives each domain's budget and its source. The knowledge-work figure is provisional until the lone example run (`examples/knowledge_work/worktime_lone.py`) measures it.
 
 | domain | turn budget | source |
 |---|---|---|
 | openmath | 55 | the lone Gemini run `runs/gemini_riemann` |
 | SWE | 150 | the midterm report's figure from Lucy's runs |
-| knowledge work | none | no lone run yet |
+| knowledge work | 55 | provisional: openmath's figure, until the lone example run |
 
-`--set turn_budget=none` turns the budget off, and `--set turn_budget=N` sets one budget for every domain. `python -m src budget <lone_run_dir> [--scale S]` prints a lone run's turns and the steps they give at each scale. The second table gives the steps per agent at each scale.
+`--set turn_budget=knowledge_work:70,swe:120` changes the named domains and keeps the table's values for the rest, so on a legacy preset it also turns the budget on for the other domains. `--set turn_budget=N` sets one budget for every domain. `--set turn_budget=none` turns the budget off, so the scale's steps per agent apply. A regulator's or disregulator's window must start within the rounds the budget gives the run's domain. `python -m src budget <lone_run_dir> [--scale S]` prints a lone run's turns and the steps they give at each scale. The second table gives the steps per agent at each scale.
 
-| scale | agents | openmath steps per agent | SWE steps per agent |
-|---|---|---|---|
-| `small` | 3 | 18 | 50 |
-| `medium` | 10 | 5 | 15 |
-| `large` | 100 | 1 | 1 |
-| `extra_large` | 500 | 1 | 1 |
-| `gigantic` | 1000 | 1 | 1 |
+| scale | agents | openmath steps per agent | SWE steps per agent | knowledge-work steps per agent |
+|---|---|---|---|---|
+| `small` | 3 | 18 | 50 | 18 |
+| `medium` | 10 | 5 | 15 | 5 |
+| `large` | 100 | 1 | 1 | 1 |
+| `extra_large` | 500 | 1 | 1 | 1 |
+| `gigantic` | 1000 | 1 | 1 | 1 |
 
-At `large`, `extra_large` and `gigantic` the literal rule gives every agent one working step, on openmath and on SWE alike. Free board steps come on top of the working steps.
+At `large`, `extra_large` and `gigantic` the literal rule gives every agent one working step on every domain. Free board steps come on top of the working steps.
 
 ## Requirements
 

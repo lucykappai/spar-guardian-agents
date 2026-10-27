@@ -68,7 +68,7 @@ def test_presets():
     default = PRESETS["default"]
     assert (default.regulator_level, default.regulator_discloses, default.access) == ("ambiguous", False, "split")
     assert (default.reads_per_turn, default.posts_per_turn, default.free_board_actions_regulator) == (5, 2, 10)
-    assert default.turn_budget == {"openmath": 55, "swe": 150, "knowledge_work": None} == settings.TURN_BUDGETS
+    assert default.turn_budget == {"openmath": 55, "swe": 150, "knowledge_work": 55} == settings.TURN_BUDGETS
     # Each preset records its name, and build_config keeps it through the scale and every --set.
     assert [PRESETS[n].preset for n in ("default", "ian_legacy", "lucy_legacy")] == ["default", "ian_legacy",
                                                                                     "lucy_legacy"]
@@ -142,6 +142,7 @@ def test_legacy_presets_equal_the_old_ones_field_by_field():
     {"posts_per_turn": 0},
     {"turn_budget": 0},
     {"turn_budget": {"openmath": 0}},
+    {"turn_budget": {"openmath": None}},
     {"turn_budget": {"chess": 10}},
     {"regulator_level": "loud"},
     {"mode": "solo_task", "team_submit": True},
@@ -278,13 +279,13 @@ def test_cli_builds_the_config_in_order(argv, expected):
 # ------------------------------------------------------------------------------------------------ the turn budget
 
 # The steps per agent under each domain's budget at each scale: max(1, budget // n_agents). openmath's budget is the
-# lone Gemini run's 55 turns, swe's the report's 150; knowledge_work has none, so it keeps the scale's steps.
+# lone Gemini run's 55 turns, swe's the report's 150, knowledge_work's the provisional 55 (settings.TURN_BUDGETS).
 BUDGET_STEPS = {   # scale: (openmath, swe, knowledge_work)
-    "small": (18, 50, 8),
-    "medium": (5, 15, 60),
-    "large": (1, 1, 60),
-    "extra_large": (1, 1, 40),
-    "gigantic": (1, 1, 30),
+    "small": (18, 50, 18),
+    "medium": (5, 15, 5),
+    "large": (1, 1, 1),
+    "extra_large": (1, 1, 1),
+    "gigantic": (1, 1, 1),
 }
 
 
@@ -295,7 +296,7 @@ def test_steps_for_every_scale_with_and_without_a_budget(name):
     # CheatBench's task names resolve to the same domains.
     assert c.steps_for("openmath_agent") == c.steps_for("openmath") and c.steps_for("software_engineering") == \
         c.steps_for("swe")
-    assert c.turn_budget_for("openmath") == 55 and c.turn_budget_for("knowledge_work") is None
+    assert c.turn_budget_for("openmath") == 55 and c.turn_budget_for("knowledge_work") == 55
     # Without a budget every domain keeps the scale's steps_per_agent; no domain means steps_per_agent too.
     off = build_config("default", name, ["turn_budget=none"])
     assert off.turn_budget is None and off.turn_budget_for("swe") is None
@@ -304,6 +305,31 @@ def test_steps_for_every_scale_with_and_without_a_budget(name):
     # An int is one budget for every domain.
     flat = build_config("default", name, ["turn_budget=300"])
     assert flat.turn_budget == 300 and flat.steps_for("knowledge_work") == max(1, 300 // SCALES[name].n_agents)
+    # Per-domain text changes the named domains and keeps the table's values for the rest.
+    some = build_config("default", name, ["turn_budget=knowledge_work:70,software_engineering:120"])
+    assert some.turn_budget == {"knowledge_work": 70, "swe": 120}
+    assert [some.turn_budget_for(d) for d in ("openmath", "swe", "knowledge_work")] == [55, 120, 70]
+    assert some.steps_for("knowledge_work") == max(1, 70 // SCALES[name].n_agents)
+    with pytest.raises(ValidationError):
+        build_config("default", name, ["turn_budget=knowledge_work:none"])
+
+
+def test_windows_are_checked_against_the_rounds_the_budget_gives():
+    from src.benchmark.domains.openmath import OpenMath
+    from src.tasks import swarm_task
+    # Twelve rounds fit the 18 the small scale's budgets give openmath and knowledge work, and SWE's 50.
+    late = build_config("default", "small", ["regulators=1", "regulator_window=1:12"])
+    assert late.regulator_window.end == 12
+    with pytest.raises(ValidationError, match="the rounds"):
+        build_config("default", "small", ["regulators=1", "regulator_window=60:"])
+    # A window that starts after openmath's 18 rounds is refused for an openmath run, before any sample is built.
+    swe_only = build_config("default", "small", ["regulators=1", "regulator_window=25:"])
+    assert swe_only.check_windows("swe") is None
+    with pytest.raises(ValueError, match="after the 18 rounds"):
+        swarm_task(OpenMath(), swe_only)
+    # Without a budget the rounds are steps_per_agent, as before.
+    with pytest.raises(ValidationError, match="the rounds"):
+        SwarmConfig(n_agents=3, regulators=1, steps_per_agent=5, regulator_window="1:6")
 
 
 def test_the_turn_budget_reaches_the_plan_the_bounds_and_the_store():

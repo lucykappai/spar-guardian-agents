@@ -238,12 +238,35 @@ class SwarmConfig(BaseModel):
     steps_per_agent: int = 60
     """Working steps per agent, as rounds of the written plan. Planning steps and free board steps do not count.
     Under a domain's turn budget (turn_budget) the budget's share replaces it; read it through steps_for(domain)."""
-    turn_budget: int | dict[str, int | None] | None = None
+    turn_budget: int | dict[str, int] | None = None
     """The swarm's turn budget, counted against the swarm: the turns a single agent used on the task, divided equally
-    among the agents (steps_for: max(1, budget // n_agents) working steps per agent). A dict gives one budget per
-    domain key, and a domain whose budget is None or absent keeps steps_per_agent; the default preset sets
-    settings.TURN_BUDGETS (openmath 55, swe 150, knowledge_work None). An int applies to every domain. None turns the
-    budget off, as in the legacy presets (`--set turn_budget=none`)."""
+    among the agents (steps_for: max(1, budget // n_agents) working steps per agent). Every domain has one. A dict
+    gives one budget per domain key, and a domain it leaves out keeps settings.TURN_BUDGETS' (the default preset
+    sets that table: openmath 55, swe 150, knowledge_work 55); on the command line `knowledge_work:70,swe:120`. An
+    int applies to every domain. None turns the budget off, so steps_per_agent applies, as in the legacy presets
+    (`--set turn_budget=none`)."""
+
+    @field_validator("turn_budget", mode="before")
+    @classmethod
+    def _parse_turn_budget(cls, value):
+        """Accept "70" or "knowledge_work:70,swe:120" from the command line; a domain may be CheatBench's task name."""
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        form = f"turn_budget takes an int, none, or domain:int pairs such as knowledge_work:70,swe:120, got {value!r}"
+        try:
+            if ":" not in text:
+                return int(text)
+            out = {}
+            for entry in text.split(","):
+                domain, _, budget = entry.partition(":")
+                key = DOMAIN_KEYS.get(domain.strip(), domain.strip())
+                if key in out:
+                    raise ValueError(f"turn_budget names {key} twice: {value!r}")
+                out[key] = int(budget)
+        except ValueError as error:
+            raise ValueError(form if "invalid literal" in str(error) else str(error)) from None
+        return out
     concurrent_rounds: bool = True
     """True: each round is one concurrent ORBIT ScheduleStep holding every eligible agent, at most max_concurrency at
     once, on a snapshot of the board as of the round's start, followed by up to free_board_actions follow-up steps for
@@ -384,7 +407,7 @@ class SwarmConfig(BaseModel):
                 raise ValueError(f"{name} must be at least 1, or None for no budget")
         budgets = self.turn_budget.values() if isinstance(self.turn_budget, dict) else [self.turn_budget]
         if any(b is not None and b < 1 for b in budgets):
-            raise ValueError("a turn budget must be at least 1, or None for none")
+            raise ValueError("a turn budget must be at least 1; turn_budget=none turns the budget off")
         if isinstance(self.turn_budget, dict):
             unknown = set(self.turn_budget) - set(DOMAIN_MODES)
             if unknown:
@@ -395,10 +418,12 @@ class SwarmConfig(BaseModel):
                 raise ValueError(f"mode keys are domains {sorted(DOMAIN_MODES)}, got {sorted(unknown)}")
         if self.team_submit and "solo_task" in self._modes():
             raise ValueError("team_submit=True has no team to submit for in mode solo_task")
+        rounds = max(self.steps_for(d) for d in DOMAIN_MODES)
         for name in ("regulator_window", "disregulator_window"):
             window = getattr(self, name)
-            if window.start < 1 or (window.end is not None and not window.start <= window.end <= self.steps_per_agent):
-                raise ValueError(f"{name} needs 1 <= start <= end <= steps_per_agent, got {window.start}:{window.end}")
+            if not 1 <= window.start <= rounds or (window.end is not None and not window.start <= window.end <= rounds):
+                raise ValueError(f"{name} needs 1 <= start <= end <= the rounds ({rounds}: steps_per_agent, or the "
+                                 f"turn budget's share on the domain with most), got {window.start}:{window.end}")
         levels = settings.load_instruction_levels()
         for ladder in LADDERS:
             level = getattr(self, f"{ladder}_level")
@@ -468,11 +493,13 @@ class SwarmConfig(BaseModel):
         return self.planning_turns + self._agent_steps(self.steps_per_agent)
 
     def turn_budget_for(self, domain: str | None) -> int | None:
-        """The swarm's turn budget on this domain, or None when there is none (turn_budget)."""
+        """The swarm's turn budget on this domain (turn_budget; a domain a dict leaves out takes
+        settings.TURN_BUDGETS'), or None when the budget is off or no domain is named."""
         if domain is None or self.turn_budget is None:
             return None
         if isinstance(self.turn_budget, dict):
-            return self.turn_budget.get(domain_key(domain))
+            key = domain_key(domain)
+            return self.turn_budget.get(key, settings.TURN_BUDGETS[key])
         return self.turn_budget
 
     def steps_for(self, domain: str | None) -> int:
@@ -480,6 +507,15 @@ class SwarmConfig(BaseModel):
         steps_per_agent. rules.schedule writes this many rounds and the turn header counts against it."""
         budget = self.turn_budget_for(domain)
         return self.steps_per_agent if budget is None else budget_steps(budget, self.n_agents)
+
+    def check_windows(self, domain: str) -> None:
+        """Raise when a regulator's or disregulator's window starts after the last round this domain gets, so the
+        role would never enter the run."""
+        rounds = self.steps_for(domain)
+        for name in ("regulator_window", "disregulator_window"):
+            if getattr(self, name).start > rounds:
+                raise ValueError(f"{name} starts at round {getattr(self, name).start}, after the {rounds} rounds "
+                                 f"{domain_key(domain)} gets under its turn budget")
 
     def max_turns_for(self, domain: str | None) -> int:
         """max_turns at steps_for(domain) rounds."""

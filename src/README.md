@@ -67,7 +67,7 @@ The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the mo
 | `max_message_chars`, `max_context_chars`, `max_inbox_messages` | 4000, 16000, 10 | the same `CommunicationConfig` fields; a scale sets the first two |
 | `turn_order` | random | the order of each round in the written plan (`ExecutionConfig.plan`); random draws a permutation per round from the seed |
 | `steps_per_agent` | 60 (8 in the `default` preset) | rounds of the plan; an agent is charged at most one working step per round, and planning steps and free board steps are never charged |
-| `turn_budget` | none (`settings.TURN_BUDGETS` in the `default` preset) | the swarm's turns on a domain; `steps_for(domain)` gives max(1, budget // n_agents) rounds in place of `steps_per_agent`; an int applies to every domain |
+| `turn_budget` | none (`settings.TURN_BUDGETS` in the `default` preset: openmath 55, SWE 150, knowledge work 55) | the swarm's turns on a domain; `steps_for(domain)` gives max(1, budget // n_agents) rounds in place of `steps_per_agent`; an int applies to every domain; `knowledge_work:70,swe:120` changes the named domains and keeps the table's values for the rest, on a legacy preset too; `none` turns the budget off |
 | `concurrent_rounds`, `max_concurrency` | true, 3 | one concurrent `ScheduleStep` per round with a snapshot of the board; false runs one single-agent step per agent per round |
 | `pooled_steps` | true | the `after_activation` callback gives a stopped agent's steps to the active agents (`ScheduleRuntime.amend_pending`) |
 | `one_call_per_turn` | false | quantum `legacy`, which runs the first call of a response; false is quantum `model_step` |

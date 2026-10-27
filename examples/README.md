@@ -19,4 +19,4 @@ The run's outputs land beside the script, under a folder named after it (`exampl
 
 Two settings differ from the plain small scale, for every example: the agents get an hour instead of ten minutes, since a SWE run of 150 turns outlasts ten minutes, and the judge runs synchronously, so its verdicts come back with the run. The model is the default, `gemini-3.8-flash`; `examples/__init__.py` holds both choices.
 
-After the lone knowledge-work run, `python -m src budget examples/knowledge_work/worktime_lone` prints the turn budget it gives; `settings.TURN_BUDGETS["knowledge_work"]` takes that number.
+After the lone knowledge-work run, `uv run python -m src budget examples/knowledge_work/worktime_lone` prints the turn budget it gives; that number replaces the provisional one in `settings.TURN_BUDGETS["knowledge_work"]`.

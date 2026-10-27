@@ -138,7 +138,7 @@ class TurnState(StoreModel):
     board_actions: list[str] = Field(default_factory=list)  # the tool names that make a step free
     reads_per_turn: int | None = None                       # posts board_read may return per agent per round
     posts_per_turn: int | None = None                       # board_post calls per agent per round
-    turn_budget: int | None = None                          # the domain's turn budget, None without one
+    turn_budget: int | None = None                          # the domain's turn budget, None when it is off
     rounds: int = 0                                         # rounds written so far, pooled rounds included
     windows: dict[str, list] = Field(default_factory=dict)      # [start, end] rounds per agent; end None is open
     planning: dict[str, int] = Field(default_factory=dict)      # planning turns per agent

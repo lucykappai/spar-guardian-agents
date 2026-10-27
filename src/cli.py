@@ -13,8 +13,10 @@ The config is built in this order: the preset, then the scale, then every `--set
 midterm report's configuration at the small scale; `--scale` replaces its size (src/configuration/scales.py). The
 legacy presets keep their own sizes unless `--scale` is given. `--set` takes any SwarmConfig field
 (src/configuration/swarm_config.py) and overrides any value the scale gave, for example `--set regulators=3 --set
-disregulators=3` for a swarm, `--set shutdown=false` for agents without the submit tool, or `--set turn_budget=none`
-to use the scale's steps_per_agent in place of the domain's turn budget. A run writes its Inspect log under
+disregulators=3` for a swarm, `--set shutdown=false` for agents without the submit tool, `--set
+turn_budget=knowledge_work:70` for another budget on one domain (the other domains keep settings.TURN_BUDGETS, on a
+legacy preset too), or `--set turn_budget=none` to use the scale's steps_per_agent in place of the domain's turn
+budget. A run writes its Inspect log under
 logs/<ctrl|swarm|swe>/<name>/, exports it to runs/<name>/ and prints one line per episode; the judge runs inside
 the eval. `budget` prints a lone run's turns and the working steps per agent that budget gives at each scale.
 `--model` takes an entry of src/configuration/models.yaml or an Inspect model string; `models` prints the entries,

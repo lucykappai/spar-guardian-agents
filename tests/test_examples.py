@@ -8,7 +8,7 @@ import pytest
 
 from examples import MODEL
 from src import run
-from src.configuration import models
+from src.configuration import models, settings
 from src.run import access_line
 from src.tasks import swarm_task
 
@@ -35,6 +35,8 @@ def test_each_example_builds_the_default_preset_with_neutral_agents(name):
     assert (config.preset, config.scale, config.n_agents) == ("default", "small", EXAMPLES[name])
     assert config.regulator_count == 0 and config.disregulator_count == 0 and config.access == "split"
     assert config.time_limit_s == 3600 and config.batch_judge is False
+    # The team runs take the domain's turn budget; the lone run turns it off, so its own turns measure the budget.
+    assert config.turn_budget == (None if EXAMPLES[name] == 1 else settings.TURN_BUDGETS)
     assert module.NAME == name.rsplit(".", 1)[1] and module.HERE.name == name.split(".")[1]
     assert (module.HERE / f"{module.NAME}.py").is_file()
     benchmark = module.benchmark()

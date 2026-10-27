@@ -212,6 +212,7 @@ def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = 
     benchmark.check(config)
     names = config.names
     domain = level_key(benchmark)
+    config.check_windows(domain)
     roles = hidden_roles(benchmark, config)
     sample = build_sample(benchmark, config, instruction_suffix(benchmark, config), roles)
     tools = benchmark.tools(names, config)

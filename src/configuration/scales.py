@@ -11,8 +11,8 @@ overrides any value a scale gave.
 Under a domain's turn budget (SwarmConfig.turn_budget, settings.TURN_BUDGETS) the working steps per agent are the
 budget divided by the team size, at least one, in place of the scale's steps_per_agent (SwarmConfig.steps_for).
 `steps_by_scale` gives that table; `python -m src budget <lone_run_dir>` prints it from a lone run's turns. At the
-large scales the literal rule gives one step per agent: 55 turns over 100, 500 or 1000 agents, and 150 over 500 or
-1000.
+large scales the literal rule gives one step per agent: 55 turns (openmath, knowledge work) over 100, 500 or 1000
+agents, and 150 (SWE) over 500 or 1000.
 """
 from __future__ import annotations
 
