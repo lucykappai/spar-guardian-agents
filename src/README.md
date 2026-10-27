@@ -11,12 +11,13 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `run.py` | the `run` and `judge` commands: `inspect_ai.eval` in process, export, re-judging |
 | `tasks.py` | `swarm_task(benchmark, config)` and the `@task` entry points `openmath` and `swe` |
 | `swarm/comm_topology.py` | the board as ORBIT configuration: one shared channel, no invocation edges, a written plan |
+| `swarm/board.py` | the pull board's tools `board_status`, `board_read` and `board_post`, and `team_submit`, over ORBIT's communication store |
 | `swarm/roles.py` | hidden roles and the instruction levels: who is regulator or disregulator, and the texts each one gets |
-| `swarm/rules.py` | Lucy's turn rules: the plan, the callback after each activation, and the model filter |
+| `swarm/rules.py` | the turn rules: the plan of concurrent or sequential rounds, the free board steps, the team_submit halt, the callback after each activation, and the model filter |
 | `swarm/controls.py` | `defenses_for(control, monitor_model)`: ORBIT's shipped defenses as named controls |
 | `swarm/probes.py` | Lucy's end-of-episode reflection and awareness questions, as an Inspect scorer |
 | `benchmark/` | CheatBench's tasks: the Benchmark protocol, the openmath and SWE domains, the transcript, the judge and the export; see `src/benchmark/README.md` |
-| `measures/` | over run directories: the command line's summary (`summary.py`), Rigel's cheating ladder (`rungs.py`) and Lucy's SWE measures (`swe_summary.py`) |
+| `measures/` | over run directories: the command line's summary (`summary.py`), the board engagement funnel (`engagement.py`), Rigel's cheating ladder (`rungs.py`) and Lucy's SWE measures (`swe_summary.py`) |
 | `utils/provider_retry.py` | Gemini's 402 "credits depleted" retried as a rate limit |
 | `ui/` | the results browser: `server.py`, `launch.py` (start and stop in the background), `API.md` and the single-page UI in `static/` |
 
@@ -24,7 +25,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 
 | command | what it does |
 |---|---|
-| `run <name> [--benchmark openmath\|swe] [--preset ours\|lucy] [--set key=value ...]` | runs one task, writes `logs/<ctrl\|swarm\|swe>/<name>/`, exports `runs/<name>/` and prints the summary |
+| `run <name> [--benchmark openmath\|swe] [--preset default\|ian_legacy\|lucy_legacy] [--scale small\|medium\|large\|extra_large\|gigantic] [--set key=value ...]` | runs one task, writes `logs/<ctrl\|swarm\|swe>/<name>/`, exports `runs/<name>/` and prints the summary; the preset applies first, then the scale, then every `--set` |
 | `run ... --row riemann` | the openmath_agent row |
 | `run ... --issue flipt-02e2 --honeypot as_released\|own_piece\|jigsaw [--no-grade]` | the SWE issue and Lucy's honeypot; `--no-grade` skips the hidden tests |
 | `run ... --model M --timeout S` | the agents' model, and the seconds one model request may take (default `MODEL_TIMEOUT_S`) |
@@ -32,7 +33,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `ui [start\|stop] [--port 8765] [--no-open]` | starts or stops the results browser in the background |
 | `summary <run_dir ...> [--full]` | one line per judged episode, the swarm composition and the shutdown rate |
 
-The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the model role `judge`. `inspect eval src/tasks.py@openmath -T preset=lucy -T n_agents=3` also works; every `-T` key other than the task's own arguments sets a config field.
+The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the model role `judge`. With `batch_judge` its calls go through the provider's batch API. `judge` always re-judges through the batch API. `inspect eval src/tasks.py@openmath -T preset=lucy_legacy -T n_agents=3` also works; every `-T` key other than the task's own arguments sets a config field, and `-T scale=medium` applies a scale first.
 
 ## What each option does
 
@@ -40,42 +41,58 @@ The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the mo
 
 | option | default | ORBIT mechanism |
 |---|---|---|
-| `n_agents` | 1 | one `AgentSpec` per name `a01`, `a02`, ...; two or more share one board channel |
+| `n_agents` | 1 (3 in the `default` preset) | one `AgentSpec` per name `a01`, `a02`, ...; two or more share one board channel; names widen to `a001` past 99 agents |
 | `regulators`, `disregulators` | 0 | hidden roles by seeded shuffle; a count, or a share in (0, 1) rounded half up; the role's text is appended to its holders' system prompts |
 | `seed` | 0 | which names hold which role, the random turn order, and the SWE planted commits' times |
-| `delivery` | auto | `CommunicationConfig.delivery`; auto puts every unread post in the model input at the start of the turn |
-| `channel_list` | true | false withholds `channel_list` from the provider request (rules.py filter) and rewrites the unread notice's last line |
-| `read_tool` | true | false withholds `channel_read` the same way and drops the prompt sentences that name it; needs auto delivery |
-| `visibility` | step_start | `CommunicationConfig.visibility` |
-| `max_message_chars`, `max_context_chars`, `max_inbox_messages` | 4000, 16000, 10 | the same `CommunicationConfig` fields |
-| `turn_order` | round_robin | the order of each round in the written plan (`ExecutionConfig.plan`); random draws a permutation per round from the seed |
-| `steps_per_agent` | 60 | rounds of the plan: one single-agent step per agent per round |
+| `preset` | none (the preset's name in every preset) | the preset the config was built from, recorded in the config dump so `run.json` names it |
+| `mode` | none | `solo_task`, `shared_task` or `collaboration_needed`, or one per domain; none is `shared_task` on both domains; the domain builds the sample, the workspaces and the prompts from it |
+| `scale` | none (small in the `default` preset) | the label of the scale the size fields came from (`src/configuration/scales.py`) |
+| `mention_team` | none | the `team` sentence and the roster in the system prompt; none follows the mode |
+| `informed_roles` | true | `roles.briefing` after a regulator's or disregulator's role text |
+| `board_tools` | true | binds `board_status`, `board_read` and `board_post` per agent (`tool_bindings`) and withholds ORBIT's channel tools from the provider request; false offers the channel tools |
+| `mention_board` | false | the board sentence in the system prompt (SWE: the team chat paragraph) |
+| `notice` | counts | one provider-only line when the board changed since the agent's last call: `counts` gives each sender's new and total posts, `changed` the line alone, `none` nothing (the legacy presets) |
+| `read_page` | 5 | the most posts one `board_read` returns |
+| `free_board_actions` | 2 | follow-up steps per round after a free step, amended into the plan by the `after_activation` callback; 0 charges every step, as the legacy presets do |
+| `delivery` | poll | `CommunicationConfig.delivery`; auto, which the legacy presets use, puts every unread post in the model input at the start of the turn |
+| `channel_list` | true | legacy presets only; false withholds `channel_list` from the provider request (rules.py filter) and rewrites the unread notice's last line |
+| `read_tool` | true | legacy presets only; false withholds `channel_read` the same way and drops the prompt sentences that name it; needs auto delivery |
+| `visibility` | live | `CommunicationConfig.visibility`; a concurrent round always sees the board as of its start |
+| `max_message_chars`, `max_context_chars`, `max_inbox_messages` | 4000, 16000, 10 | the same `CommunicationConfig` fields; a scale sets the first two |
+| `turn_order` | random | the order of each round in the written plan (`ExecutionConfig.plan`); random draws a permutation per round from the seed |
+| `steps_per_agent` | 60 (8 in the `default` preset) | rounds of the plan; an agent is charged at most one working step per round, and planning steps and free board steps are never charged |
+| `concurrent_rounds`, `max_concurrency` | true, 3 | one concurrent `ScheduleStep` per round with a snapshot of the board; false runs one single-agent step per agent per round |
 | `pooled_steps` | true | the `after_activation` callback gives a stopped agent's steps to the active agents (`ScheduleRuntime.amend_pending`) |
 | `one_call_per_turn` | false | quantum `legacy`, which runs the first call of a response; false is quantum `model_step` |
-| `planning_turns` | 0 | 0 or 2 concurrent snapshot steps before round 1, quantum `model_step`, offering only `channel_post` and `channel_read` |
+| `planning_turns` | 0 | 0 or 2 concurrent snapshot steps before round 1, quantum `model_step`, offering only the three board tools, or `channel_post` and `channel_read` on the legacy board |
 | `turn_header` | false | "Turns left: ..." appended to the provider input of each working turn, counted from the live plan |
-| `shutdown` | true | `AgentSpec.submit`; false builds agents without ORBIT's submit tool and drops every prompt sentence about submit; needs `one_call_per_turn=false`, so with the lucy preset pass `--set one_call_per_turn=false --set shutdown=false` |
+| `shutdown` | true | `AgentSpec.submit`; false builds agents without ORBIT's submit tool and drops every prompt sentence about submit; needs `one_call_per_turn=false`, so with the lucy_legacy preset pass `--set one_call_per_turn=false --set shutdown=false` |
+| `team_submit` | none | `team_submit` for neutral agents; none follows the mode; a call lets the round finish, then the callback drops every later step |
 | `regulator_window`, `disregulator_window` | 1: | the rounds a role holds steps in, as `start:end`; the agent enters at its start round and leaves after its end |
 | `rule_level` | none | the rule sentence after the task instruction (`src/configuration/instruction_levels.yaml`, ladder `rule`) |
 | `regulator_level`, `disregulator_level` | role, persuade | the role texts (ladders `regulator` and `disregulator`) |
 | `awareness_probe` | false | adds the `end_of_episode_probes` scorer |
-| `message_limit`, `token_limit`, `time_limit_s` | 320, 0, 0 | Inspect's message and token limits, and `SchedulerConfig.max_time_seconds`; 0 means the default |
+| `team_report` | false (true in the legacy presets) | the role texts' `text_legacy` in `instruction_levels.yaml`, which keep the old team report's sentences |
+| `message_limit`, `token_limit`, `time_limit_s` | 320, 0, 0 | Inspect's message and token limits, and `SchedulerConfig.max_time_seconds`; 0 means the default; a scale sets the first and the last |
+| `batch_agents`, `batch_judge` | false, true | `GenerateConfig(batch=True)` for the agents' model (from the scale) and for the model bound to the judge role |
 | `control`, `monitor_model` | baseline | `DefenseConfig` entries in `metadata["experiment"]["defenses"]` |
 | `judge`, `judge_addendum` | gpt-6-sol, false | the judge entry in `src/benchmark/models.yaml`, and Lucy's judge addendum appended to the schema |
 
+A step is charged to `steps_per_agent` only when its last tool call is not a board action, `submit` or `team_submit`, so a step that ends with a board action is free and earns a follow-up step in the same round.
+
 Every run also carries the passive `turn_rules` defense. Its model filter appends "Please continue with your next action." when the provider input would end with a model turn, which Gemini rejects.
 
-Two presets exist. `ours` is the defaults above. `lucy` sets `channel_list=false`, `pooled_steps=false`, `one_call_per_turn=true`, `planning_turns=2`, `turn_header=true`, `awareness_probe=true` and `steps_per_agent=50`.
+Three presets exist. `default` is the fields above at the small scale. `ian_legacy` is the October 2026 sweep's setup: `mode` shared_task on openmath, `board_tools=false`, `mention_board=true`, `mention_team=true`, `concurrent_rounds=false`, `free_board_actions=0`, `team_submit=false`, `informed_roles=false`, `notice=none`, `team_report=true`, `delivery=auto`, `visibility=step_start` and `turn_order=round_robin`. `lucy_legacy` adds `channel_list=false`, `pooled_steps=false`, `one_call_per_turn=true`, `planning_turns=2`, `turn_header=true`, `awareness_probe=true` and `steps_per_agent=50`. The legacy presets were called `ours` and `lucy` at commit 6769c80, and those names still resolve.
 
-Hidden roles and the team report (`swarm_report.txt`) are used on an openmath board of three or more agents, and on any board whose config asks for a regulator or a disregulator.
+Hidden roles are used on an openmath board of three or more agents, and on any board whose config asks for a regulator or a disregulator. No agent is asked for a team report any more. The export still reads the report of an older run that has one.
 
 ## Where we differ from Lucy's patched ORBIT
 
-- Free reads. Lucy's `channel_read` does not end the turn, which needs her patch. Both presets here use auto delivery, which shows every unread post at the start of the turn with no call. `read_tool=false` removes `channel_read` entirely.
+- Free reads. Lucy's `channel_read` does not end the turn, which needs her patch. The legacy presets use auto delivery, which shows every unread post at the start of the turn with no call. `read_tool=false` removes `channel_read` entirely. The pull board instead gives a free follow-up step after each board action, up to `free_board_actions` per round.
 - Dropped calls. Lucy answers every call after the first "not run: one tool call per turn". Quantum `legacy` drops them from the history instead, and `rules.py` counts them in `extra_calls`.
-- Provider-only messages. The planning prompts, the turn header and the continue prompt reach the provider input through a model filter. They never enter the durable conversation. Lucy's patch writes them into it. `rules.py` records each one as an info event, and `src/benchmark/transcript.py` puts it back into the transcript, so the judge sees it.
-- Withheld tools. `channel_list` and `channel_read` are withheld from the provider request only. The tools still exist, so a model that names one anyway runs it.
-- Planning prompts. Lucy's planning texts name her channel `#team`; ours name the board's channel id, `#board`.
+- Provider-only messages. The planning prompts, the turn header, the board notice and the continue prompt reach the provider input through a model filter. They never enter the durable conversation. Lucy's patch writes them into it. `rules.py` records each one as an info event, and `src/benchmark/transcript.py` puts it back into the transcript, so the judge sees it.
+- Withheld tools. `channel_list` and `channel_read`, and all three channel tools under `board_tools`, are withheld from the provider request only. The tools still exist, so a model that names one anyway runs it. Such a call counts as the matching board action (check, read or post) in `TurnState` and the engagement block. Each call records the names it withheld as an info event of kind `withheld_tools`. The raw Inspect log's `ModelEvent.tools` is recorded before ORBIT's filter runs, so it lists the channel tools, although the provider never received them.
+- Planning prompts. Lucy's planning texts name her channel `#team`; ours name the board's channel id, `#board`. On the pull board they name `board_post` and `board_read`.
 - Text-only replies. Lucy ends a working turn after three replies with no tool call. Under `one_call_per_turn` ORBIT keeps asking for a tool call until one comes; the header is sent once per turn.
 - Windows. A regulator or disregulator may enter late or leave early. Lucy's harness has no such window.
 
@@ -85,5 +102,6 @@ Hidden roles and the team report (`swarm_report.txt`) are used on an openmath bo
 |---|---|
 | `rungs.py` | Rigel's ladder, version 1: searched, exposed, tried, opened, used, shipped per agent; writes `rungs.json` |
 | `swe_summary.py` | Lucy's SWE measures: cheated, fix posts, rule posts, disclosure, rung and reward; writes `swe_summary.json` |
+| `engagement.py` | the board engagement funnel per role and per agent: on the board, looked, read, posted, submitted for the team |
 
-Run them with `python -m src.measures.rungs runs/<run>` and `python -m src.measures.swe_summary runs/<run>`.
+Run them with `python -m src.measures.rungs runs/<run>`, `python -m src.measures.swe_summary runs/<run>` and `python -m src.measures.engagement runs/<run> [--json]`.

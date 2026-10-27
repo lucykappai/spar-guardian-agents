@@ -1059,6 +1059,9 @@ async function viewRun({ run }, view) {
     ['agents', (d.agents || []).join(', ')],
     ['control', d.control],
     ['monitor model', d.monitor_model],
+    ['mode', d.mode],
+    ['scale', d.scale],
+    ['preset', d.preset ? (d.preset_inferred ? `${d.preset} (inferred from the config)` : d.preset) : null],
     ['eval id', rj.eval_id ? mono(rj.eval_id) : null],
     ['run id', rj.run_id],
     ['variant', rj.variant || null],
@@ -1083,9 +1086,40 @@ async function viewRun({ run }, view) {
   const sweSection = d.swe ? section('SWE task', sweView(d.swe, eps)) : null;
   const configSection = d.config ? section('Configuration', configKv(d.config)) : null;
   const rulesSection = d.rules ? section('Turn rules', rulesTable(d.rules)) : null;
+  const engagementSection = d.engagement ? section('Board engagement', engagementView(d.engagement, eps)) : null;
 
   return h('div', { class: 'page' }, head, meta, configSection, defSection, sweSection, swarmSection, rulesSection,
-    epSection, boardSection, evidence);
+    engagementSection, epSection, boardSection, evidence);
+}
+
+// Who looked at the board, read it, posted and submitted for the team: run.json "engagement" and each episode's.
+function engagementView(run, eps) {
+  const sub = run.team_submission;
+  const summary = kv([
+    ['agents on the board', run.agents],
+    ['agents that looked', run.agents_checked],
+    ['agents that posted', run.agents_posted],
+    ['median discovery round', run.median_discovery_round],
+    ['checks', run.checks],
+    ['reads', run.reads],
+    ['posts', run.posts],
+    ['team submission', sub ? `${sub.agent} in round ${sub.round == null ? DASH : sub.round}` : null],
+  ], 'kv-grid');
+  const rows = eps.filter(e => e.engagement);
+  const cell = v => (v == null ? muted(DASH) : String(v));
+  const senders = m => Object.entries(m || {}).sort().map(([s, n]) => `${s} ${n}`).join(', ');
+  const cols = ['agent', 'role', 'discovery round', 'checks', 'reads', 'posts', 'work steps', 'free steps',
+    'notices', 'team submit', 'read from'];
+  const table = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+    h('thead', null, h('tr', null, cols.map(c => h('th', null, c)))),
+    h('tbody', null, rows.map(e => {
+      const g = e.engagement;
+      return h('tr', null, h('td', null, e.orbit_agent), h('td', null, cell(e.role)), h('td', null, cell(g.discovery_round)),
+        h('td', null, cell(g.checks)), h('td', null, cell(g.reads)), h('td', null, cell(g.posts)),
+        h('td', null, cell(g.work_steps)), h('td', null, cell(g.free_steps)), h('td', null, cell(g.notices)),
+        h('td', null, g.team_submitted ? 'yes' : 'no'), h('td', null, senders(g.read_senders) || muted(DASH)));
+    }))));
+  return h('div', null, summary, table);
 }
 
 // The run's SwarmConfig as the task built it (run.json "config"), one field per row.

@@ -3,15 +3,16 @@
 A board is one shared channel that every agent on the roster can read and write. There are no invocation edges: no
 agent calls, hands off to, or waits on another. ORBIT attaches channel_post, channel_read and channel_list to every
 agent as soon as a CommunicationConfig is set (orbit/solvers/orchestrator.py _build_executor), so the specs list only
-their task tools. The board prompt comes from src/configuration/prompts.yaml (`board`).
+their task tools. Under the pull board (board_tools) agents reach the same channel through board_status, board_read
+and board_post (src/swarm/board.py), and rules.TurnRulesFilter withholds ORBIT's channel tools from the provider.
+The board's system prompt text is built by src/configuration/swarm_config.py board_system_prompt.
 
-    prompt  = board_prompt("a01", names, workdir="/workspace")
-    comm    = board_communication(names, delivery="auto", max_message_chars=4000)
+    comm    = board_communication(names, delivery="poll", visibility="live", max_message_chars=800)
     execute = board_execution(quantum=config.quantum, plan=rules.schedule(config, names))
     sched   = board_scheduler(max_turns=config.max_turns + 5, max_time_seconds=3600)
 
 Delivery modes (orbit/communication/delivery.py):
-    poll    nothing is pushed; agents must call channel_read
+    poll    nothing is pushed; agents must read the board (the pull board's mode)
     notify  a metadata-only notice ("channel_id=board: N unread") is placed in the model input
     auto    unread bodies are placed in the model input, bounded by max_inbox_messages and max_context_chars
 Notices and bodies reach the provider input only (CommunicationDeliveryModel). The transcript builder in
@@ -27,20 +28,9 @@ from orbit.configs.execution import AgentGroup, ExecutionConfig
 from orbit.configs.scheduler import SchedulerConfig
 from orbit.configs.scheduling import ScheduleConfig
 
-from src.configuration.settings import BOARD_ID, load_prompts
-from src.configuration.swarm_config import board_read_clause
+from src.configuration.settings import BOARD_ID
 
 BOARD_NAME = "team board"
-
-
-def board_prompt(name: str, agents: list[str], *, workdir: str = "/workspace", board: str = BOARD_ID,
-                 read_tool: bool = True) -> str:
-    """The board system prompt for one agent of a team of two or more. Without read_tool it names no channel_read."""
-    others = [a for a in agents if a != name]
-    if name not in agents or not others:
-        raise ValueError(f"{name!r} must be one of at least two agents {agents}")
-    return load_prompts()["board"].format(name=name, others=" and ".join(others), n=len(agents),
-                                          workdir=workdir, board=board, read=board_read_clause(board, read_tool))
 
 
 def board_channel(agents: list[str], *, channel_id: str = BOARD_ID, name: str = BOARD_NAME) -> ChannelConfig:

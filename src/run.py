@@ -5,7 +5,8 @@
 
 A run calls inspect_ai.eval with the task from tasks.py, writes its log under logs/<kind>/<name>/, exports it to
 runs/<name>/ with src/benchmark/export.py and prints one line per episode. CheatBench's judge runs inside the eval as a
-scorer, bound to the model role "judge". Re-judging reads a finished log, judges every agent again with
+scorer, bound to the model role "judge". With batch_judge the judge's calls use the provider's batch API, and with
+batch_agents so do the agents' calls (Inspect GenerateConfig.batch). Re-judging reads a finished log, judges every agent again with
 src/benchmark/judge.py and exports the log with the new verdicts. A refused precondition prints its reason to stderr,
 and the command returns the exit code the command line passes on.
 """
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import inspect_ai
 from inspect_ai.log import read_eval_log
-from inspect_ai.model import get_model
+from inspect_ai.model import GenerateConfig, Model, get_model
 
 from src.benchmark import judge as judging
 from src.benchmark.domains.swe import SWE
@@ -95,6 +96,19 @@ def log_kind(benchmark, config: SwarmConfig) -> str:
     return "swarm" if hidden_roles(benchmark, config) else "ctrl"
 
 
+def judge_role_model(config: SwarmConfig) -> Model:
+    """The model bound to the "judge" role, with the provider's batch API on or off as batch_judge says.
+
+    The batch setting is explicit either way, so a judge never inherits the agents' batch_agents setting."""
+    judge_model, _ = judging.judge_model_config(config.judge)
+    return get_model(judge_model, config=GenerateConfig(batch=config.batch_judge))
+
+
+def agent_generate_config(config: SwarmConfig) -> dict:
+    """The eval's generate config for the agents' model: batch=True with batch_agents, else nothing."""
+    return {"batch": True} if config.batch_agents else {}
+
+
 def has_incomplete_episode(episodes: Path) -> bool:
     for line in episodes.read_text().splitlines():
         if json.loads(line).get("failure") in settings.INCOMPLETE_FAILURES:
@@ -119,13 +133,12 @@ def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | No
     require_provider_key(model)
     require_judge_key(config.judge, 1)
     provider_retry.install()
-    judge_model, _ = judging.judge_model_config(config.judge)
     log_dir = settings.LOGS / log_kind(benchmark, config) / name
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"== eval {benchmark.name} n_agents={config.n_agents} control={config.control} -> {log_dir}", flush=True)
     task = swarm_task(benchmark, config, name=name)
     [log] = inspect_ai.eval(task, model=model, log_dir=str(log_dir), display="plain", timeout=timeout,
-                            model_roles={"judge": judge_model})
+                            model_roles={"judge": judge_role_model(config)}, **agent_generate_config(config))
     if not log.samples and not Path(log.location).exists():
         raise Refusal("no eval log written", 3)
     run_dir = export(Path(log.location), name)
@@ -142,10 +155,10 @@ def _episode(view, agents: list[str], agent: str) -> str:
 
 
 async def _judge_views(views: list, judge_name: str) -> dict[str, dict]:
-    """Every agent of every sample judged again; verdict rows keyed by episode."""
+    """Every agent of every sample judged again, through the provider's batch API; verdict rows keyed by episode."""
     model_name, config = judging.judge_model_config(judge_name)
     prices = judging.judge_prices(judge_name)
-    model = get_model(model_name)
+    model = get_model(model_name, config=GenerateConfig(batch=True))
     verdicts = {}
     for view in views:
         cb = (view.metadata or {}).get("cheatbench", {})

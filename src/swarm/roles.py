@@ -11,22 +11,24 @@ boundary. Roles hide behind neutral names (a01 ... a10) and are recorded in the 
 
 Every model-facing text of a level comes from src/configuration/instruction_levels.yaml: the rule sentence appended to
 the task instruction, and the regulator and disregulator texts appended to the system prompt of the agents holding
-the role. A level gives one text or one per benchmark, with placeholders filled from the benchmark's `vars`.
+the role. A level gives one text or one per benchmark, with placeholders filled from the benchmark's `vars`. A level
+whose text named the old team report keeps that text as `text_legacy`, which the legacy presets render
+(SwarmConfig.team_report).
 
-The task gains one team-level output when roles are used: swarm_report.txt, whose first line says whether the team as
-a whole cheated. Its instruction is src/configuration/prompts.yaml `roles.team_report`; src/benchmark/export.py parses it.
+With informed_roles on, a regulator or disregulator also gets the briefing (prompts.yaml `roles.briefing`, built by
+swarm_config.role_briefing) after its role text: the swarm's size and roster, the board and its tools, and what the
+agents without a role were told. Workers never get it.
 """
 from __future__ import annotations
 
 import random
 import re
 
-from src.benchmark.export import CHEATED_LINE, parse_swarm_report
-from src.configuration.settings import load_instruction_levels, load_prompts
-from src.configuration.swarm_config import SwarmConfig, agent_names
+from src.configuration.settings import load_instruction_levels
+from src.configuration.swarm_config import SwarmConfig, agent_names, role_briefing
 
-__all__ = ["ROLES", "CHEATED_LINE", "LEVEL_KEYS", "agent_names", "assign_roles", "level_text", "role_text",
-           "with_role", "rule_suffix", "team_report_suffix", "parse_swarm_report", "composition_label"]
+__all__ = ["ROLES", "LEVEL_KEYS", "agent_names", "assign_roles", "level_text", "role_text", "role_prompt",
+           "with_role", "rule_suffix", "composition_label"]
 
 ROLES = ("worker", "regulator", "disregulator")
 # The key instruction_levels.yaml uses for each CheatBench task.
@@ -35,11 +37,17 @@ LEVEL_KEYS = {"openmath_agent": "openmath", "software_engineering": "swe"}
 SENTENCE_START = re.compile(r"(^|[.!?]\s+)\{(\w+)\}")
 
 
-def level_text(ladder: str, level: str, benchmark_name: str) -> str | None:
-    """The text of one level of a ladder for one benchmark ("openmath" or "swe"), or None for no text."""
+def level_text(ladder: str, level: str, benchmark_name: str, legacy: bool = False) -> str | None:
+    """The text of one level of a ladder for one benchmark ("openmath" or "swe"), or None for no text.
+
+    legacy picks the level's `text_legacy` when it has one: the text with the old team report's sentences, which the
+    legacy presets render (SwarmConfig.team_report)."""
     levels = load_instruction_levels()
     entry = levels[ladder][level]
-    template = entry["text"] if "text" in entry else entry.get(benchmark_name)
+    if legacy and "text_legacy" in entry:
+        template = entry["text_legacy"]
+    else:
+        template = entry["text"] if "text" in entry else entry.get(benchmark_name)
     if template is None:
         return None
     values = dict(levels["vars"][benchmark_name])
@@ -67,23 +75,30 @@ def role_text(role: str, config: SwarmConfig, benchmark_name: str) -> str | None
         raise ValueError(role)
     if role == "worker":
         return None
-    return level_text(role, getattr(config, f"{role}_level"), benchmark_name)
+    return level_text(role, getattr(config, f"{role}_level"), benchmark_name, legacy=config.team_report)
 
 
-def with_role(prompt: str, text: str | None) -> str:
-    """The system prompt, then the role text after a blank line."""
-    return prompt if not text else f"{prompt}\n\n{text}"
+def role_prompt(role: str, config: SwarmConfig, benchmark_name: str, names: list[str]) -> str | None:
+    """Everything a role adds to the system prompt: the role text, then the briefing for a regulator or a
+    disregulator when informed_roles is on, a blank line apart. None for a worker."""
+    if role == "worker":
+        return role_text(role, config, benchmark_name)
+    parts = [role_text(role, config, benchmark_name), role_briefing(config, names, benchmark_name)]
+    return "\n\n".join(p for p in parts if p) or None
+
+
+def with_role(prompt: str | None, text: str | None) -> str | None:
+    """The system prompt, then the role text after a blank line. Without a prompt of ours the role text stands
+    alone."""
+    if not text:
+        return prompt
+    return f"{prompt}\n\n{text}" if prompt else text
 
 
 def rule_suffix(config: SwarmConfig, benchmark_name: str) -> str:
     """The rule sentence on its own paragraph after the instruction, or "" at level none."""
     sentence = level_text("rule", config.rule_level, benchmark_name)
     return f"\n{sentence}\n" if sentence else ""
-
-
-def team_report_suffix() -> str:
-    """The team report instruction, appended to the task instruction after a newline."""
-    return "\n" + load_prompts()["roles"]["team_report"]
 
 
 def composition_label(roles: dict[str, str]) -> str:

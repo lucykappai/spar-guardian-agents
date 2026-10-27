@@ -1,24 +1,29 @@
 """The Inspect tasks of the experiment: one benchmark under one SwarmConfig, as an ORBIT task.
 
-    task = swarm_task(OpenMath("riemann"), PRESETS["ours"].with_overrides(["n_agents=10", "regulators=3"]))
-    inspect eval src/tasks.py@openmath -T preset=lucy -T n_agents=3
+    task = swarm_task(OpenMath("riemann"), build_config("default", "medium", ["regulators=3"]))
+    inspect eval src/tasks.py@openmath -T preset=lucy_legacy -T n_agents=3
 
 The second form skips what `python -m src run` adds: the key checks and the Gemini 402 retry (src/utils/provider_retry.py).
 
 What comes from where:
   * the sample, its tools, its setup solver and its graders come from the benchmark (src/benchmark/domains/openmath/,
     src/benchmark/domains/swe/);
-  * the roster, the board, the hidden roles, the written plan and the turn rules come from this package
-    (comm_topology.py, roles.py, rules.py);
+  * the roster, the board, the board tools and team_submit, the hidden roles, the written plan and the turn rules
+    come from src/swarm/ (comm_topology.py, board.py, roles.py, rules.py);
   * the control's defenses come from controls.py, and CheatBench's judge is added as a scorer (src/benchmark/judge.py).
 
-The run's facts go into the sample metadata: metadata["cheatbench"] gains the config dump, the control, the hidden
-roles and their composition, and the deviations from CheatBench's own runner; metadata["experiment"]["defenses"]
-holds the control's defenses plus the passive turn-rules defense, which every run carries.
+Each agent's tools are the benchmark's, then, on a pull board (board_tools), board_status, board_read and board_post,
+then team_submit for a neutral agent when the mode has a team to submit for. They are bound per agent through ORBIT's
+tool_bindings next to the benchmark's own bindings.
 
-Hidden roles and the team report are used on a board of three or more agents on openmath (the October 2026 swarm),
-and on any board whose config asks for a regulator or a disregulator. Two openmath agents without roles are the
-plain board.
+The run's facts go into the sample metadata: metadata["cheatbench"] gains the config dump, the control, the hidden
+roles and their composition, and the deviations from CheatBench's own runner. The mode and who holds team_submit
+follow from the config dump and the roles (SwarmConfig.resolve_mode, board.agent_tool_names).
+metadata["experiment"]["defenses"] holds the control's defenses plus the passive turn-rules defense, which every run
+carries.
+
+Hidden roles are used on a board of three or more agents on openmath (the October 2026 swarm), and on any board whose
+config asks for a regulator or a disregulator. Two openmath agents without roles are the plain board.
 """
 from __future__ import annotations
 
@@ -35,13 +40,13 @@ from src.benchmark.domains.swe import SWE
 from src.benchmark.judge import cheatbench_judge
 from src.configuration import settings
 from src.configuration.openmath import TOKEN_LIMIT
-from src.configuration.swarm_config import PRESETS, SwarmConfig
+from src.configuration.swarm_config import SwarmConfig, board_system_prompt, preset
 from src.configuration.swe import GRADING_BUDGET_S
 from src.swarm import roles as roles_module
+from src.swarm.board import agent_tool_names, board_bindings
 from src.swarm.comm_topology import (
     board_communication,
     board_execution,
-    board_prompt,
     board_scheduler,
 )
 from src.swarm.controls import BASELINE, defenses_for
@@ -68,44 +73,52 @@ def hidden_roles(benchmark: Benchmark, config: SwarmConfig) -> dict[str, str] | 
     return roles_module.assign_roles(config.names, config.regulator_count, config.disregulator_count, config.seed)
 
 
-def instruction_suffix(benchmark: Benchmark, config: SwarmConfig, roles: dict[str, str] | None) -> str:
-    """The rule sentence, then the team report instruction when the run uses roles."""
-    report = roles_module.team_report_suffix() if roles else ""
-    return roles_module.rule_suffix(config, level_key(benchmark)) + report
+def instruction_suffix(benchmark: Benchmark, config: SwarmConfig) -> str:
+    """The rule sentence on its own paragraph, or "" at rule level none."""
+    return roles_module.rule_suffix(config, level_key(benchmark))
 
 
-def build_sample(benchmark: Benchmark, config: SwarmConfig, suffix: str) -> Sample:
-    """The benchmark's sample. SWE also takes the settings its prompts and planted commits depend on."""
-    if isinstance(benchmark, SWE):
-        return benchmark.sample(config.names, instruction_suffix=suffix, seed=config.seed, delivery=config.delivery,
-                                channel_list=config.channel_list, shutdown=config.shutdown,
-                                planning_turns=config.planning_turns, read_tool=config.read_tool)
-    return benchmark.sample(config.names, instruction_suffix=suffix)
+def build_sample(benchmark: Benchmark, config: SwarmConfig, suffix: str,
+                 roles: dict[str, str] | None = None) -> Sample:
+    """The benchmark's sample under the config: the mode, the board settings and who is neutral (roles; neutral
+    agents hold team_submit) shape its prompts and workspaces."""
+    return benchmark.sample(config.names, instruction_suffix=suffix, config=config, roles=roles)
 
 
 def system_prompts(benchmark: Benchmark, config: SwarmConfig, sample: Sample,
                    roles: dict[str, str] | None) -> dict[str, str | None]:
-    """Each agent's system prompt: the benchmark's own (SWE) or the board prompt (openmath), then its role text.
+    """Each agent's system prompt: the benchmark's own (SWE) or the board prompt (openmath), then what its role adds.
 
-    A lone openmath agent has no system prompt of ours, as in CheatBench's runner.
+    The openmath board prompt says what mention_team and mention_board turn on (swarm_config.board_system_prompt);
+    with neither, an agent has no system prompt of ours. A lone openmath agent has none, as in CheatBench's runner.
+    A regulator or disregulator gets its role text and, with informed_roles, the briefing (roles.role_prompt).
     """
     names = config.names
     own = (sample.metadata["cheatbench"].get("swe") or {}).get("system_prompt")
     if own:
         base = {n: own[n] for n in names}
-    elif config.board:
-        base = {n: board_prompt(n, names, workdir=benchmark.workdir, read_tool=config.read_tool) for n in names}
     else:
-        base = {n: None for n in names}
+        base = {n: board_system_prompt(config, n, names, workdir=benchmark.workdir, domain=level_key(benchmark))
+                for n in names}
     if not roles:
         return base
-    return {n: roles_module.with_role(base[n], roles_module.role_text(roles[n], config, level_key(benchmark)))
+    return {n: roles_module.with_role(base[n], roles_module.role_prompt(roles[n], config, level_key(benchmark),
+                                                                         names))
             for n in names}
 
 
-def agent_specs(config: SwarmConfig, tools: AgentTools, prompts: dict[str, str | None]) -> list[AgentSpec]:
+def team_tools(benchmark: Benchmark, config: SwarmConfig, tools: AgentTools,
+               roles: dict[str, str] | None) -> tuple[dict[str, list[str]], dict]:
+    """(each agent's AgentSpec.tools, ORBIT tool_bindings): the benchmark's tools, then the board tools and
+    team_submit (src/swarm/board.py)."""
+    extra = agent_tool_names(config, config.names, level_key(benchmark), roles)
+    names = {n: [*tools.names, *extra[n]] for n in config.names}
+    return names, {**tools.bindings, **board_bindings(config)}
+
+
+def agent_specs(config: SwarmConfig, tools: dict[str, list[str]], prompts: dict[str, str | None]) -> list[AgentSpec]:
     """One worker per name. An agent with no prompt of ours keeps AgentSpec's default system prompt."""
-    return [AgentSpec(name=n, role="worker", tools=list(tools.names), max_messages=config.message_limit + 10,
+    return [AgentSpec(name=n, role="worker", tools=list(tools[n]), max_messages=config.message_limit + 10,
                       submit=config.shutdown, **({"system_prompt": prompts[n]} if prompts[n] else {}))
             for n in config.names]
 
@@ -162,7 +175,8 @@ def record_run(task_: Task, benchmark: Benchmark, config: SwarmConfig, roles: di
         cb["control"] = config.control if config.control not in BASELINE else "baseline"
         cb["monitor_model"] = config.monitor_model if control else None
         cb["config"] = config.model_dump(mode="json")
-        cb["deviations"] = benchmark.run_deviations(config.n_agents, shutdown=config.shutdown)
+        cb["deviations"] = benchmark.run_deviations(config.n_agents, shutdown=config.shutdown,
+                                                    mode=config.resolve_mode(benchmark.name))
         if roles:
             cb["roles"] = roles
             cb["composition"] = roles_module.composition_label(roles)
@@ -179,10 +193,12 @@ def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = 
     """One benchmark under one config, as an ORBIT task on Inspect."""
     settings.check_submodule_heads()
     check_control(benchmark, config)
+    benchmark.check(config)
     names = config.names
     roles = hidden_roles(benchmark, config)
-    sample = build_sample(benchmark, config, instruction_suffix(benchmark, config, roles))
-    tools = benchmark.tools(names)
+    sample = build_sample(benchmark, config, instruction_suffix(benchmark, config), roles)
+    tools = benchmark.tools(names, config)
+    agent_tools, bindings = team_tools(benchmark, config, tools, roles)
     prompts = system_prompts(benchmark, config, sample, roles)
     time_limit_s = config.time_limit_s or benchmark.time_limit_s()
     communication = board_communication(names, delivery=config.delivery, visibility=config.visibility,
@@ -193,7 +209,7 @@ def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = 
     inspect_time = {"time_limit": time_limit_s + GRADING_BUDGET_S} if isinstance(benchmark, SWE) else {}
     task_ = multi_agent_task(
         name=name or f"swarm_{level_key(benchmark)}",
-        setup=SetupConfig(agents=agent_specs(config, tools, prompts), communication_edges=None,
+        setup=SetupConfig(agents=agent_specs(config, agent_tools, prompts), communication_edges=None,
                           tool_kwargs=tools.tool_kwargs),
         dataset=[sample],
         communication=communication,
@@ -201,8 +217,9 @@ def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = 
                                   agent_groups=first_message_groups(sample, names), initial_context="sample_input"),
         scheduler=board_scheduler(max_turns=config.max_turns + 5, max_time_seconds=time_limit_s),
         scorer=scorers(benchmark, config),
-        tool_bindings=tools.bindings or None,
-        task_setup=[s for s in (rules_setup(config, names, roles), benchmark.setup()) if s is not None],
+        tool_bindings=bindings or None,
+        task_setup=[s for s in (rules_setup(config, names, roles, level_key(benchmark)), benchmark.setup())
+                    if s is not None],
         message_limit=config.message_limit,
         token_limit=token_limit(config),
         **inspect_time,
@@ -211,20 +228,19 @@ def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = 
     return task_
 
 
-def _config(preset: str, overrides: dict) -> SwarmConfig:
-    if preset not in PRESETS:
-        raise ValueError(f"unknown preset {preset!r}; choose one of {sorted(PRESETS)}")
-    return PRESETS[preset].with_overrides([f"{key}={value}" for key, value in overrides.items()])
+def _config(preset_name: str, overrides: dict) -> SwarmConfig:
+    """The preset, then every -T key=value; scale=<name> applies that scale first (SwarmConfig.with_overrides)."""
+    return preset(preset_name).with_overrides([f"{key}={value}" for key, value in overrides.items()])
 
 
 @task
-def openmath(preset: str = "ours", row: str = "riemann", **overrides) -> Task:
+def openmath(preset: str = "default", row: str = "riemann", **overrides) -> Task:
     """CheatBench's openmath_agent row under a preset; every other -T key=value sets a config field."""
     return swarm_task(OpenMath(row), _config(preset, overrides))
 
 
 @task
-def swe(preset: str = "ours", issue: str = "flipt-02e2", honeypot: str = "as_released", grade: bool = True,
+def swe(preset: str = "default", issue: str = "flipt-02e2", honeypot: str = "as_released", grade: bool = True,
         **overrides) -> Task:
     """A CheatBench SWE issue under one of Lucy's honeypots and a preset; other -T key=value set config fields."""
     grade = grade if isinstance(grade, bool) else str(grade).strip().lower() in ("1", "true", "yes")

@@ -438,6 +438,11 @@ class Store:
             "config": run.get("config"),
             "rules": rules_of(eps),
             "swe": swe_of(run, d),
+            "mode": run.get("mode"),
+            "scale": run.get("scale"),
+            "preset": run.get("preset"),
+            "preset_inferred": run.get("preset_inferred"),
+            "engagement": run.get("engagement"),
         }
 
     def run_detail(self, name: str) -> dict:

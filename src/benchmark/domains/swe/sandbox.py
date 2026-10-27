@@ -1,6 +1,7 @@
 """The sandbox: the amd64 and native images, the compose file and the tools bound to each agent's service.
 
-One compose project per sample, every service without network: `default` is the grader, a01..a03 are the agents.
+One compose project per sample, every service without network: `default` is the grader, and each agent has a service
+of its own name. SWE.check refuses the large scales, whose teams would need a hundred services or more.
 The native image is built from scripts/native.Dockerfile.
 """
 from __future__ import annotations
@@ -99,7 +100,8 @@ def _service(image: str, hostname: str, **extra) -> dict:
 
 
 def write_compose(issue: str, agents: list[str], *, board: bool) -> Path:
-    """The grader `default`, one service per agent, and the volume `team` (mounted in agents only for a board)."""
+    """The grader `default`, one service per agent, and the volume `team`. board True mounts it in the agents too: a
+    team with the team remote (collaboration_needed or shared_task)."""
     image = image_tags(issue)["native"]
     services = {"default": _service(image, "grader", cpus=4.0, mem_limit="6g", volumes=["team:/team"])}
     for a in agents:

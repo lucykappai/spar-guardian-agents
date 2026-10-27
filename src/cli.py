@@ -1,15 +1,19 @@
 """Command line for the peer-pressure experiment. Argument parsing only; every command calls run.py.
 
-    python -m src run <name> [--benchmark openmath|swe] [--preset ours|lucy] [--set key=value ...]
-                                         [--row R] [--issue I] [--honeypot H] [--no-grade] [--model M] [--timeout S]
+    python -m src run <name> [--benchmark openmath|swe] [--preset default|ian_legacy|lucy_legacy]
+                             [--scale small|medium|large|extra_large|gigantic] [--set key=value ...]
+                             [--row R] [--issue I] [--honeypot H] [--no-grade] [--model M] [--timeout S]
     python -m src judge <eval_log> <run_name> [--judge MODEL] [--judge-errors]
     python -m src ui [start|stop] [--port P] [--no-open]
     python -m src summary <run_dir ...> [--full]
 
-`--set` takes any SwarmConfig field (src/configuration/swarm_config.py), for example
-`--set n_agents=10 --set regulators=3 --set disregulators=3` for a swarm, or `--set shutdown=false` for agents
-without the submit tool. A run writes its Inspect log under logs/<ctrl|swarm|swe>/<name>/, exports it to
-runs/<name>/ and prints one line per episode; the judge runs inside the eval.
+The config is built in this order: the preset, then the scale, then every `--set`. The default preset is the pull
+board at the small scale; `--scale` replaces its size (src/configuration/scales.py). The legacy presets keep their
+own sizes unless `--scale` is given. `--set` takes any SwarmConfig field (src/configuration/swarm_config.py) and
+overrides any value the scale gave, for example `--set regulators=3 --set disregulators=3` for a swarm, or
+`--set shutdown=false` for agents without the submit tool. A run writes its Inspect log under
+logs/<ctrl|swarm|swe>/<name>/, exports it to runs/<name>/ and prints one line per episode; the judge runs inside
+the eval.
 """
 from __future__ import annotations
 
@@ -19,7 +23,8 @@ import sys
 from pathlib import Path
 
 from src.configuration import settings
-from src.configuration.swarm_config import PRESETS
+from src.configuration.scales import SCALES
+from src.configuration.swarm_config import PRESETS, build_config
 from src.measures import summary
 from src.ui import launch
 
@@ -35,7 +40,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     from src import run
     from src.benchmark.domains.openmath import OpenMath
     from src.benchmark.domains.swe import SWE
-    config = PRESETS[args.preset].with_overrides(args.settings)
+    config = build_config(args.preset, args.scale, args.settings)
     benchmark = OpenMath(args.row) if args.benchmark == "openmath" else SWE(args.issue, args.honeypot, not args.no_grade)
     return run.run(args.name, benchmark, config, args.model, args.timeout)
 
@@ -59,10 +64,13 @@ def add_run_parser(subparsers) -> None:
     run = subparsers.add_parser("run", help="run a task, export it to runs/<name>/ and print the summary")
     run.add_argument("name", help="run name: logs/<kind>/<name>/ and runs/<name>/")
     run.add_argument("--benchmark", choices=("openmath", "swe"), default="openmath")
-    run.add_argument("--preset", choices=sorted(PRESETS), default="ours",
-                     help="ours: our board rules; lucy: Lucy's turn rules on the ORBIT API")
+    run.add_argument("--preset", choices=sorted(PRESETS), default="default",
+                     help="default: the pull board at the small scale; ian_legacy and lucy_legacy: the presets ours "
+                          "and lucy of commit 6769c80 (push delivery, channel tools, sequential rounds)")
+    run.add_argument("--scale", choices=list(SCALES), default=None,
+                     help="the run's size, applied after the preset (default: the preset's own, small for default)")
     run.add_argument("--set", dest="settings", action="append", default=[], metavar="KEY=VALUE",
-                     help="set a SwarmConfig field; repeatable")
+                     help="set a SwarmConfig field after the preset and the scale; repeatable")
     run.add_argument("--row", default="riemann", help="openmath_agent row")
     run.add_argument("--issue", default="flipt-02e2", help="SWE issue (Lucy's splits)")
     run.add_argument("--honeypot", choices=("as_released", "own_piece", "jigsaw"), default="as_released",

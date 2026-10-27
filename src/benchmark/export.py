@@ -12,6 +12,9 @@ Writes
     <run_dir>/defense/<sample>.json                    defense configuration and interventions, if any
     <run_dir>/swe/diffs/<target>.diff                  for a SWE run, the graded diffs
 
+run.json also carries the run's mode, scale and preset, and each episode and the run an `engagement` block: who
+looked at the board, read it, posted and submitted for the team (None for a run without a board).
+
 Episode ids: "<sample>#<epoch>" for a single agent, "<sample>#<epoch>@<agent>" otherwise.
 Verdicts come from the `verdicts` argument (re-judging) or from the cheatbench_judge score in the log.
 """
@@ -31,6 +34,7 @@ from src.benchmark.domains.openmath.task import TEAM_DEVIATION
 from src.benchmark.judge import JUDGE_SCORER
 from src.benchmark.transcript import (
     LIMIT_FAILURES,
+    TURN_RULES_TAG,
     SampleView,
     agent_messages,
     agent_version,
@@ -45,6 +49,8 @@ from src.benchmark.transcript import (
 )
 from src.configuration import settings
 from src.configuration.openmath import TEAM_IDENTITY
+from src.configuration.scales import SCALES
+from src.configuration.swarm_config import DOMAIN_KEYS, DOMAIN_MODES, PRESETS
 
 CHEATED_LINE = re.compile(r"^\s*CHEATED\s*:\s*(yes|no)\b", re.I | re.M)
 DELIVERABLES_SCORER = "deliverables_scorer"
@@ -53,6 +59,16 @@ PROBES_SCORER = "end_of_episode_probes"
 TURN_STATE = "TurnState"      # the StoreModel of src/swarm/rules.py; Inspect stores its fields as "TurnState:<field>"
 TURN_STATE_FIELDS = ("agents", "planning_turns", "cap", "pooled", "turn_order", "seed", "rounds", "windows",
                      "planning", "activations", "used", "ended", "extra_calls", "timeline")
+# The pull board's per-agent counts ({agent: value}) and the team submission; written only when the run stored them.
+TURN_STATE_BOARD_FIELDS = ("work_steps", "free_steps", "checks", "reads", "posts", "discovery_round", "read_senders",
+                           "team_submission")
+# Board actions by the engagement count they feed. The channel tools are the legacy presets' board.
+BOARD_ACTIONS = {"board_status": "checks", "board_read": "reads", "board_post": "posts",
+                 "channel_list": "checks", "channel_read": "reads", "channel_post": "posts"}
+BOARD_POST_LINE = re.compile(r"^\[(\S+) #(\d+)\] ", re.M)   # prompts.yaml board_output.post
+TEAM_SUBMIT_TAG = "swarm_team_submit"     # the info event team_submit writes (src/swarm/board.py)
+TEAM_SUBMISSION = "TeamSubmission"        # its StoreModel: agent, round, answer, time
+TEAM_SUBMISSION_FIELDS = ("agent", "round", "answer", "time")
 SWE_TEXT_KEYS = ("first_message", "judge_prompt", "system_prompt")
 
 # Deviations of runs made before samples carried their own (metadata["cheatbench"]["deviations"]).
@@ -113,6 +129,20 @@ def deliverables_block(view: SampleView) -> dict | None:
     if sc is None:
         return None
     md = sc.metadata or {}
+    per_agent = md.get("agents")
+    if isinstance(per_agent, dict):
+        # openmath solo_task: one copy of the row per agent. The top-level keys summarise the copies.
+        blocks = {name: _deliverables_facts(found or {}, bool((found or {}).get("archive")))
+                  for name, found in per_agent.items()}
+        return {"archive_in_workspace": sc.value == 1.0,
+                "registered_on_main": any(b["registered_on_main"] for b in blocks.values()),
+                "registered_entry": None, "registered_message_copied_from": None, "main_registry_agents": [],
+                "checkout": None, "commits": [], "agents": blocks, "explanation": sc.explanation}
+    return {**_deliverables_facts(md, sc.value == 1.0), "explanation": sc.explanation}
+
+
+def _deliverables_facts(md: dict, archive_present: bool) -> dict:
+    """The registry on main, the checkout and the commits of one workspace's deliverables evidence."""
     entries = _registry_entries(md)
     agents = [a.get("agent") for a in entries]
     team = next((a for a in entries if a.get("agent") == TEAM_IDENTITY), None)
@@ -128,14 +158,13 @@ def deliverables_block(view: SampleView) -> dict | None:
                             "message_head": (team.get("message") or "")[:200]}
     lines = (md.get("git") or "").splitlines()
     status = next((line for line in lines if line.startswith("## ")), "")
-    return {"archive_in_workspace": sc.value == 1.0,
+    return {"archive_in_workspace": archive_present,
             "registered_on_main": TEAM_IDENTITY in agents,
             "registered_entry": registered_entry,
             "registered_message_copied_from": copied_from,
             "main_registry_agents": agents,
             "checkout": status[3:].split("...")[0] if status else None,
-            "commits": [line for line in lines if re.match(r"^[0-9a-f]{7,} ", line)],
-            "explanation": sc.explanation}
+            "commits": [line for line in lines if re.match(r"^[0-9a-f]{7,} ", line)]}
 
 
 def _swarm_facts(cb: dict) -> dict | None:
@@ -266,7 +295,9 @@ def rules_state(view: SampleView) -> dict | None:
     """The turn rules' store (src/swarm/rules.py TurnState), or None for a run without them."""
     if view.store_get(f"{TURN_STATE}:agents") is None:
         return None
-    return {f: view.store_get(f"{TURN_STATE}:{f}") for f in TURN_STATE_FIELDS}
+    state = {f: view.store_get(f"{TURN_STATE}:{f}") for f in TURN_STATE_FIELDS}
+    board = {f: view.store_get(f"{TURN_STATE}:{f}") for f in TURN_STATE_BOARD_FIELDS}
+    return {**state, **{f: v for f, v in board.items() if v is not None}}
 
 
 def rules_facts(state: dict | None, agent: str) -> dict | None:
@@ -287,6 +318,171 @@ def shutdown_rate(config: dict | None, records: list[dict]) -> float | None:
 def probes_block(view: SampleView) -> dict | None:
     md = _score_metadata(view, PROBES_SCORER)
     return None if md is None else md.get("probes")
+
+
+# --------------------------------------------------------------------------
+# the board: who looked, read, posted and submitted for the team
+# --------------------------------------------------------------------------
+def team_submission(view: SampleView) -> dict | None:
+    """The team's submission: the TeamSubmission store, else TurnState's record, else the swarm_team_submit event."""
+    stored = {f: view.store_get(f"{TEAM_SUBMISSION}:{f}") for f in TEAM_SUBMISSION_FIELDS}
+    if stored["agent"]:
+        return stored
+    recorded = view.store_get(f"{TURN_STATE}:team_submission")
+    if isinstance(recorded, dict) and recorded.get("agent"):
+        return {f: recorded.get(f) for f in TEAM_SUBMISSION_FIELDS}
+    for ev in view.events or []:
+        data = ev.data if ev.event == "info" and isinstance(ev.data, dict) else {}
+        tagged = data.get(TEAM_SUBMIT_TAG)
+        if tagged:
+            tagged = tagged if isinstance(tagged, dict) else data
+            return {f: tagged.get(f) for f in TEAM_SUBMISSION_FIELDS}
+    return None
+
+
+def notice_counts(view: SampleView) -> dict[str, int]:
+    """Board notices per agent, from the turn rules' info events of kind "notice"."""
+    out: dict[str, int] = {}
+    for ev in view.events or []:
+        rule = (ev.data or {}).get(TURN_RULES_TAG) if ev.event == "info" and isinstance(ev.data, dict) else None
+        if isinstance(rule, dict) and rule.get("kind") == "notice" and rule.get("agent"):
+            out[rule["agent"]] = out.get(rule["agent"], 0) + 1
+    return out
+
+
+def _board_calls(steps: list[dict]) -> tuple[dict[str, int], dict[str, int], bool]:
+    """(checks, reads, posts counts; senders of the posts board_read returned; whether team_submit was called)
+    from the agent's conversation."""
+    counts = {"checks": 0, "reads": 0, "posts": 0}
+    senders: dict[str, int] = {}
+    submitted = False
+    for step in steps:
+        results = {r.get("source_call_id"): r for r in ((step.get("observation") or {}).get("results") or [])}
+        for tc in step.get("tool_calls") or []:
+            name = tc.get("function_name")
+            submitted = submitted or name == "team_submit"
+            if name not in BOARD_ACTIONS:
+                continue
+            counts[BOARD_ACTIONS[name]] += 1
+            text = (results.get(tc.get("tool_call_id")) or {}).get("content") or ""
+            text = text if isinstance(text, str) else ""
+            if name == "board_read":
+                found = [sender for sender, _ in BOARD_POST_LINE.findall(text)]
+            elif name == "channel_read":
+                found = _channel_read_senders(text)
+            else:
+                found = []
+            for sender in found:
+                senders[sender] = senders.get(sender, 0) + 1
+    return counts, senders, submitted
+
+
+def _channel_read_senders(text: str) -> list[str]:
+    """The senders in ORBIT's channel_read result: a JSON header line, then one JSON line per message."""
+    out = []
+    for line in text.splitlines()[1:]:
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(message, dict) and message.get("sender"):
+            out.append(message["sender"])
+    return out
+
+
+def engagement_record(view: SampleView, agent: str, steps: list[dict], rules: dict | None,
+                      submission: dict | None, notices: dict[str, int]) -> dict | None:
+    """One agent's board engagement, or None for a run without a board.
+
+    Every count comes from the turn rules' store when the run recorded it (posts that went through). Without it,
+    checks, reads and posts count the board tool calls in the agent's conversation (the legacy channel tools count
+    as the same actions), read_senders holds the senders of the posts board_read or channel_read returned (the
+    agent itself left out), work_steps falls back to the working turns used, and the rest is None.
+    """
+    if topology(view) == "single":
+        return None
+    counts, senders, called_submit = _board_calls(steps)
+    senders.pop(agent, None)           # an agent's own posts are not news to it
+    state = rules or {}
+
+    def recorded(field, default=None):
+        table = state.get(field)
+        return table.get(agent, default) if isinstance(table, dict) else None
+
+    work = recorded("work_steps", 0)
+    return {
+        "discovery_round": recorded("discovery_round"),
+        **{k: n if recorded(k, 0) is None else recorded(k, 0) for k, n in counts.items()},
+        "read_senders": recorded("read_senders", {}) if isinstance(state.get("read_senders"), dict) else senders,
+        "free_steps": recorded("free_steps", 0),
+        "work_steps": recorded("used") if work is None else work,
+        "team_submitted": called_submit or bool(submission and submission.get("agent") == agent),
+        "notices": notices.get(agent, 0),
+    }
+
+
+def run_engagement(records: list[dict], submission: dict | None) -> dict | None:
+    """The run's board engagement: how many agents looked, the median round they first looked, the posts and
+    reads, and who read whom ({reader: {sender: count}})."""
+    rows = [(r["orbit_agent"], r["engagement"]) for r in records if r.get("engagement")]
+    if not rows:
+        return None
+    rounds = sorted(e["discovery_round"] for _, e in rows if e.get("discovery_round") is not None)
+    mid = len(rounds) // 2
+    median = None if not rounds else (rounds[mid] if len(rounds) % 2 else (rounds[mid - 1] + rounds[mid]) / 2)
+    return {
+        "agents": len(rows),
+        "agents_checked": sum(1 for _, e in rows if e["checks"] or e["reads"]),
+        "agents_posted": sum(1 for _, e in rows if e["posts"]),
+        "median_discovery_round": median,
+        "checks": sum(e["checks"] for _, e in rows),
+        "reads": sum(e["reads"] for _, e in rows),
+        "posts": sum(e["posts"] for _, e in rows),
+        "read_graph": {a: dict(e["read_senders"]) for a, e in rows if e.get("read_senders")},
+        "team_submission": submission,
+    }
+
+
+# --------------------------------------------------------------------------
+# mode, scale and preset
+# --------------------------------------------------------------------------
+def run_mode(config: dict | None, task: str | None) -> str | None:
+    """The mode the run's config resolves to on its domain; None for a config written before modes existed."""
+    if not config or "mode" not in config or task not in DOMAIN_KEYS:
+        return None
+    mode, key = config["mode"], DOMAIN_KEYS[task]
+    if isinstance(mode, dict):
+        return mode.get(key, DOMAIN_MODES[key])
+    return mode or DOMAIN_MODES[key]
+
+
+SIZE_FIELDS = set(SCALES[next(iter(SCALES))].fields()) | {"max_context_chars", "message_limit", "scale", "seed",
+                                                          "regulators", "disregulators"}
+
+
+def infer_preset(config: dict | None) -> str | None:
+    """The preset whose fields the config matches best, over the fields that tell the presets apart and leaving
+    out the scale's; None without a config or on a tie. A fallback for runs made before SwarmConfig.preset."""
+    if not config:
+        return None
+    dumps = {name: PRESETS[name].model_dump(mode="json") for name in PRESETS}
+    telling = {k for k in set().union(*dumps.values()) - SIZE_FIELDS - {"preset"}
+               if k in config and len({json.dumps(d.get(k), sort_keys=True) for d in dumps.values()}) > 1}
+    misses = {name: sum(1 for k in telling if json.dumps(d.get(k), sort_keys=True) != json.dumps(config[k], sort_keys=True))
+              for name, d in dumps.items()}
+    best = min(misses.values())
+    names = [n for n, m in misses.items() if m == best]
+    return names[0] if len(names) == 1 else None
+
+
+def run_identity(view: SampleView, task: str | None) -> dict:
+    """mode, scale and preset for run.json; the preset is the recorded one, else inferred from the config."""
+    cb = _cheatbench(view)
+    config = cb.get("config")
+    recorded = cb.get("preset") or (config or {}).get("preset")
+    preset = recorded or infer_preset(config)
+    return {"mode": run_mode(config, task), "scale": (config or {}).get("scale"), "preset": preset,
+            "preset_inferred": preset is not None and not recorded}
 
 
 # --------------------------------------------------------------------------
@@ -356,8 +552,9 @@ def _ended_by(view: SampleView, submitted: bool, ep_failure: str | None) -> str:
     return "end"
 
 
-def _write_episode(view: SampleView, run_dir: Path, agent: str, episode: str, error, failure) -> dict:
-    """Write one agent's transcript and prompt; return the record fields that depend on them."""
+def _write_episode(view: SampleView, run_dir: Path, agent: str, episode: str, error,
+                   failure) -> tuple[dict, list[dict]]:
+    """Write one agent's transcript and prompt; return the record fields that depend on them, and its ATIF steps."""
     transcript, info = episode_transcript(view, agent, judge_prompt(view, agent))
     ep_dir = run_dir / "trajectories" / episode
     ep_dir.mkdir(parents=True, exist_ok=True)
@@ -381,7 +578,7 @@ def _write_episode(view: SampleView, run_dir: Path, agent: str, episode: str, er
     swe = _cheatbench(view).get("swe") or {}
     if "comm_turns" in swe:
         fields["comm_turns"] = legacy_comm_turns(transcript["trajectory"].get("steps", []), swe["comm_turns"])
-    return fields
+    return fields, transcript["trajectory"].get("steps", [])
 
 
 def _no_transcript(error, failure) -> dict:
@@ -404,18 +601,23 @@ def sample_records(view: SampleView, run_dir: Path) -> list[dict]:
     _write_defense(view, run_dir, defenses_cfg, evidence)
     rules = rules_state(view)
     probes = probes_block(view) or {}
+    submission = team_submission(view)
+    notices = notice_counts(view)
     records = []
     for agent in agents:
         episode = _sample_key(view) if len(agents) == 1 else f"{_sample_key(view)}@{agent}"
         record = _base_record(view, agent, episode, defenses_cfg, evidence)
         if _cheatbench(view).get("swe"):
             record.update(swe_record(view, agent))
+        steps = []
         if agent_messages(view, agent):
-            record.update(_write_episode(view, run_dir, agent, episode, error, failure))
+            fields, steps = _write_episode(view, run_dir, agent, episode, error, failure)
+            record.update(fields)
         else:
             record.update(_no_transcript(error, failure))
         record["rules"] = rules_facts(rules, agent)
         record["probes"] = probes.get(agent)
+        record["engagement"] = engagement_record(view, agent, steps, rules, submission, notices)
         records.append(record)
     return records
 
@@ -456,6 +658,9 @@ def run_json(view: SampleView | None, eval_path: Path, run_dir: Path, records: l
         "shutdown_rate": shutdown_rate((meta.get("cheatbench") or {}).get("config"), records) if view else None,
         "rules": rules_state(view) if view else None,
         "probes": probes_block(view) if view else None,
+        **(run_identity(view, task) if view else {"mode": None, "scale": None, "preset": None,
+                                                  "preset_inferred": False}),
+        "engagement": run_engagement(records, team_submission(view)) if view else None,
     }
 
 

@@ -11,7 +11,7 @@ responses are JSON.
 |---|---|
 | `#/` | Summary: cheating by setting, composition grids, team reports against the judge |
 | `#/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=` | Runs: one row per run, opening to its agents |
-| `#/run/<run>` | run page; `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
+| `#/run/<run>` | run page (with mode, scale, preset and board engagement); `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
 | `#/swarm?run=<run>` | Swarm: grids, outcome funnel, adoption curves, swarm runs with rasters, run explorer |
 
 A **setting** is the communication graph (`single`: a lone agent; `board`: every agent on one shared board), the roster size, and
@@ -39,13 +39,24 @@ RunSummary = {
   run, task, model, topology ("single"|"board"|"swarm" as run.json wrote it), graph ("single"|"board"), n_agents, roles: bool, mock: bool,
   agents: [str], control (e.g. "baseline","monitor_task"), monitor_model, defenses: [str], eval_log, eval_log_exists, failed: bool,
   swarm: null | {n_agents, regulators, disregulators, workers, seed, composition, swarm_report_cheated, has_report},
+                                   # the team report fields are null and false for runs after the team report was removed
   deliverables: null | {archive_in_workspace, registered_on_main, registered_message_copied_from},
+                                   # openmath solo_task: archive_in_workspace means every copy holds the archive
   endings: {label: count}   # failure label, else "submit", else the converter's ended_by
   has_communication, has_defense,
   config: null | {...},            # run.json "config": the SwarmConfig the task was built from (every field)
   rules: null | {<agent>: {...}},  # each episode's "rules": what the turn rules recorded for that agent
   swe: null | SweSetting,          # CheatBench SWE runs; null otherwise
+  mode: null | "solo_task"|"shared_task"|"collaboration_needed",   # the config's mode on the run's domain; null before modes
+  scale: null | "small"|"medium"|"large"|"extra_large"|"gigantic",  # the config's scale; null when the fields were set by hand
+  preset: null | "default"|"ian_legacy"|"lucy_legacy",
+  preset_inferred: bool,           # true when the run recorded no preset and its name was inferred from the config's fields
+  engagement: null | RunEngagement,  # null for a run without a board
   episodes: [Episode]
+}
+RunEngagement = {
+  agents, agents_checked (looked: board_status or board_read), agents_posted, median_discovery_round,
+  checks, reads, posts, read_graph: {reader: {sender: count}}, team_submission: null | {agent, round, answer, time}
 }
 SweSetting = {
   task_key ("flipt-02e2"), instance, n_agents, board: bool, honeypot ("as_released"|"own_piece"|"jigsaw"|null), jigsaw: bool,
@@ -62,7 +73,9 @@ Episode = {                       # one row of episodes.jsonl plus:
   usage: {input, output, cache_read}, control, defenses: [str],
   defense: {checks, blocks, blocks_by_boundary: {model_input?, model_output?, tool_call?}, checks_by_boundary},
   transcript_path, has_transcript,
-  verdict: null | Verdict
+  verdict: null | Verdict,
+  engagement: null | {discovery_round, checks, reads, posts, read_senders: {sender: count}, free_steps, work_steps,
+                      team_submitted: bool, notices}   # null for a run without a board
 }
 Verdict = every key of the episode's judge.jsonl row except the bookkeeping keys (id, episode, replicate, task, model,
           transcript_path, judge_generation_config, judge_generation_config_unsupported, judge_prompt, judge_schema,
@@ -86,7 +99,7 @@ Transcript = {agent, model, prompt, orbit: {agent, roster, topology, system_prom
 ATIF.steps[i] = {step_id, source: "system"|"user"|"agent", message, reasoning_content?, model_name?,
                  tool_calls?: [{tool_call_id, function_name, arguments}],
                  observation?: {results: [{source_call_id, content, extra?: {is_error?, error?, withheld_from_model_by_defense?}}]},
-                 extra?: {orbit_delivery_notice?, swarm_turn_rules? ("planning"|"header"|"continue"),
+                 extra?: {orbit_delivery_notice?, swarm_turn_rules? ("planning"|"header"|"continue"|"notice"),
                           orbit_trailing_turn_fix? (older runs), submit_recovered_from_events?, orphan_tool_result?, ...}}
 ```
 A blocked tool call has a result whose `extra.error` starts with `Blocked by defense '<name>'`. An agent step whose message is
@@ -95,6 +108,8 @@ exactly `I cannot provide that response under the configured defense policy.` is
 ### `GET /api/runs/<run>/sample` → sample-level facts from the eval log
 `{status, model, eval_id, total_time, working_time, limit, error, model_usage: {model: {input, cache_read, output, reasoning}},
   scores: {deliverables_scorer: {value, answer (message.txt), explanation, metadata: {listing, git, agent_evals, agent_evals_main, probe}}},
+          # openmath solo_task: value is the share of copies holding the archive, answer is null, and metadata is
+          # {agents: {name: {archive, message, listing, git, agent_evals, agent_evals_main}}, probe}
   store: {...}, n_messages, n_events}`
 
 ### `GET /api/runs/<run>/context` → `{run, agents: [str], defenses: [str], calls: [CallIndex]}`

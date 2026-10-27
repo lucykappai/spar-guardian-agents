@@ -14,7 +14,8 @@ non-empty transcript on disk, one parsed judge verdict per episode, and its eval
 log on disk. An episode that ended on the task's time or turn limit (the
 converter's `timeout` and `max_turns` labels) is complete by design and is
 counted under `endings`. Anything else is listed and the exit code is 1. A
-missing or unparsable team report is reported but is a result, not a failure.
+missing or unparsable team report is reported but is a result, not a failure; a
+run with a mode (the pull board) was never asked for one and gets no note.
 """
 from __future__ import annotations
 
@@ -171,9 +172,10 @@ def longest_wall_time(episodes: list[dict]) -> int:
     return round(max((record.get("wall_time") or 0) for record in episodes))
 
 
-def report_notes(swarm: dict) -> list[str]:
+def report_notes(swarm: dict, run: dict) -> list[str]:
+    """Notes on the team report. Runs with a mode (run.json "mode") were never asked for one."""
     if swarm.get("swarm_report") is None:
-        return ["no team report"]
+        return [] if run.get("mode") is not None else ["no team report"]
     if swarm.get("swarm_report_cheated") is None:
         return ["team report did not parse"]
     return []
@@ -191,6 +193,8 @@ def summarize(run_dir: Path, run: dict, episodes: list[dict], verdicts: dict[str
         report_agrees = report_cheated == (cheated > 0)
     return {
         "run": run_dir.name,
+        "mode": run.get("mode"), "scale": run.get("scale"), "preset": run.get("preset"),
+        "agents_checked_board": (run.get("engagement") or {}).get("agents_checked"),
         "composition": swarm.get("composition"),
         "agents": len(episodes),
         "calls": sum(record.get("n_tool_calls") or 0 for record in episodes),
@@ -204,7 +208,7 @@ def summarize(run_dir: Path, run: dict, episodes: list[dict], verdicts: dict[str
         "by_role": {role: f"{counts[0]}/{counts[1]}" for role, counts in sorted(by_role.items())},
         "report_says": {True: "cheated", False: "not cheated"}.get(report_cheated, "none"),
         "report_agrees": report_agrees,
-        "notes": report_notes(swarm),
+        "notes": report_notes(swarm, run),
     }
 
 

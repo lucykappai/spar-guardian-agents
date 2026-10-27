@@ -1,7 +1,12 @@
-"""The openmath sandbox: the staging tarball, the setup script and the docker context.
+"""The openmath sandbox: the staging tarball, the setup scripts, the docker context and the per-agent tools.
 
 The docker context holds the agent image, the mirror sidecar image and the compose file under build/openmath_agent/.
-The setup script and the two Dockerfiles live in scripts/ and are read at import.
+The setup scripts and the two Dockerfiles live in scripts/ and are read at import.
+
+Two layouts share the one image and compose file. CheatBench's own layout (a lone agent, and every agent of a
+shared_task team) stages the row under /workspace for the user `user`. The solo_task layout of a team gives each
+agent a Linux user of its own name, a home /home/<name> and a copy of the row under /workspace/<name>, both mode 700,
+and binds its tools to that user and directory.
 """
 from __future__ import annotations
 
@@ -12,13 +17,53 @@ import tarfile
 from pathlib import Path
 
 import yaml
+from inspect_ai.tool import ToolDef
+from inspect_ai.util import sandbox
+from orbit.tools import ToolContext, ToolFactory
 
-from src.configuration.openmath import AGENT_NAME, AGENT_UID, BUILD, MIRROR_IP, WORKDIR
+from src.configuration.openmath import AGENT_NAME, AGENT_UID, BUILD, MIRROR_IP, TOOL_TIMEOUT_S, WORKDIR
 
 SCRIPTS = Path(__file__).parent / "scripts"
 SETUP_SCRIPT = (SCRIPTS / "setup.sh").read_text().format(workdir=WORKDIR, agent_name=AGENT_NAME)
+SOLO_SETUP = (SCRIPTS / "setup_solo.sh").read_text()
+SOLO_SETUP_AGENT = (SCRIPTS / "setup_solo_agent.sh").read_text()
 DOCKERFILE_AGENT = (SCRIPTS / "Dockerfile.agent").read_text()
 DOCKERFILE_MIRROR = (SCRIPTS / "Dockerfile.mirror").read_text()
+# ORBIT reserves the names bash and python for its built-in tools, which take one user for every agent. The per-agent
+# tools of the solo_task layout therefore take SWE's names. Their descriptions are Inspect's bash and python texts.
+SOLO_TOOLS = ["shell", "run_python"]
+BASH_DESCRIPTION = "Use this function to execute bash commands."
+PYTHON_DESCRIPTION = """Use the python function to execute Python code.
+
+The Python tool executes single-run Python scripts. Important notes:
+1. Each execution is independent - no state is preserved between runs
+2. You must explicitly use print() statements to see any output
+3. Simply writing expressions (like in notebooks) will not display results
+4. The script cannot accept interactive input during execution
+5. Return statements alone won't produce visible output
+6. All variables and imports are cleared between executions
+7. Standard output (via print()) is the only way to see results"""
+
+
+def agent_workdir(name: str) -> str:
+    """An agent's copy of the row in the solo_task layout."""
+    return f"{WORKDIR}/{name}"
+
+
+def agent_layout(agents: list[str]) -> dict[str, dict]:
+    """The solo_task layout: each agent's Linux user, uid, home and workspace. Uids follow `user`'s 1000."""
+    return {a: {"user": a, "uid": AGENT_UID + 1 + i, "home": f"/home/{a}", "workdir": agent_workdir(a)}
+            for i, a in enumerate(agents)}
+
+
+def solo_setup_script(agents: list[str]) -> str:
+    """The solo_task setup: /workspace becomes root's, and /workspace and /home mode 711, so an agent can reach its own
+    directories but cannot list the others'; then per agent a user, a home and a copy of the staged row.
+
+    The tarball is extracted once per agent with its members' modes and mtimes; chown changes the owner only."""
+    layout = agent_layout(agents)
+    blocks = "".join(SOLO_SETUP_AGENT.format(workdir=WORKDIR, name=a, uid=layout[a]["uid"]) for a in agents)
+    return SOLO_SETUP.format(workdir=WORKDIR, agents=blocks.rstrip("\n"))
 
 
 def parse_mtime(value) -> int:
@@ -135,3 +180,37 @@ def _write_atomic(path: Path, data: bytes) -> None:
     tmp = path.with_name(f"{path.name}.tmp{os.getpid()}")
     tmp.write_bytes(data)
     os.replace(tmp, path)
+
+
+def _output(result) -> str:
+    """Inspect's bash and python tools' output: stderr, then stdout."""
+    return (f"{result.stderr}\n" if result.stderr else "") + f"{result.stdout}"
+
+
+def _shell(ctx: ToolContext) -> ToolDef:
+    workdir = agent_workdir(ctx.agent_name)
+
+    async def execute(command: str) -> str:
+        result = await sandbox().exec(["bash", "--login", "-c", command], timeout=TOOL_TIMEOUT_S,
+                                      user=ctx.agent_name, cwd=workdir)
+        return _output(result)
+
+    return ToolDef(execute, name="shell", description=BASH_DESCRIPTION,
+                   parameters={"command": "The bash command to execute."})
+
+
+def _run_python(ctx: ToolContext) -> ToolDef:
+    workdir = agent_workdir(ctx.agent_name)
+
+    async def execute(code: str) -> str:
+        result = await sandbox().exec(["bash", "--login", "-c", "python3 -"], input=code, timeout=TOOL_TIMEOUT_S,
+                                      user=ctx.agent_name, cwd=workdir)
+        return _output(result)
+
+    return ToolDef(execute, name="run_python", description=PYTHON_DESCRIPTION,
+                   parameters={"code": "The python code to execute."})
+
+
+def solo_tool_bindings() -> dict[str, ToolFactory]:
+    """`shell` and `run_python` as Inspect's bash and python, run as the agent's own user in its own copy."""
+    return {"shell": ToolFactory(_shell), "run_python": ToolFactory(_run_python)}

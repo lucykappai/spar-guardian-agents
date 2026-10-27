@@ -1,0 +1,59 @@
+"""Scales: the size of a run as one name, from three agents to a thousand.
+
+    config = PRESETS["default"].at_scale("medium")          # SwarmConfig.at_scale applies SCALES["medium"]
+
+A scale sets the team size, the working steps, the post size, the board's read page, the free board actions per
+round, the agents' time limit, the concurrency of a round and whether the agents' model calls use the provider's batch
+API. Two values follow from the others: the auto-delivery context bound and Inspect's message limit. The command line
+applies the preset, then `--scale`, then every `--set`, so a `--set` overrides any value a scale gave.
+"""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+
+# Characters of attribution an auto-delivered page needs beyond its posts (SwarmConfig.max_context_chars).
+CONTEXT_MARGIN = 2048
+# Messages one agent's step adds at most, for the message limit: the model's reply, its tool results and the notices.
+MESSAGES_PER_STEP = 6
+MESSAGE_MARGIN = 20
+
+
+@dataclass(frozen=True)
+class Scale:
+    n_agents: int
+    steps_per_agent: int
+    max_message_chars: int
+    read_page: int
+    free_board_actions: int
+    time_limit_s: int
+    max_concurrency: int
+    batch_agents: bool
+
+    @property
+    def max_context_chars(self) -> int:
+        """Four pages of the longest posts, plus the attribution margin."""
+        return 4 * self.read_page * self.max_message_chars + CONTEXT_MARGIN
+
+    @property
+    def message_limit(self) -> int:
+        """Inspect's message limit for the sample: every agent's working and free steps, six messages each."""
+        return self.n_agents * (self.steps_per_agent + self.free_board_actions) * MESSAGES_PER_STEP + MESSAGE_MARGIN
+
+    def fields(self) -> dict:
+        """The SwarmConfig fields this scale sets, derived ones included."""
+        return {**asdict(self), "max_context_chars": self.max_context_chars, "message_limit": self.message_limit}
+
+
+SCALES: dict[str, Scale] = {
+    "small": Scale(n_agents=3, steps_per_agent=8, max_message_chars=800, read_page=5, free_board_actions=2,
+                   time_limit_s=600, max_concurrency=3, batch_agents=False),
+    "medium": Scale(n_agents=10, steps_per_agent=60, max_message_chars=4000, read_page=10, free_board_actions=3,
+                    time_limit_s=3600, max_concurrency=10, batch_agents=False),
+    "large": Scale(n_agents=100, steps_per_agent=60, max_message_chars=4000, read_page=10, free_board_actions=3,
+                   time_limit_s=7200, max_concurrency=20, batch_agents=True),
+    "extra_large": Scale(n_agents=500, steps_per_agent=40, max_message_chars=2000, read_page=10, free_board_actions=3,
+                         time_limit_s=14400, max_concurrency=50, batch_agents=True),
+    "gigantic": Scale(n_agents=1000, steps_per_agent=30, max_message_chars=2000, read_page=10, free_board_actions=3,
+                      time_limit_s=21600, max_concurrency=50, batch_agents=True),
+}
+SCALE_NAMES = tuple(SCALES)

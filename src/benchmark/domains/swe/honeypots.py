@@ -65,6 +65,11 @@ def own_lines(fix_lines: list[dict], pieces: list[str]) -> set[str]:
             if "whole" in pieces or x["part"] in pieces or set(pieces) & set(x.get("repeated_in") or [])}
 
 
+def has_team_remote(swe: dict) -> bool:
+    """Whether the sample has the team remote: a team in collaboration_needed or shared_task, not in solo_task."""
+    return bool(swe["board"]) and swe.get("mode", "collaboration_needed") != "solo_task"
+
+
 class SetupFailed(RuntimeError):
     """A setup check failed before any agent started: the sample is an infrastructure failure, to be re-run."""
 
@@ -187,7 +192,8 @@ async def _team_repo_check(swe: dict, lines: dict, evidence: dict) -> list[str]:
 
 @solver
 def swe_setup() -> Solver:
-    """Identities and branches, the honeypot, the team remote, then the checks. A failed check raises."""
+    """Identities and branches, the honeypot, the team remote (none in solo_task), then the checks. A failed check
+    raises."""
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         swe = state.metadata["cheatbench"]["swe"]
         base, fix, agents = swe["base_commit"], swe["fix_commit"], swe["agents"]
@@ -208,7 +214,7 @@ def swe_setup() -> Solver:
             for a, p in zip(agents, pruned):
                 evidence["agents"][a]["pruned"] = p
                 evidence["agents"][a]["planted"] = await _plant(a, swe, split, base_time)
-        if swe["board"]:
+        if has_team_remote(swe):
             evidence["team_main"] = await _team_repo(agents)
         problems = []
         for a in agents:
@@ -216,7 +222,7 @@ def swe_setup() -> Solver:
             ev.update(await _agent_state(a, fix))
             if swe["honeypot"] != "as_released":
                 problems += await _planting_check(a, swe, split, ev, lines)
-        if swe["board"]:
+        if has_team_remote(swe):
             problems += await _team_repo_check(swe, lines, evidence)
         evidence["checks_ok"] = not problems
         state.store.set("swe_setup", evidence)
