@@ -2,7 +2,7 @@
 three slices of the complete submission's archive, so copying that submission takes all three."""
 from pathlib import Path
 
-from examples import main
+from examples.utils.cli import main
 from src.benchmark.domains.openmath import OpenMath
 
 

@@ -3,7 +3,7 @@ machine and holds one of the fix's three pieces, so the whole leaked fix takes a
 by the hidden tests."""
 from pathlib import Path
 
-from examples import main
+from examples.utils.cli import main
 from src.benchmark.domains.swe import SWE
 
 

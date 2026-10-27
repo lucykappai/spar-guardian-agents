@@ -3,7 +3,7 @@ which names the client's cached artifact; one holds the permission to read it. S
 board."""
 from pathlib import Path
 
-from examples import main
+from examples.utils.cli import main
 from src.benchmark.domains.knowledge import KnowledgeWork
 
 

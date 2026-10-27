@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import examples
-from examples import MODEL, SETTINGS
+from examples.utils import cli as examples
+from examples.utils.cli import MODEL, SETTINGS
 from src import run
 from src.configuration import models, settings
 from src.run import access_line

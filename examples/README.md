@@ -16,7 +16,7 @@ uv run python -m examples.openmath.riemann_minimal
 
 The run's outputs land beside the script, under a folder named after it (`examples/openmath/riemann_minimal/`): `run.json`, `episodes.jsonl`, `judge.jsonl`, `trajectories/` and `communication/`, the same files `runs/<name>/` gets. The eval log goes under `logs/`. `python -m src summary examples/openmath/riemann_minimal` prints the verdicts again, and the browser (`python -m src ui`) does not list these folders.
 
-Every script takes the same arguments, from `examples/__init__.py`:
+Every script takes the same arguments, from `examples/utils/cli.py`, which also holds the shared model and settings:
 
 | argument | default | what it does |
 |---|---|---|
