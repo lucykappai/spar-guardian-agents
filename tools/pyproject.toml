@@ -1,0 +1,30 @@
+# The analysis environment: a uv project of its own, apart from the run environment (.venv, Python 3.11, ORBIT's
+# inspect-ai pin). Transect needs Python 3.12 and Inspect Scout a newer inspect-ai than ORBIT allows, so the tools
+# read the exported runs and the eval logs from here. Set it up with `make tools-setup`; run a tool with
+# `uv run --project tools python -m tools <tool> <run>` from the repository root.
+[project]
+name = "spar-guardian-tools"
+version = "0.1.0"
+description = "Inspect Scout, Transect, Docent, NetworkX, NDlib and EoN over the runs"
+requires-python = ">=3.12"
+dependencies = [
+    "inspect-ai>=0.3.285",
+    "inspect-scout>=0.6.1",
+    "transect @ git+https://github.com/AI-Safety-Institute/transect.git@522aafa263d212e556a4df066e431590b52a4eb3",
+    "docent>=0.1.88",
+    "networkx>=3.6",
+    "ndlib>=6.0",
+    "EoN>=2.0",
+    "pandas>=3.0",
+    "matplotlib>=3.11",
+    "pyyaml>=6.0",
+    "openai>=3.1",
+    "anthropic>=1.5",
+    "google-genai>=2.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.uv]
+package = false

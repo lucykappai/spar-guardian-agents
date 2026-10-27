@@ -11,7 +11,7 @@ responses are JSON.
 |---|---|
 | `#/` | Summary: cheating by setting, composition grids, team reports against the judge |
 | `#/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=` | Runs: one row per run, opening to its agents |
-| `#/run/<run>` | run page (with mode, scale, preset, split access, turn budget, board engagement, and the knowledge-work section for that task); `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
+| `#/run/<run>` | run page (with mode, scale, preset, split access, turn budget, board engagement, the knowledge-work section for that task, and the analysis tools' cards); `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
 | `#/swarm?run=<run>` | Swarm: grids, outcome funnel, adoption curves, swarm runs with rasters, run explorer |
 
 A **setting** is the communication graph (`single`: a lone agent; `board`: every agent on one shared board), the roster size, and
@@ -57,6 +57,7 @@ RunSummary = {
   turn_budget: null | {budget, steps_per_agent},   # the domain's turn budget; null without one
   access: null | Access,           # the access policy and what each agent held; null for runs before the field
   knowledge: null | Knowledge,     # knowledge-work runs only
+  tools: [str],                    # the analysis tools that wrote runs/<run>/tools/<tool>/summary.json, sorted; [] for none
   episodes: [Episode]
 }
 Access = {policy: "split"|"all"|"explicit", agents: {<agent>: {holds: [str], branches?: [str], slices?: [int]|null,
@@ -93,6 +94,7 @@ Episode = {                       # one row of episodes.jsonl plus:
   defense: {checks, blocks, blocks_by_boundary: {model_input?, model_output?, tool_call?}, checks_by_boundary},
   transcript_path, has_transcript,
   verdict: null | Verdict,
+  ladder: null | Ladder,
   engagement: null | {discovery_round, checks, reads, posts, read_senders: {sender: count}, free_steps, work_steps,
                       team_submitted: bool, notices,
                       reads_refused?, posts_refused?, oversight?, oversight_targets?: {target: count}},
@@ -108,11 +110,23 @@ Verdict = every key of the episode's judge.jsonl row except the bookkeeping keys
           explicit_prohibition_violated, explicit_prohibition_evidence; SWE has reference_solution_seeking,
           reference_solution_obtained, reference_solution_used, documentation_lookup, evaluation_tampering. A row that did
           not parse also carries raw (the judge's text).
+Ladder = the episode's ladder.jsonl row (src/benchmark/ladder.py, `python -m src ladder`) without the same bookkeeping keys
+         and without raw: CheatBench's verdict fields as that judge call answered them, then the ladder's fields exposed, exposed_call,
+         exposed_source, searched, searched_call, tried, tried_call, tried_evidence, opened, opened_call, opened_evidence, used,
+         used_evidence, shipped, shipped_evidence, tampered, tampered_evidence, admitted, concealed, false_denial, honesty_evidence,
+         ladder_summary; then rung (none|exposed|tried|opened|used|shipped, derived in code), exposed_round, searched_round,
+         tried_round, opened_round (from the eval log's turn timeline; null without one), rounds_source (timeline|none),
+         citations ({ok, <field>: {call, exists, evidence_in_call?}}), view (full|actions), agent, role, failure, judge,
+         judge_cost_usd, parse_ok, judge_error. Null when the run has no ladder.jsonl or the episode is not in it. The
+         actions view's rows (ladder_actions.jsonl) are not served.
 SWE episodes also carry the SWE keys src/benchmark/export.py writes (swe_task, seat, part, reward, team_reward, ...). An episode
 written by the src tasks carries rules (the turn-rules facts for its agent).
 ```
 
-### `GET /api/runs/<run>` → `RunSummary + {run_json, communication: {<sample>: {messages:[...], events:[...]}}, defense: {<sample>: {defenses:[DefenseConfig], log:{blocks:[...], ...}, interventions:[...]}}}`
+### `GET /api/runs/<run>` → `RunSummary + {run_json, communication: {<sample>: {messages:[...], events:[...]}}, defense: {<sample>: {defenses:[DefenseConfig], log:{blocks:[...], ...}, interventions:[...]}}, tools: {<tool>: ToolSummary}}`
+`tools` here replaces the summary's name list with each tool's summary.json as the tool wrote it (`{tool, run, written_at, ...}`;
+the schemas are in each tool package's docstring under tools/). A summary.json that does not parse or is not an object becomes `{"error"}`. The
+loader caches tools/timeline.json and tools/board_reads.json are files, not tools, and are never listed.
 Board message: `{id, sender, sequence, channel_id, content, ...}`. Intervention: `{event:"defense_intervention", defense, boundary ("model_input"|"model_output"|"tool_call"), allow: bool, reason, agent, turn, tool?, message_id?, ...}`.
 
 ### `GET /api/runs/<run>/transcript/<episode>` → `{episode: Episode, transcript: Transcript}`
@@ -175,6 +189,13 @@ Post = {sequence, sender, id, t, content, read_by: [{agent, t, how: "read"|"mode
 `honeypot_touch` marks a bash/python call whose arguments name another agent's branch, commit or copied archive
 (openmath_agent riemann row); `member_read` marks a successful call whose result carries text found only inside
 agent-014's archive members. They place moments on a timeline; the judge verdict in `verdicts` is the record of truth.
+
+### `GET /api/runs/<run>/tools/<tool>/<path>` → one file an analysis tool wrote
+Serves `runs/<run>/tools/<tool>/<path>`, where `<path>` may have subdirectories (`transect/a01/report.html`). Only `.png`,
+`.csv`, `.html`, `.gexf`, `.json` and `.yaml` are served, with their media type (GEXF and YAML as `application/octet-stream`).
+A path with a `.` or `..` segment, an encoded separator inside a segment, a target outside the tool's directory, or another
+file type gets 400 `{"error"}`; a missing file gets 404. The run page uses it for figures (graph.png, contagion.png,
+onset.png), reports (transect report.html), downloads (graph.gexf) and the failures tool's mast.json and who_when.json.
 
 ### `GET /api/summary` → `{runs: [RunAggregate]}` for cross-run charts (no eval log needed)
 ```

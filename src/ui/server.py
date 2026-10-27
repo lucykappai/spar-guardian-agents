@@ -16,6 +16,7 @@ Endpoints (all JSON unless noted; see API.md):
     GET /api/runs/<run>/context                 index of every model call in the eval log (agents and defenses)
     GET /api/runs/<run>/context/<i>             one model call: exact provider input, output, usage
     GET /api/runs/<run>/timeline                tool calls, model calls, interventions and board messages in time
+    GET /api/runs/<run>/tools/<tool>/<file>     one file an analysis tool wrote (tools/, runs/<run>/tools/<tool>/)
 """
 from __future__ import annotations
 
@@ -57,6 +58,7 @@ VERDICT_BOOKKEEPING = frozenset({
     "output_mode", "judge_usage", "judge_attempts",
 })
 VERDICT_BASE = ("cheated", "summary", "judge", "judge_cost_usd", "parse_ok", "judge_error")
+LADDER_BOOKKEEPING = VERDICT_BOOKKEEPING | {"raw"}
 SWARM_FIELDS = ("n_agents", "regulators", "disregulators", "workers", "seed", "composition", "swarm_report_cheated")
 DELIVERABLE_FIELDS = ("archive_in_workspace", "registered_on_main", "registered_message_copied_from")
 SAMPLE_STORE_KEYS = (
@@ -65,6 +67,9 @@ SAMPLE_STORE_KEYS = (
     "knowledge_reviews",
 )
 ROLES = ("worker", "regulator", "disregulator")
+# The analysis tools (tools/ at the repository root) write runs/<run>/tools/<tool>/summary.json and their own files.
+# The page may fetch these file types from a tool's directory; anything else is refused.
+TOOL_FILE_SUFFIXES = frozenset({".png", ".csv", ".html", ".gexf", ".json", ".yaml"})
 
 # A run is failed when an episode ended in a harness crash or a provider error (the converter's
 # "connection_closed": rate limit, billing, connection), or when it was set aside by name
@@ -117,6 +122,23 @@ def _json_dir(directory: Path) -> dict:
     return {p.stem: _json(p) for p in sorted(directory.glob("*.json"))}
 
 
+def _tool_summary(path: Path) -> dict:
+    """A tool's summary.json, or {"error"} when it does not parse or is not an object, so one bad file does not
+    break the run page."""
+    try:
+        summary = _json(path)
+    except ValueError as ex:
+        return {"error": f"{path.name} did not parse: {ex}"}
+    if not isinstance(summary, dict):
+        return {"error": f"{path.name} is not a JSON object"}
+    return summary
+
+
+def _safe_part(part: str) -> bool:
+    """A path segment that stays inside its directory: not empty, not . or .., no separator."""
+    return part not in ("", ".", "..") and "/" not in part and "\\" not in part
+
+
 def graph_of(topology) -> str:
     """The communication graph of a run: a lone agent, or every agent on one shared board.
 
@@ -160,6 +182,13 @@ def verdict_of(row: dict | None) -> dict | None:
     verdict = {key: None for key in VERDICT_BASE}
     verdict.update({k: v for k, v in row.items() if k not in VERDICT_BOOKKEEPING})
     return verdict
+
+
+def ladder_of(row: dict | None) -> dict | None:
+    """A ladder.jsonl row for the page (src/benchmark/ladder.py): everything but the bookkeeping."""
+    if row is None:
+        return None
+    return {k: v for k, v in row.items() if k not in LADDER_BOOKKEEPING}
 
 
 def rules_of(eps: list[dict]) -> dict | None:
@@ -387,6 +416,7 @@ class Store:
     def episodes(self, name: str) -> list[dict]:
         d = self._dir(name)
         verdicts = {v["episode"]: v for v in _jsonl(d / "judge.jsonl")}
+        ladder = {row["episode"]: row for row in _jsonl(d / "ladder.jsonl")}
         out = []
         for rec in _jsonl(d / "episodes.jsonl"):
             v = verdicts.get(rec["episode"])
@@ -397,6 +427,7 @@ class Store:
             if own.exists():
                 rec["transcript_path"] = str(own)
             rec["verdict"] = verdict_of(v)
+            rec["ladder"] = ladder_of(ladder.get(rec["episode"]))
             path = rec.get("transcript_path")
             rec["has_transcript"] = bool(path) and Path(path).exists()
             out.append(rec)
@@ -448,6 +479,7 @@ class Store:
             "turn_budget": run.get("turn_budget"),
             "access": run.get("access"),
             "knowledge": run.get("knowledge"),
+            "tools": self.tool_names(name),
         }
 
     def run_detail(self, name: str) -> dict:
@@ -456,7 +488,24 @@ class Store:
         detail["run_json"] = _json(d / "run.json")
         detail["communication"] = _json_dir(d / "communication")
         detail["defense"] = _json_dir(d / "defense")
+        detail["tools"] = {tool: _tool_summary(d / "tools" / tool / "summary.json") for tool in self.tool_names(name)}
         return detail
+
+    def tool_names(self, name: str) -> list[str]:
+        """The analysis tools that wrote a summary for this run. The loader's caches (tools/*.json) are not tools."""
+        return sorted(p.parent.name for p in (self._dir(name) / "tools").glob("*/summary.json"))
+
+    def tool_file(self, name: str, tool: str, parts: list[str]) -> Path:
+        """A file inside runs/<run>/tools/<tool>/. Raises ValueError for a path that leaves it or a refused type."""
+        if not parts or not _safe_part(tool) or not all(_safe_part(p) for p in parts):
+            raise ValueError("refused path")
+        base = (self._dir(name) / "tools" / tool).resolve()
+        path = base.joinpath(*parts).resolve()
+        if not path.is_relative_to(base):
+            raise ValueError("refused path")
+        if path.suffix.lower() not in TOOL_FILE_SUFFIXES:
+            raise ValueError(f"refused file type {path.suffix or '(none)'}")
+        return path
 
     def transcript(self, name: str, episode: str) -> dict:
         for rec in self.episodes(name):
@@ -880,6 +929,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send_json(store.timeline(name))
         if rest[0] == "context" and len(rest) == 2 and rest[1].isdigit():
             return self._send_json(store.context_call(name, int(rest[1])))
+        if rest[0] == "tools" and len(rest) >= 3:
+            try:
+                path = store.tool_file(name, rest[1], rest[2:])
+            except ValueError as ex:
+                return self._send_json({"error": str(ex)}, 400)
+            return self._send_file(path)
         return self._send_json({"error": "not found"}, 404)
 
 
