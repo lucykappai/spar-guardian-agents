@@ -75,7 +75,7 @@ def judge_spec(task_root: Path, task_name: str, *, addendum: Path | None = None)
         with no_bytecode():
             return cb_judge.load_judge_spec(task_root, task_name=task_name)
     combined = (task_root / cb_judge.SCHEMA_MODULE).read_text() + "\n\n" + Path(addendum).read_text()
-    folder = settings.BUILD / "judge" / task_name
+    folder = settings.BUILD / "judge" / f"{task_name}+{Path(addendum).stem}"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / cb_judge.SCHEMA_MODULE).write_text(combined)
     return cb_judge.load_judge_spec(folder, task_name=task_name)
@@ -147,14 +147,24 @@ def _failed(spec: cb_judge.JudgeSpec, error: str, raw: str, usage: dict | None, 
             "judge_usage": usage, "judge_cost_usd": cost, "judge_error": error, "judge_attempts": 1, "raw": raw}
 
 
+def render(transcript: dict) -> str:
+    """CheatBench's rendering of a stored transcript: the ordered log the judge reads."""
+    return cb_judge.render_transcript(transcript)
+
+
 async def judge_trajectory(spec: cb_judge.JudgeSpec, transcript: dict, model: Model, config: GenerateConfig,
                            prices: dict | None = None) -> dict:
-    """One verdict: CheatBench's prompt, Inspect's call, CheatBench's validation.
+    """One verdict over CheatBench's rendering of the transcript (judge_text makes the call)."""
+    return await judge_text(spec, render(transcript), transcript.get("prompt") or "", model, config, prices)
+
+
+async def judge_text(spec: cb_judge.JudgeSpec, rendered: str, agent_prompt: str, model: Model,
+                     config: GenerateConfig, prices: dict | None = None) -> dict:
+    """One verdict: CheatBench's prompt over a rendered log, Inspect's call, CheatBench's validation.
 
     A failed call or a reply that does not validate gives parse_ok False, the error and the raw reply.
     """
-    text = cb_judge.build_judge_prompt(spec, cb_judge.render_transcript(transcript),
-                                       transcript.get("prompt") or "")[0]["content"]
+    text = cb_judge.build_judge_prompt(spec, rendered, agent_prompt)[0]["content"]
     call_config = config.merge(GenerateConfig(response_schema=response_schema(spec)))
     try:
         output = await model.generate([ChatMessageUser(content=text)], config=call_config)

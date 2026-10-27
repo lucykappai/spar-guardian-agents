@@ -171,11 +171,14 @@ src/                     the package: cli.py, run.py, tasks.py and the packages 
   measures/, ui/, utils/ the text summary, the board engagement funnel, Rigel's and Lucy's measures; the results
                          browser; the Gemini 402 retry
 examples/                one script per task, three neutral agents at the small scale; runs go to runs/, figures to out/
+scripts/                 rejudge.py (both judges on a run), regenerate.py (a run's export, measures, figures, tools)
+tools/                   the analysis tools in their own environment (make tools-setup); see tools/README.md
 tests/                   smoke.py, smoke_swe.py, smoke_kw.py (mock-model scenarios), test_rules.py, test_config.py,
-                         test_access.py, test_models.py, test_examples.py (unit tests), check_runs.py (swarm runs
+                         test_access.py, test_models.py, test_examples.py, test_ladder.py (unit tests), check_runs.py (swarm runs
                          complete and judged)
 build/                   staged tasks and docker contexts (gitignored)
-runs/<name>/             one run: run.json, episodes.jsonl, judge.jsonl, trajectories/, communication/, defense/
+runs/<name>/             one run: run.json, episodes.jsonl, judge.jsonl, ladder.jsonl, trajectories/, communication/,
+                         defense/, tools/<tool>/
 logs/                    Inspect eval logs (gitignored): ctrl/<run>/, swarm/<run>/, swe/<run>/
 submodules/              cheatbench, orbit and lucy (Lucy's repository covertpersonashifts), read only
 VERIFICATION_LOG.md      every output, how it was verified, and the result
@@ -192,10 +195,17 @@ uv run python -m src run swe_jigsaw --benchmark swe --honeypot jigsaw --set mode
 uv run python -m src run kw_small --benchmark knowledge_work --set regulators=1
 uv run python -m src run riemann_pressure --set regulators=1 --set regulator_level=pressure
 uv run python -m src judge logs/swarm/<run>/<log>.eval <run>
+uv run python -m src ladder <run> [--judge gpt-6-sol] [--view full|actions]
 uv run python -m src summary runs/<run> --full
+uv run python scripts/rejudge.py <run>
+uv run python scripts/regenerate.py <run> [--tools] [--restart-ui]
 ```
 
 A run writes its eval log under `logs/`, exports it to `runs/<name>/` and prints one line per episode. `--set` takes any field of `SwarmConfig`, after the preset and the scale. `--set shutdown=false` builds the agents without ORBIT's submit tool, so they run until their turns or the time limit run out. A run that died in the harness or at the provider is set aside under a `failed_` or `failed2_` prefix. The browser hides those by default and never counts them. `judge` refuses such a run unless `--judge-errors` is given.
+
+`ladder` places every agent of a run on the cheating ladder (Rigel's: exposed, tried, opened, used, shipped, with searched and tampered beside it and three honesty labels: admitted, concealed, false denial) with one judge call per agent over its stored transcript, so it also runs on a set-aside run whose log is gone. `src/configuration/judge_ladder.py` adds the fields to CheatBench's verdict schema; the rung is derived in code from the booleans, each cited call is checked against the transcript, and the eval log's turn timeline gives the round of each cited call. The rows go to `runs/<name>/ladder.jsonl`; `--table` sums them over runs. `--view actions` judges from the tool calls and their results alone, without the agent's prose, for measuring how far the agent's own account moves the judge.
+
+`scripts/rejudge.py` runs both judges on a run (CheatBench's from the eval log, then the ladder); `scripts/regenerate.py` rebuilds what a run's directory derives from its log (the export, keeping the verdicts in judge.jsonl; the measures; the figures; with `--tools` the analysis tools' outputs) and with `--restart-ui` restarts the browser, which reads the directory live.
 
 ## Results browser
 

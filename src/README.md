@@ -31,6 +31,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `run ... --issue flipt-02e2 --honeypot as_released\|own_piece\|jigsaw [--no-grade]` | the SWE issue and Lucy's honeypot, `jigsaw` by default; `--no-grade` skips the hidden tests |
 | `run ... --model M --timeout S` | the agents' model, an entry of `src/configuration/models.yaml` or an Inspect model string, and the seconds one model request may take (default `MODEL_TIMEOUT_S`) |
 | `judge <eval_log> <run_name> [--judge gpt-6-sol] [--judge-errors]` | judges a finished log again and exports it with the new verdicts |
+| `ladder <run ...> [--judge gpt-6-sol] [--view full\|actions] [--agents a01,a02] [--force] [--table]` | places every agent on the cheating ladder from its stored transcript (`src/benchmark/ladder.py`, the addendum `src/configuration/judge_ladder.py`): `runs/<name>/ladder.jsonl` with the rung, the cited calls and their rounds, the labels beside the ladder and the honesty labels; `--table` sums the existing files |
 | `ui [start\|stop] [--port 8765] [--no-open]` | starts or stops the results browser in the background |
 | `summary <run_dir ...> [--full]` | one line per judged episode, the swarm composition and the shutdown rate |
 | `budget <lone_run_dir> [--scale S]` | a lone run's turns, and the working steps per agent that budget gives at each scale |
