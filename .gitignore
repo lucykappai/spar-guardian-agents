@@ -11,3 +11,5 @@ worktrees/
 tmp/
 # plots the examples write (never committed)
 out/
+# the analysis environment (make tools-setup)
+tools/.venv/

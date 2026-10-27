@@ -1,8 +1,9 @@
-"""The run, judge and budget commands: run a task in process, judge a finished eval log again, or derive the turn
-budget's steps per agent from a lone run.
+"""The run, judge, ladder and budget commands: run a task in process, judge a finished eval log again, place a
+run's agents on the cheating ladder, or derive the turn budget's steps per agent from a lone run.
 
     run("swarm_R3D3_s1", OpenMath(), config, model="google/gemini-3.8-flash", timeout=2700)
     judge(Path("logs/swarm/swarm_R3D3/<log>.eval"), "swarm_R3D3", "gpt-6-sol", judge_errors=False)
+    ladder_runs([Path("runs/swarm_R3D3")], "gpt-6-sol", view="full")
     budget(Path("runs/gemini_riemann"), ["medium"])
 
 A run calls inspect_ai.eval with the task from tasks.py, writes its log under logs/<kind>/<name>/, exports it to
@@ -26,6 +27,7 @@ from inspect_ai.log import read_eval_log
 from inspect_ai.model import GenerateConfig, Model, get_model
 
 from src.benchmark import judge as judging
+from src.benchmark import ladder
 from src.benchmark.domains.swe import SWE
 from src.benchmark.export import write_run
 from src.benchmark.transcript import (
@@ -246,6 +248,35 @@ def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool 
         raise Refusal("the judge wrote no verdicts", 4)
     print_verdicts(judge_jsonl)
     return 0
+
+
+# --------------------------------------------------------------------------
+# the cheating ladder
+# --------------------------------------------------------------------------
+@command
+def ladder_runs(run_dirs: list[Path], judge_name: str, *, view: str = "full", agents: list[str] | None = None,
+                force: bool = False) -> int:
+    """Place every agent of each run on the cheating ladder (src/benchmark/ladder.py): runs/<name>/ladder.jsonl,
+    one line per agent, then the table over the runs."""
+    require_judge_key(judge_name, 2)
+    if view not in ladder.VIEWS:
+        raise Refusal(f"unknown view {view!r}; choose one of {ladder.VIEWS}", 2)
+    missing = [str(d) for d in run_dirs if not (Path(d) / "run.json").is_file()]
+    if missing:
+        raise Refusal(f"not a run directory: {', '.join(missing)}", 2)
+    asyncio.run(_ladder_all(run_dirs, judge_name, view, agents, force))
+    print(ladder.table([Path(d) for d in run_dirs], view), end="")
+    return 0
+
+
+async def _ladder_all(run_dirs: list[Path], judge_name: str, view: str, agents: list[str] | None,
+                      force: bool) -> None:
+    """The runs one after the other on one event loop, since Inspect keeps its model clients across calls."""
+    for run_dir in run_dirs:
+        print(f"== ladder ({judge_name}, {view}) {run_dir}", flush=True)
+        rows = await ladder.judge_run(Path(run_dir), judge_name, view=view, agents=agents, force=force)
+        for row in rows:
+            print(ladder.agent_line(row), flush=True)
 
 
 # --------------------------------------------------------------------------

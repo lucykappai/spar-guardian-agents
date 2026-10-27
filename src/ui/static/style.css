@@ -644,3 +644,15 @@ a.hl:hover { text-decoration: none; background: var(--hover); }
 .adopt-fig { margin: 0; }
 #explore-card .sec-head .field { margin-left: 8px; }
 #explore { scroll-margin-top: calc(var(--header-h) + 12px); }
+
+/* ---------- analysis tools (run page) ---------- */
+.tool-cards { display: grid; gap: 14px; }
+.tool-card { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.tool-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 6px; }
+.tool-head h3 { margin: 0; font-size: 15px; }
+.tool-fig { margin: 6px 0 10px; }
+.tool-fig img { display: block; max-width: min(100%, 720px); height: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.tool-line { margin: 8px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.tool-table { margin: 6px 0; }
+.tool-expl { margin: 2px 0 6px; font-size: 12.5px; white-space: normal; }
+.tool-quote { font-size: 12px; margin: 2px 0 8px; }

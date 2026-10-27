@@ -85,6 +85,17 @@ def cmd_judge(args: argparse.Namespace) -> int:
                      addendum=addendum, batch=args.batch)
 
 
+def cmd_ladder(args: argparse.Namespace) -> int:
+    from src import run  # the same four seconds as in cmd_run
+    from src.benchmark import ladder  # the judge's imports, the same seconds
+    run_dirs = [Path(name) if Path(name).is_dir() else settings.RUNS / name for name in args.runs]
+    if args.table:
+        print(ladder.table(run_dirs, args.view), end="")
+        return 0
+    agents = args.agents.split(",") if args.agents else None
+    return run.ladder_runs(run_dirs, args.judge, view=args.view, agents=agents, force=args.force)
+
+
 def cmd_ui(args: argparse.Namespace) -> int:
     if args.action == "stop":
         return launch.stop(args.port)
@@ -133,6 +144,18 @@ def add_judge_parser(subparsers) -> None:
     judge.set_defaults(func=cmd_judge)
 
 
+def add_ladder_parser(subparsers) -> None:
+    ladder = subparsers.add_parser("ladder", help="place every agent of a run on the cheating ladder (ladder.jsonl)")
+    ladder.add_argument("runs", nargs="+", help="run names under runs/, or run directories")
+    ladder.add_argument("--judge", default=settings.JUDGE_MODEL, help="entry in src/benchmark/models.yaml")
+    ladder.add_argument("--view", choices=("full", "actions"), default="full",
+                        help="full: CheatBench's rendering of the transcript; actions: tool calls and results only")
+    ladder.add_argument("--agents", default=None, help="judge these agents only, comma separated")
+    ladder.add_argument("--force", action="store_true", help="judge again the episodes already in ladder.jsonl")
+    ladder.add_argument("--table", action="store_true", help="print the table from the ladder.jsonl files, no judging")
+    ladder.set_defaults(func=cmd_ladder)
+
+
 def add_ui_parser(subparsers) -> None:
     ui = subparsers.add_parser("ui", help="start (default) or stop the results browser")
     ui.add_argument("action", nargs="?", choices=("start", "stop"), default="start")
@@ -174,6 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     add_run_parser(subparsers)
     add_judge_parser(subparsers)
+    add_ladder_parser(subparsers)
     add_ui_parser(subparsers)
     add_summary_parser(subparsers)
     add_budget_parser(subparsers)

@@ -1,0 +1,3 @@
+# Hawk's `uv pip install` of this directory builds it in place with setuptools.
+*.egg-info/
+build/

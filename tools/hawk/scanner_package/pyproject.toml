@@ -1,0 +1,20 @@
+# The distribution Hawk installs to reach our scanners. Hawk names a scanner `<package name>/<scanner>` and Inspect
+# finds that name through an `inspect_ai` entry point of an installed distribution. The tools project is not a
+# package, so this one-module distribution is the entry point: it imports tools.scout.scanners from the repository
+# (SPAR_GUARDIAN_ROOT) and registers each scanner under `spar_guardian_scanners/`.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spar-guardian-scanners"
+version = "0.1.0"
+description = "Registers the repository's Inspect Scout scanners for Hawk"
+requires-python = ">=3.12"
+dependencies = ["inspect-scout", "pyyaml"]
+
+[project.entry-points.inspect_ai]
+spar_guardian_scanners = "spar_guardian_scanners"
+
+[tool.setuptools]
+py-modules = ["spar_guardian_scanners"]
