@@ -20,6 +20,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `benchmark/` | CheatBench's tasks: the Benchmark protocol, the openmath, SWE and knowledge-work domains, the transcript, the judge and the export; see `src/benchmark/README.md` |
 | `measures/` | over run directories: the command line's summary (`summary.py`), the board engagement funnel (`engagement.py`), Rigel's cheating ladder (`rungs.py`) and Lucy's SWE measures (`swe_summary.py`) |
 | `utils/provider_retry.py` | Gemini's 402 "credits depleted" retried as a rate limit |
+| `utils/openrouter_cache.py` | an Anthropic model's conversation cached through OpenRouter (the last tool result marked) |
 | `ui/` | the results browser: `server.py`, `launch.py` (start and stop in the background), `API.md` and the single-page UI in `static/` |
 
 ## Commands

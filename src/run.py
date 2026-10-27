@@ -41,7 +41,7 @@ from src.configuration.scales import steps_by_scale
 from src.configuration.swarm_config import SwarmConfig
 from src.measures import summary
 from src.tasks import JUDGE_ADDENDUM, hidden_roles, swarm_task
-from src.utils import provider_retry
+from src.utils import openrouter_cache, provider_retry
 
 
 class Refusal(Exception):
@@ -149,6 +149,7 @@ def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | No
     require_provider_key(model)
     require_judge_key(config.judge, 1)
     provider_retry.install()
+    openrouter_cache.install()
     log_dir = settings.LOGS / log_kind(benchmark, config) / name
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"== eval {benchmark.name} n_agents={config.n_agents} control={config.control} -> {log_dir}", flush=True)
