@@ -8,6 +8,7 @@
     python -m src summary <run_dir ...> [--full]
     python -m src budget <lone_run_dir> [--scale S]
     python -m src models [NAME]
+    python -m src plots <run_dir> [--out DIR]
 
 The config is built in this order: the preset, then the scale, then every `--set`. The default preset is the
 midterm report's configuration at the small scale; `--scale` replaces its size (src/configuration/scales.py). The
@@ -68,6 +69,15 @@ def cmd_models(args: argparse.Namespace) -> int:
 def cmd_budget(args: argparse.Namespace) -> int:
     from src import run  # the same four seconds as in cmd_run
     return run.budget(Path(args.run_dir), [args.scale] if args.scale else None)
+
+
+def cmd_plots(args: argparse.Namespace) -> int:
+    from src.ui import plots  # matplotlib, a second; only plots pays for it
+    run_dir = Path(args.run_dir)
+    out_dir = Path(args.out) if args.out else settings.ROOT / "out" / run_dir.name
+    for path in plots.plot_run(run_dir, out_dir):
+        print(path)
+    return 0
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
@@ -148,6 +158,13 @@ def add_models_parser(subparsers) -> None:
     table.set_defaults(func=cmd_models)
 
 
+def add_plots_parser(subparsers) -> None:
+    plots = subparsers.add_parser("plots", help="the figures of one run as PNG with CSV twins, under out/<run>/")
+    plots.add_argument("run_dir", help="runs/<name>/ or an example's output folder")
+    plots.add_argument("--out", default=None, help="where to write (default out/<run name>/, gitignored)")
+    plots.set_defaults(func=cmd_plots)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -158,6 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_summary_parser(subparsers)
     add_budget_parser(subparsers)
     add_models_parser(subparsers)
+    add_plots_parser(subparsers)
     return parser
 
 

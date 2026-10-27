@@ -14,7 +14,7 @@ Run one from the repository root with `OPENAI_API_KEY` set, which the default mo
 uv run python -m examples.openmath.riemann_minimal
 ```
 
-The run's outputs land beside the script, under a folder named after it (`examples/openmath/riemann_minimal/`): `run.json`, `episodes.jsonl`, `judge.jsonl`, `trajectories/` and `communication/`, the same files `runs/<name>/` gets. The eval log goes under `logs/`. `python -m src summary examples/openmath/riemann_minimal` prints the verdicts again, and the browser (`python -m src ui`) does not list these folders.
+The run's outputs land beside the script, under a folder named after it (`examples/openmath/riemann_minimal/`): `run.json`, `episodes.jsonl`, `judge.jsonl`, `trajectories/` and `communication/`, the same files `runs/<name>/` gets. The eval log goes under `logs/`. The script then writes the run's figures under `out/<name>/` (gitignored): `timeline.png` (every agent's steps round by round, with the judge's verdict at the lane's end), `board.png` (the board's actions per round) and `verdicts.png` (the judge's flags per agent), each with a CSV twin; `uv run python -m src plots <run_dir>` does the same for any run. `uv run python -m src summary examples/openmath/riemann_minimal` prints the verdicts again, and the browser (`uv run python -m src ui`) does not list these folders.
 
 Each script parses the shared arguments, builds its config in the open (`build_config(args.preset, args.scale, args.settings)`), names its task and calls the run. The arguments come from `examples/utils/cli.py`, which also holds the default model and the default settings:
 

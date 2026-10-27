@@ -7,7 +7,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | file | holds |
 |---|---|
 | `__main__.py` | `python -m src`: calls `cli.main` |
-| `cli.py` | argument parsing; `run`, `judge` and `budget` call `run.py`, `ui` calls `ui/launch.py`, `summary` calls `measures/summary.py`, `models` calls `configuration/models.py` |
+| `cli.py` | argument parsing; `run`, `judge` and `budget` call `run.py`, `ui` calls `ui/launch.py`, `plots` calls `ui/plots.py`, `summary` calls `measures/summary.py`, `models` calls `configuration/models.py` |
 | `run.py` | the `run`, `judge` and `budget` commands: `inspect_ai.eval` in process, export, re-judging, and the turn budget's steps per agent from a lone run |
 | `tasks.py` | `swarm_task(benchmark, config)` and the `@task` entry points `openmath`, `swe` and `knowledge_work` |
 | `swarm/comm_topology.py` | the board as ORBIT configuration: one shared channel, no invocation edges, a written plan |
@@ -35,6 +35,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `summary <run_dir ...> [--full]` | one line per judged episode, the swarm composition and the shutdown rate |
 | `budget <lone_run_dir> [--scale S]` | a lone run's turns, and the working steps per agent that budget gives at each scale |
 | `models [NAME]` | the models we can consider, one row per entry with its Inspect string, key variable, context, prices and CheatBench entries; with a name, that entry in full |
+| `plots <run_dir> [--out DIR]` | one run's figures as PNG with CSV twins under `out/<run name>/` (gitignored): every agent's steps round by round with the judge's verdict, the board's actions per round, the judge's flags per agent (`src/ui/plots.py`) |
 
 The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the model role `judge`. With `batch_judge` its calls go through the provider's batch API. `judge` always re-judges through the batch API. `inspect eval src/tasks.py@openmath -T preset=lucy_legacy -T n_agents=3` also works; every `-T` key other than the task's own arguments sets a config field, and `-T scale=medium` applies a scale first.
 

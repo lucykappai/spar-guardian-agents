@@ -9,3 +9,5 @@ __pycache__/
 worktrees/
 # scratch figures and drafts for the report (never committed)
 tmp/
+# plots the examples write (never committed)
+out/

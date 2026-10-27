@@ -27,7 +27,7 @@ check:  ## refuse unless the eleven swarm runs are complete and judged
 
 test:  ## offline unit tests of the turn rules, the config, the access policy, the model registry and the examples
 	$(PY) -m pytest tests/test_rules.py tests/test_config.py tests/test_access.py tests/test_models.py \
-		tests/test_examples.py -q
+		tests/test_examples.py tests/test_plots.py -q
 
 lint:  ## ruff over src, tests and examples (ruff.toml: 120 columns, sorted imports)
 	uvx ruff check src tests examples

@@ -6,9 +6,12 @@ from pathlib import Path
 from examples.utils.cli import parse_example_arguments
 from src import run
 from src.benchmark.domains.swe import SWE
+from src.configuration import settings
 from src.configuration.swarm_config import build_config
+from src.ui import plots
 
 HERE = Path(__file__).resolve().parent
+OUT = settings.ROOT / "out"
 
 
 def main() -> int:
@@ -17,7 +20,10 @@ def main() -> int:
     # domain's turn budget), an hour for the agents and a synchronous judge, then whatever --set says.
     config = build_config(args.preset, args.scale, args.settings)
     benchmark = SWE("flipt-02e2", "jigsaw", grade=True)
-    return run.run(args.name, benchmark, config, args.model, args.timeout, run_dir=HERE / args.name)
+    code = run.run(args.name, benchmark, config, args.model, args.timeout, run_dir=HERE / args.name)
+    if (HERE / args.name / "run.json").is_file():
+        print(*plots.plot_run(HERE / args.name, OUT / args.name), sep="\n")
+    return code
 
 
 if __name__ == "__main__":
