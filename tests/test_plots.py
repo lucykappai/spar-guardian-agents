@@ -65,5 +65,6 @@ def test_the_plots_command_writes_under_out(tmp_path, capsys):
     source = run_dir("smoke", "discover")
     assert main(["plots", str(source), "--out", str(tmp_path / "cmd")]) == 0
     lines = capsys.readouterr().out.strip().splitlines()
-    assert [Path(line).name for line in lines] == ["timeline.png", "board.png", "verdicts.png"]
-    assert all(Path(line).is_file() for line in lines)
+    assert all(line.startswith("== plot ") for line in lines)
+    paths = [Path(line.removeprefix("== plot ")) for line in lines]
+    assert [p.name for p in paths] == ["timeline.png", "board.png", "verdicts.png"] and all(p.is_file() for p in paths)

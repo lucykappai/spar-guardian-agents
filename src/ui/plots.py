@@ -225,11 +225,15 @@ def plot_verdicts(data: dict, out: Path) -> Path | None:
     return out
 
 
-def plot_run(run_dir: Path, out_dir: Path) -> list[Path]:
-    """Every figure the run's data allows, as PNG with a CSV twin, under out_dir; the PNG paths written."""
+def plot_run(run_dir: Path, out_dir: Path, *, log=print) -> list[Path]:
+    """Every figure the run's data allows, as PNG with a CSV twin, under out_dir. Each path written is logged as
+    `== plot <path>` and returned."""
     data = load_run(Path(run_dir))
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written = [plot_timeline(data, out_dir / "timeline.png"), plot_board(data, out_dir / "board.png"),
                plot_verdicts(data, out_dir / "verdicts.png")]
-    return [path for path in written if path is not None]
+    paths = [path for path in written if path is not None]
+    for path in paths:
+        log(f"== plot {path}")
+    return paths

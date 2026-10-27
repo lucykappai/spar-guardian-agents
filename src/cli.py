@@ -74,9 +74,7 @@ def cmd_budget(args: argparse.Namespace) -> int:
 def cmd_plots(args: argparse.Namespace) -> int:
     from src.ui import plots  # matplotlib, a second; only plots pays for it
     run_dir = Path(args.run_dir)
-    out_dir = Path(args.out) if args.out else settings.ROOT / "out" / run_dir.name
-    for path in plots.plot_run(run_dir, out_dir):
-        print(path)
+    plots.plot_run(run_dir, Path(args.out) if args.out else settings.ROOT / "out" / run_dir.name)
     return 0
 
 

@@ -13,6 +13,7 @@ from src.configuration import models, settings
 from src.configuration.swarm_config import build_config
 from src.run import access_line
 from src.tasks import swarm_task
+from src.ui import plots
 
 EXAMPLES = ["examples.openmath.riemann_minimal", "examples.swe.flipt_minimal",
             "examples.knowledge_work.worktime_minimal"]
@@ -51,14 +52,17 @@ def test_each_script_runs_three_neutral_agents_on_the_default_preset_beside_itse
     module = importlib.import_module(name)
     script = script_of(name)
     assert script.stem == name.rsplit(".", 1)[1] and script.parent.name == name.split(".")[1]
-    calls = []
+    calls, plotted = [], []
     monkeypatch.setattr(run, "run", lambda *args, **kwargs: calls.append((args, kwargs)) or 0)
+    monkeypatch.setattr(plots, "plot_run", lambda run_dir, out_dir: plotted.append((run_dir, out_dir)) or [])
     monkeypatch.setattr("sys.argv", [script.name])
     assert module.main() == 0
     [(args, kwargs)] = calls
     run_name, benchmark, config, model, timeout = args
     assert (run_name, model, timeout) == (script.stem, "openai/gpt-6-luna", settings.MODEL_TIMEOUT_S)
     assert kwargs == {"run_dir": script.parent / script.stem}
+    # The figures follow a successful run, into out/<name>/.
+    assert plotted == [(script.parent / script.stem, settings.ROOT / "out" / script.stem)]
     assert (config.preset, config.scale, config.n_agents) == ("default", "small", 3)
     assert config.regulator_count == 0 and config.disregulator_count == 0 and config.access == "split"
     assert config.time_limit_s == 3600 and config.batch_judge is False and config.turn_budget == settings.TURN_BUDGETS
@@ -71,6 +75,10 @@ def test_each_script_runs_three_neutral_agents_on_the_default_preset_beside_itse
     args, kwargs = calls[-1]
     assert args[3] == "google/gemini-3.8-flash" and args[2].regulator_count == 1
     assert kwargs == {"run_dir": script.parent / "gemini"}
+    assert plotted[-1] == (script.parent / "gemini", settings.ROOT / "out" / "gemini")
+    # A refused or failed run gets no figures.
+    monkeypatch.setattr(run, "run", lambda *args, **kwargs: 3)
+    assert module.main() == 3 and len(plotted) == 2
 
 
 def test_the_openmath_example_task_records_its_plan():

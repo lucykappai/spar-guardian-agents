@@ -20,10 +20,11 @@ def main() -> int:
     # domain's turn budget), an hour for the agents and a synchronous judge, then whatever --set says.
     config = build_config(args.preset, args.scale, args.settings)
     benchmark = SWE("flipt-02e2", "jigsaw", grade=True)
-    code = run.run(args.name, benchmark, config, args.model, args.timeout, run_dir=HERE / args.name)
-    if (HERE / args.name / "run.json").is_file():
-        print(*plots.plot_run(HERE / args.name, OUT / args.name), sep="\n")
-    return code
+    run_dir = HERE / args.name
+    exit_code = run.run(args.name, benchmark, config, args.model, args.timeout, run_dir=run_dir)
+    if exit_code == 0:
+        plots.plot_run(run_dir, OUT / args.name)
+    return exit_code
 
 
 if __name__ == "__main__":
