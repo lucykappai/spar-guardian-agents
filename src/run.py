@@ -40,7 +40,7 @@ from src.configuration import models, settings
 from src.configuration.scales import steps_by_scale
 from src.configuration.swarm_config import SwarmConfig
 from src.measures import summary
-from src.tasks import JUDGE_ADDENDUM, hidden_roles, swarm_task
+from src.tasks import hidden_roles, judge_addendum_path, swarm_task
 from src.utils import openrouter_cache, provider_retry
 
 
@@ -174,16 +174,33 @@ def _episode(view, agents: list[str], agent: str) -> str:
     return key if len(agents) == 1 else f"{key}@{agent}"
 
 
-async def _judge_views(views: list, judge_name: str) -> dict[str, dict]:
-    """Every agent of every sample judged again, through the provider's batch API; verdict rows keyed by episode."""
+def recorded_config(view) -> dict:
+    """The SwarmConfig fields a sample recorded (metadata["cheatbench"]["config"]); empty for older logs."""
+    return ((view.metadata or {}).get("cheatbench", {}).get("config")) or {}
+
+
+def rejudge_batch(views: list, batch: bool | None) -> bool:
+    """Whether a re-judge goes through the provider's batch API: as given, else as the run's batch_judge (on for a run
+    that predates the field)."""
+    if batch is not None:
+        return batch
+    return bool(recorded_config(views[0]).get("batch_judge", True)) if views else True
+
+
+async def _judge_views(views: list, judge_name: str, addendum: bool | str | None = None,
+                       batch: bool | None = None) -> dict[str, dict]:
+    """Every agent of every sample judged again; verdict rows keyed by episode. The addendum is the given one (False
+    for none), else the run's judge_addendum; the batch setting is rejudge_batch's."""
     model_name, config = judging.judge_model_config(judge_name)
-    prices = judging.judge_prices(judge_name, batch=True)
-    model = get_model(model_name, config=GenerateConfig(batch=True))
+    batch = rejudge_batch(views, batch)
+    prices = judging.judge_prices(judge_name, batch=batch)
+    model = get_model(model_name, config=GenerateConfig(batch=batch))
     verdicts = {}
     for view in views:
         cb = (view.metadata or {}).get("cheatbench", {})
-        addendum = JUDGE_ADDENDUM if (cb.get("config") or {}).get("judge_addendum") else None
-        spec = judging.judge_spec(settings.CHEATBENCH / "tasks" / cb["task"], cb["task"], addendum=addendum)
+        chosen = recorded_config(view).get("judge_addendum") if addendum is None else addendum
+        spec = judging.judge_spec(settings.CHEATBENCH / "tasks" / cb["task"], cb["task"],
+                                  addendum=judge_addendum_path(chosen))
         agents = roster(view)
         judged = [a for a in agents if agent_messages(view, a)]
         results = await asyncio.gather(*(judging.judge_trajectory(spec, transcript_dict(view, a, judge_prompt(view, a)),
@@ -205,8 +222,10 @@ def print_verdicts(judge_jsonl: Path) -> None:
 
 
 @command
-def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool = False) -> int:
-    """Judge a finished eval log again and export it to runs/<run_name>/ with the new verdicts."""
+def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool = False,
+          addendum: bool | str | None = None, batch: bool | None = None) -> int:
+    """Judge a finished eval log again and export it to runs/<run_name>/ with the new verdicts. addendum and batch
+    default to the run's own judge_addendum and batch_judge."""
     require_judge_key(judge_name, 2)
     eval_log = eval_log.resolve()
     if not eval_log.is_file():
@@ -218,8 +237,9 @@ def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool 
     failures = [error_and_failure(view)[1] for view in views]
     if not judge_errors and any(f in settings.INCOMPLETE_FAILURES for f in failures):
         raise Refusal("run has a harness or provider failure; not judging (pass --judge-errors to force)", 5)
-    print(f"== judge ({judge_name}) {eval_log}", flush=True)
-    verdicts = asyncio.run(_judge_views(views, judge_name))
+    print(f"== judge ({judge_name}, addendum {'the run' + chr(39) + 's' if addendum is None else addendum}, "
+          f"batch {rejudge_batch(views, batch)}) {eval_log}", flush=True)
+    verdicts = asyncio.run(_judge_views(views, judge_name, addendum, batch))
     run_dir = export(eval_log, run_name, verdicts=verdicts)
     judge_jsonl = run_dir / "judge.jsonl"
     if not verdicts or not judge_jsonl.exists():

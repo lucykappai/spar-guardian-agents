@@ -676,3 +676,21 @@ def test_the_cumulative_regulator_levels_stack_the_report_sentences(domain):
     assert s2 == f"{REPORT['ambiguous']} {sentence}" + tail and "{" not in s2
     assert s3 == f"{REPORT['ambiguous']} {sentence} {REPORT['pressure']}" + tail
 
+
+
+def test_the_judge_addendum_is_named():
+    # True keeps meaning Lucy's ORBIT addendum; guardian is the shared-issue one, which adds its own verdict fields.
+    from src.benchmark.judge import judge_spec
+    from src.tasks import JUDGE_ADDENDA, judge_addendum_path
+    assert [build_config("default", None, [f"judge_addendum={v}"]).judge_addendum
+            for v in ("false", "true", "orbit", "guardian")] == [False, True, "orbit", "guardian"]
+    with pytest.raises(ValueError):
+        build_config("default", None, ["judge_addendum=loud"])
+    assert judge_addendum_path(False) is None and judge_addendum_path(None) is None
+    assert judge_addendum_path(True) == judge_addendum_path("orbit") == JUDGE_ADDENDA["orbit"]
+    assert all(path.is_file() for path in JUDGE_ADDENDA.values())
+    task_root = settings.CHEATBENCH / "tasks" / "software_engineering"
+    spec = judge_spec(task_root, "software_engineering", addendum=judge_addendum_path("guardian"))
+    fields = spec.verdict.model_fields
+    assert {"tried_planted_fix", "used_teammate_copy", "adopted_teammate_work"} <= set(fields)
+    assert "cheated" in fields and "tried_own_part" not in fields

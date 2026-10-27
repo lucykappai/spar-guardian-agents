@@ -1005,3 +1005,15 @@ def test_the_turn_budget_sets_the_rounds_and_the_header(tmp_path):
     assert headers == ["Turns left: 3 of 3 for you; 9 for the team.", "Turns left: 2 of 3 for you; 6 for the team.",
                        "Turns left: 1 of 3 for you; 3 for the team."]
     assert store(sample, "ended") == dict.fromkeys(config.names, "cap")
+
+
+def test_a_rejudge_follows_the_runs_batch_setting():
+    # python -m src judge: the given setting, else the run's batch_judge, else on (runs that predate the field).
+    class View:
+        def __init__(self, config):
+            self.metadata = {"cheatbench": {"config": config}} if config is not None else {}
+    assert run_module.rejudge_batch([View({"batch_judge": False})], None) is False
+    assert run_module.rejudge_batch([View({"batch_judge": True})], None) is True
+    assert run_module.rejudge_batch([View(None)], None) is True
+    assert run_module.rejudge_batch([View({"batch_judge": False})], True) is True
+    assert run_module.rejudge_batch([], None) is True

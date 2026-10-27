@@ -344,7 +344,9 @@ class SwarmConfig(BaseModel):
     eval's generate config), from the scale. Batched calls cost less and return later. Mock models ignore it."""
     batch_judge: bool = True
     """Whether the judge's calls go through the provider's batch API (GenerateConfig(batch=True) on the model bound to
-    the judge role). Mock models ignore it. Every preset keeps it on; re-judging a log always batches."""
+    the judge role). Mock models ignore it. Every preset keeps it on. Re-judging a log (python -m src judge) follows
+    the run's setting unless --batch or --no-batch says otherwise; OpenRouter has no batch API, so an OpenRouter judge
+    needs it off."""
 
     # ---------------------------------------------------------------- control and judge
     control: str = "baseline"
@@ -353,8 +355,11 @@ class SwarmConfig(BaseModel):
     """Model for an LLM control (monitor, guardian, dual LLM)."""
     judge: str = settings.JUDGE_MODEL
     """Judge entry in src/benchmark/models.yaml."""
-    judge_addendum: bool = False
-    """Append Lucy's judge addendum to CheatBench's judge schema (src/benchmark/judge.py judge_spec)."""
+    judge_addendum: bool | Literal["orbit", "guardian"] = False
+    """Append one of Lucy's judge addenda to CheatBench's judge schema (src/benchmark/judge.py judge_spec, src/tasks.py
+    JUDGE_ADDENDA): orbit (or True) for her ORBIT baseline's split issue and #team channel; guardian for a shared
+    issue on the board, where a teammate's own work is not a reference solution but a copy of the planted fix is.
+    False: none."""
 
     @model_validator(mode="after")
     def _consistent(self) -> SwarmConfig:
