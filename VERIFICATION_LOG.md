@@ -475,3 +475,8 @@
 - **Output:** `examples/utils/cli.py` now holds `MODEL_ENTRY`, `SHARED_SETTINGS` and `parse_example_arguments(script, description, argv)`, which returns the arguments with --model resolved and --set keys checked, and makes a wrong model, field or value an argument error (exit 2). Each script has its own `main()` that parses the arguments, builds the config with `build_config(args.preset, args.scale, [*SHARED_SETTINGS, *args.settings])` under a comment saying what that is, names its benchmark and calls `run.run` with the folder beside it. tests/test_examples.py drives each script's main() with a monkeypatched run.run and sys.argv, by default and with --model, --name and --set; examples/README.md and the package docstrings follow.
 - **How verified (by me):** `make lint` clean, `make test` 175 passed (2026-10-27 17:19 UTC); `uv run python -m examples.swe.flipt_minimal --help` prints the usage, and `--model nope` prints the registry's message and returns 2.
 - **Result:** VERIFIED. UNVERIFIED: no example has run against a model.
+
+## 2026-10-27 17:24 UTC — the examples' defaults renamed; the settings come back parsed in one list
+- **Output:** `examples/utils/cli.py`: `DEFAULT_MODEL` (was MODEL_ENTRY) and `DEFAULT_SETTINGS` (was SHARED_SETTINGS); `parse_example_arguments` returns `args.settings` as the defaults followed by every --set, so a script builds its config as `build_config(args.preset, args.scale, args.settings)`; the three scripts, tests/test_examples.py and examples/README.md follow.
+- **How verified (by me):** `make lint` clean, `make test` 175 passed (2026-10-27 17:24 UTC); `--help` names the defaults after which --set applies.
+- **Result:** VERIFIED.

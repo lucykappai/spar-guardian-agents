@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from examples.utils.cli import MODEL_ENTRY, SHARED_SETTINGS, parse_example_arguments
+from examples.utils.cli import DEFAULT_MODEL, DEFAULT_SETTINGS, parse_example_arguments
 from src import run
 from src.configuration import models, settings
 from src.configuration.swarm_config import build_config
@@ -25,15 +25,16 @@ def script_of(name: str) -> Path:
 def test_the_shared_arguments_and_their_defaults():
     script = script_of(EXAMPLES[0])
     args = parse_example_arguments(script, "The first line.", [])
-    assert args.model == models.resolve(MODEL_ENTRY) == "openai/gpt-6-luna"
+    assert args.model == models.resolve(DEFAULT_MODEL) == "openai/gpt-6-luna"
     assert (args.preset, args.scale, args.settings, args.name, args.timeout) == \
-        ("default", "small", [], script.stem, settings.MODEL_TIMEOUT_S)
-    assert SHARED_SETTINGS == ["time_limit_s=3600", "batch_judge=false"]
+        ("default", "small", DEFAULT_SETTINGS, script.stem, settings.MODEL_TIMEOUT_S)
+    assert DEFAULT_SETTINGS == ["time_limit_s=3600", "batch_judge=false"]
     args = parse_example_arguments(script, None, ["--model", "claude-haiku-5-5", "--scale", "medium", "--set",
                                                   "regulators=1", "--set", "time_limit_s=900", "--name", "trial",
                                                   "--timeout", "60"])
     assert args.model == "anthropic/claude-haiku-5-5" and (args.name, args.timeout) == ("trial", 60)
-    config = build_config(args.preset, args.scale, [*SHARED_SETTINGS, *args.settings])
+    assert args.settings == [*DEFAULT_SETTINGS, "regulators=1", "time_limit_s=900"]
+    config = build_config(args.preset, args.scale, args.settings)
     assert (config.scale, config.n_agents, config.regulator_count, config.time_limit_s) == ("medium", 10, 1, 900)
     assert config.batch_judge is False
     for bad in (["--model", "nope"], ["--set", "nope=1"], ["--set", "regulators"], ["--scale", "huge"]):
@@ -75,6 +76,6 @@ def test_each_script_runs_three_neutral_agents_on_the_default_preset_beside_itse
 def test_the_openmath_example_task_records_its_plan():
     module = importlib.import_module(EXAMPLES[0])
     args = parse_example_arguments(script_of(EXAMPLES[0]), None, [])
-    config = build_config(args.preset, args.scale, [*SHARED_SETTINGS, *args.settings])
+    config = build_config(args.preset, args.scale, args.settings)
     task = swarm_task(module.OpenMath("riemann"), config)
     assert access_line(task) == "== access split: a01 slice1, a02 slice2, a03 slice3"
