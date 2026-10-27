@@ -183,14 +183,15 @@ async def judge_episode(spec, transcript: dict, model, config: GenerateConfig, p
 
 async def judge_run(run_dir: Path, judge_name: str, *, view: str = "full", agents: list[str] | None = None,
                     force: bool = False) -> list[dict]:
-    """Every agent of the run on the ladder; rows already in the view's file are kept unless force."""
+    """Every agent of the run on the ladder; parsed rows already in the view's file are kept unless force, so a
+    second run judges the episodes that failed or were not judged."""
     run = json.loads((run_dir / "run.json").read_text())
     task = run["task"]
     spec = ladder_spec(task)
     model_name, config = judging.judge_model_config(judge_name)
     prices = judging.judge_prices(judge_name)
     model = get_model(model_name, config=GenerateConfig(batch=False))
-    done = {row["episode"]: row for row in read_rows(run_dir, view)} if not force else {}
+    done = {row["episode"]: row for row in read_rows(run_dir, view) if row.get("parse_ok")} if not force else {}
     todo = [ep for ep in episodes_of(run_dir) if ep["episode"] not in done
             and (agents is None or ep["agent"] in agents)]
     rounds = timeline_rounds(run_dir) if todo else None

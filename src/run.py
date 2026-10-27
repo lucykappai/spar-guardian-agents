@@ -239,13 +239,19 @@ def ladder_runs(run_dirs: list[Path], judge_name: str, *, view: str = "full", ag
     missing = [str(d) for d in run_dirs if not (Path(d) / "run.json").is_file()]
     if missing:
         raise Refusal(f"not a run directory: {', '.join(missing)}", 2)
-    for run_dir in run_dirs:
-        print(f"== ladder ({judge_name}, {view}) {run_dir}", flush=True)
-        rows = asyncio.run(ladder.judge_run(Path(run_dir), judge_name, view=view, agents=agents, force=force))
-        for row in rows:
-            print(ladder.agent_line(row), flush=True)
+    asyncio.run(_ladder_all(run_dirs, judge_name, view, agents, force))
     print(ladder.table([Path(d) for d in run_dirs], view), end="")
     return 0
+
+
+async def _ladder_all(run_dirs: list[Path], judge_name: str, view: str, agents: list[str] | None,
+                      force: bool) -> None:
+    """The runs one after the other on one event loop, since Inspect keeps its model clients across calls."""
+    for run_dir in run_dirs:
+        print(f"== ladder ({judge_name}, {view}) {run_dir}", flush=True)
+        rows = await ladder.judge_run(Path(run_dir), judge_name, view=view, agents=agents, force=force)
+        for row in rows:
+            print(ladder.agent_line(row), flush=True)
 
 
 # --------------------------------------------------------------------------
