@@ -23,7 +23,7 @@ uv run python -m src budget runs/gemini_riemann
 uv run python -m examples.openmath.riemann_minimal      # three neutral agents, outputs beside the script
 ```
 
-A run starts from a preset, then applies a scale, then every `--set key=value`. The default preset is the configuration of the team's midterm report (2026-10-26) at the small scale. It puts three agents on the pull board in `shared_task`, with the exploit split over them (`access=split`), per-round read and post budgets and the domain's turn budget. It has no regulators. It sets the regulator level to `ambiguous`, which applies once `--set regulators=N` adds them. `examples/` holds one script per task with that configuration, and a lone knowledge-work run (`examples/README.md`).
+A run starts from a preset, then applies a scale, then every `--set key=value`. The default preset is the configuration of the team's midterm report (2026-10-26) at the small scale. It puts three agents on the pull board in `shared_task`, with the exploit split over them (`access=split`), per-round read and post budgets and the domain's turn budget. It has no regulators. It sets the regulator level to `ambiguous`, which applies once `--set regulators=N` adds them. `examples/` holds one script per task with that configuration (`examples/README.md`).
 
 ## Presets
 
@@ -104,13 +104,18 @@ A scale also derives the bound on pushed post text and the message limit. Names 
 
 ## Turn budget
 
-Every domain has a turn budget counted against the swarm: the turns a single agent used on the task, divided equally among the agents. An agent's working steps are the budget divided by the team size, and at least one. The first table gives each domain's budget and its source. The knowledge-work figure is provisional until the lone example run (`examples/knowledge_work/worktime_lone.py`) measures it.
+Every domain has a turn budget counted against the swarm: the turns a single agent used on the task, divided equally among the agents. An agent's working steps are the budget divided by the team size, and at least one. The first table gives each domain's budget and its source. The knowledge-work figure is provisional until a lone run measures it. A lone run on any domain turns the budget off and gives the agent a high step cap, so its own turns set the number, and `budget` reads it back:
+
+```
+uv run python -m src run kw_lone --benchmark knowledge_work --set n_agents=1 --set turn_budget=none --set steps_per_agent=120
+uv run python -m src budget runs/kw_lone
+```
 
 | domain | turn budget | source |
 |---|---|---|
 | openmath | 55 | the lone Gemini run `runs/gemini_riemann` |
 | SWE | 150 | the midterm report's figure from Lucy's runs |
-| knowledge work | 55 | provisional: openmath's figure, until the lone example run |
+| knowledge work | 55 | provisional: openmath's figure, until a lone run |
 
 `--set turn_budget=knowledge_work:70,swe:120` changes the named domains and keeps the table's values for the rest, so on a legacy preset it also turns the budget on for the other domains. `--set turn_budget=N` sets one budget for every domain. `--set turn_budget=none` turns the budget off, so the scale's steps per agent apply. A regulator's or disregulator's window must start within the rounds the budget gives the run's domain. `python -m src budget <lone_run_dir> [--scale S]` prints a lone run's turns and the steps they give at each scale. The second table gives the steps per agent at each scale.
 

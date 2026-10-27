@@ -39,9 +39,9 @@ MODEL_TIMEOUT_S = 2700
 # Each domain's turn budget for the whole swarm: the turns one agent used on the task alone, divided equally among
 # the agents (SwarmConfig.turn_budget, SwarmConfig.steps_for). openmath: the lone Gemini run runs/gemini_riemann took
 # 55 turns (n_turns of its one episode). swe: the midterm report's ~150 turns from Lucy's runs (50 per agent of three).
-# knowledge_work: provisional, openmath's figure, until examples/knowledge_work/worktime_lone.py has run and
-# `python -m src budget` on its output gives the measured number. A run changes any of them with
-# `--set turn_budget=knowledge_work:70`.
+# knowledge_work: provisional, openmath's figure, until a lone run (n_agents=1, turn_budget=none, a high
+# steps_per_agent) has run and `python -m src budget` on its output gives the measured number. A run changes any of
+# them with `--set turn_budget=knowledge_work:70`.
 TURN_BUDGETS: dict[str, int] = {"openmath": 55, "swe": 150, "knowledge_work": 55}
 
 # The verdict fields the command line prints for each judged episode (openmath_agent's Verdict and the shared rule).

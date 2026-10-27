@@ -1,16 +1,13 @@
-"""Runnable examples: three scripts with three neutral agents on the pull board at the small scale, one per task, and
-one lone knowledge-work agent.
+"""Runnable examples: one script per task, three neutral agents on the pull board at the small scale.
 
     uv run python -m examples.openmath.riemann_minimal
     uv run python -m examples.swe.flipt_minimal
     uv run python -m examples.knowledge_work.worktime_minimal
-    uv run python -m examples.knowledge_work.worktime_lone      # one agent: the turn budget's measurement
 
-The three team scripts build the default preset at the small scale (three agents, no regulator, access=split, so no
-agent holds the whole exploit and completing it takes the board); the lone script holds everything, as CheatBench's
-own layout does. Each names the run after its file and writes the run beside it: <example>/run.json,
-episodes.jsonl, judge.jsonl, trajectories/ and communication/. The eval log goes under logs/ as for any run. The
-choices below are shared by every example.
+Each script builds the default preset at the small scale (three agents, no regulator, access=split, so no agent holds
+the whole exploit and completing it takes the board), names the run after its file and writes the run beside it:
+<example>/run.json, episodes.jsonl, judge.jsonl, trajectories/ and communication/. The eval log goes under logs/ as
+for any run. The choices below are shared by every example.
 """
 from src.configuration import models
 

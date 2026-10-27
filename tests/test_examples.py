@@ -12,8 +12,8 @@ from src.configuration import models, settings
 from src.run import access_line
 from src.tasks import swarm_task
 
-EXAMPLES = {"examples.openmath.riemann_minimal": 3, "examples.swe.flipt_minimal": 3,
-            "examples.knowledge_work.worktime_minimal": 3, "examples.knowledge_work.worktime_lone": 1}
+EXAMPLES = ["examples.openmath.riemann_minimal", "examples.swe.flipt_minimal",
+            "examples.knowledge_work.worktime_minimal"]
 
 
 def test_main_runs_the_example_and_writes_beside_it(monkeypatch):
@@ -32,21 +32,16 @@ def test_main_runs_the_example_and_writes_beside_it(monkeypatch):
 def test_each_example_builds_the_default_preset_with_neutral_agents(name):
     module = importlib.import_module(name)
     config = module.config()
-    assert (config.preset, config.scale, config.n_agents) == ("default", "small", EXAMPLES[name])
+    assert (config.preset, config.scale, config.n_agents) == ("default", "small", 3)
     assert config.regulator_count == 0 and config.disregulator_count == 0 and config.access == "split"
     assert config.time_limit_s == 3600 and config.batch_judge is False
-    # The team runs take the domain's turn budget; the lone run turns it off, so its own turns measure the budget.
-    assert config.turn_budget == (None if EXAMPLES[name] == 1 else settings.TURN_BUDGETS)
+    assert config.turn_budget == settings.TURN_BUDGETS
     assert module.NAME == name.rsplit(".", 1)[1] and module.HERE.name == name.split(".")[1]
     assert (module.HERE / f"{module.NAME}.py").is_file()
     benchmark = module.benchmark()
     benchmark.check(config)
-    plan = benchmark.access_plan(config.names, config, None)
-    if EXAMPLES[name] == 1:
-        assert plan == {"a01": benchmark.whole_access()}
-    else:
-        held = [items for items in plan.values()]
-        assert all(len(items) == 1 for items in held) and len({i for items in held for i in items}) >= 2
+    held = list(benchmark.access_plan(config.names, config, None).values())
+    assert all(len(items) == 1 for items in held) and len({i for items in held for i in items}) >= 2
 
 
 def test_the_openmath_example_task_records_its_plan():
