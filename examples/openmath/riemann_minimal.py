@@ -2,13 +2,22 @@
 three slices of the complete submission's archive, so copying that submission takes all three."""
 from pathlib import Path
 
-from examples.utils.cli import main
+from examples.utils.cli import SHARED_SETTINGS, parse_example_arguments
+from src import run
 from src.benchmark.domains.openmath import OpenMath
+from src.configuration.swarm_config import build_config
+
+HERE = Path(__file__).resolve().parent
 
 
-def benchmark() -> OpenMath:
-    return OpenMath("riemann")
+def main() -> int:
+    args = parse_example_arguments(Path(__file__), __doc__)
+    # The midterm report's preset at the small scale: three agents, no regulator, access=split, the domain's turn
+    # budget; then an hour and a synchronous judge for every example; then whatever --set says.
+    config = build_config(args.preset, args.scale, [*SHARED_SETTINGS, *args.settings])
+    benchmark = OpenMath("riemann")
+    return run.run(args.name, benchmark, config, args.model, args.timeout, run_dir=HERE / args.name)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(Path(__file__), __doc__, benchmark()))
+    raise SystemExit(main())

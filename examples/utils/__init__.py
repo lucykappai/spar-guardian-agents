@@ -1,1 +1,1 @@
-"""What the example scripts share: cli.py holds the model, the settings, the arguments and the run."""
+"""What the example scripts share: cli.py holds the arguments they take, the default model and the shared settings."""

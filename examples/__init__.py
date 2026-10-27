@@ -4,6 +4,6 @@
     uv run python -m examples.swe.flipt_minimal --model gemini-3.8-flash
     uv run python -m examples.knowledge_work.worktime_minimal --scale medium --set regulators=1
 
-Each script names its task and hands the rest to examples/utils/cli.py, which holds the shared model and settings,
-the arguments every script takes and the run itself.
+Each script parses the shared arguments (examples/utils/cli.py), builds its config in the open, names its task and
+calls the run, which writes beside the script.
 """
