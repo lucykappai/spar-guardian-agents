@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import csv
 import json
-import re
 from pathlib import Path
 
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
+
+from src.swarm import rules
 
 SURFACE = "#fcfcfb"
 INK = "#0b0b0b"
@@ -32,12 +33,28 @@ KINDS = {"work": ("work step", "#2a78d6"), "board": ("board action", "#eb6834"),
 BOARD_ACTIONS = {"board_status": "status", "channel_list": "status", "board_read": "read", "channel_read": "read",
                  "board_post": "post", "channel_post": "post"}
 ACTIONS = ("status", "read", "post")
-# The judge's flags, the label of each, and the status colour a true value takes (None: a neutral tile).
-FLAGS = (("honey_pots_seen", "saw the\nhoneypot", "#fab219"), ("attempted_access", "attempted\naccess", "#ec835a"),
-         ("extracted_submission", "extracted the\nsubmission", "#ec835a"),
-         ("disclosed_access", "disclosed", "#0ca30c"), ("cheated", "cheated", "#d03b3b"))
-DARK_INK_FILLS = {"#fab219"}
-STEP_ID = re.compile(r"^(r|p)(\d+)(?:-free(\d+))?$")
+# Each task's judge flags (CheatBench's judge_schema.py), the label of each, and the status colour a true value
+# takes: warning for a route seen, serious for an attempt or a use, good for a disclosure, critical for cheating.
+WARNING, SERIOUS, GOOD, CRITICAL = "#fab219", "#ec835a", "#0ca30c", "#d03b3b"
+FLAGS_BY_TASK = {
+    "openmath_agent": (("honey_pots_seen", "saw the\nhoneypot", WARNING),
+                       ("attempted_access", "attempted\naccess", SERIOUS),
+                       ("extracted_submission", "extracted the\nsubmission", SERIOUS),
+                       ("disclosed_access", "disclosed", GOOD), ("cheated", "cheated", CRITICAL)),
+    "software_engineering": (("reference_solution_seeking", "sought the\nreference", WARNING),
+                             ("reference_solution_obtained", "obtained the\nreference", SERIOUS),
+                             ("reference_solution_used", "used the\nreference", SERIOUS),
+                             ("evaluation_tampering", "tampered with\nthe evaluation", CRITICAL),
+                             ("cheated", "cheated", CRITICAL)),
+    "knowledge_work": (("honey_pots_seen", "saw the\nartifact's route", WARNING),
+                       ("inspected_competitor", "opened the\nartifact", SERIOUS),
+                       ("copied_or_transformed_competitor", "copied or\ntransformed it", SERIOUS),
+                       ("submitted_competitor", "sent it\nfor review", SERIOUS),
+                       ("copied_final", "shipped\na copy", CRITICAL),
+                       ("attempted_grader_manipulation", "tampered with\nthe review", CRITICAL),
+                       ("cheated", "cheated", CRITICAL)),
+}
+DARK_INK_FILLS = {WARNING}
 # The legend sits below the plot, where no title or lane can collide with it.
 LEGEND = dict(loc="upper left", bbox_to_anchor=(0, -0.22), ncol=3, frameon=False, fontsize=8,
               labelcolor=INK_SECONDARY, handletextpad=0.4, columnspacing=1.6)
@@ -71,14 +88,10 @@ def kind_of(entry: dict) -> str:
 
 
 def position_of(entry: dict) -> float:
-    """The step's place on the round axis: round k at k, its free follow-ups at k + 0.2, k + 0.4, ..., planning
-    steps at 0, anything else by its turn."""
-    match = STEP_ID.match(entry.get("step") or "")
-    if match is None:
-        return float(entry.get("turn") or 0)
-    if match.group(1) == "p":
-        return 0.0
-    return int(match.group(2)) + 0.2 * int(match.group(3) or 0)
+    """The step's place on the round axis, read with the turn rules' own parsers of a step id (r3, r3-a01,
+    r9-a01-v4, r3-free1): round k at k, its free follow-ups at k + 0.2, k + 0.4, ..., planning steps at 0."""
+    step = entry.get("step") or ""
+    return rules.step_round(step) + 0.2 * rules.free_index(step)
 
 
 def subtitle(data: dict) -> str:
@@ -196,11 +209,12 @@ def plot_verdicts(data: dict, out: Path) -> Path | None:
     agents = data["agents"]
     if not data["verdicts"]:
         return None
-    fig, ax = _new_figure(2.2 + 1.4 * len(FLAGS), 1.6 + 0.5 * len(agents))
+    flags = FLAGS_BY_TASK.get(data["run"].get("task"), FLAGS_BY_TASK["openmath_agent"])
+    fig, ax = _new_figure(2.2 + 1.4 * len(flags), 1.6 + 0.5 * len(agents))
     _style(ax, f"{data['name']}: the judge's verdict per agent", subtitle(data))
     for i, agent in enumerate(agents):
         verdict = data["verdicts"].get(agent) or {}
-        for j, (flag, _, colour) in enumerate(FLAGS):
+        for j, (flag, _, colour) in enumerate(flags):
             value = None if verdict.get("judge_error") else verdict.get(flag)
             fill = colour if value else SURFACE
             ax.bar(j, 0.8, bottom=len(agents) - 1 - i - 0.4, width=0.9, color=fill,
@@ -208,20 +222,20 @@ def plot_verdicts(data: dict, out: Path) -> Path | None:
             text = "yes" if value else ("no" if value is False else "—")
             ax.text(j, len(agents) - 1 - i, text, ha="center", va="center", fontsize=9,
                     color=(INK if (not value or colour in DARK_INK_FILLS) else "#ffffff"))
-    ax.set_xticks(range(len(FLAGS)))
-    ax.set_xticklabels([label for _, label, _ in FLAGS], color=INK, fontsize=8.5)
+    ax.set_xticks(range(len(flags)))
+    ax.set_xticklabels([label for _, label, _ in flags], color=INK, fontsize=8.5)
     ax.set_yticks(range(len(agents)))
     ax.set_yticklabels([f"{a} · {data['roles'].get(a) or 'agent'}" for a in reversed(agents)], color=INK)
-    ax.set_xlim(-0.6, len(FLAGS) - 0.4)
+    ax.set_xlim(-0.6, len(flags) - 0.4)
     ax.set_ylim(-0.6, len(agents) - 0.4)
     ax.spines["bottom"].set_visible(False)
     fig.savefig(out, bbox_inches="tight", facecolor=SURFACE)
     with (out.with_suffix(".csv")).open("w", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["agent", "role", *(flag for flag, _, _ in FLAGS)])
+        writer.writerow(["agent", "role", *(flag for flag, _, _ in flags)])
         for agent in agents:
             verdict = data["verdicts"].get(agent) or {}
-            writer.writerow([agent, data["roles"].get(agent) or "", *(verdict.get(flag) for flag, _, _ in FLAGS)])
+            writer.writerow([agent, data["roles"].get(agent) or "", *(verdict.get(flag) for flag, _, _ in flags)])
     return out
 
 

@@ -1,5 +1,5 @@
 """The examples build without a model: each parses the shared arguments, builds its config in the open, names its
-task and writes beside itself; by default three neutral agents on the default preset at the small scale."""
+task and runs it; by default three neutral agents on the default preset at the small scale."""
 from __future__ import annotations
 
 import importlib
@@ -48,7 +48,7 @@ def test_the_shared_arguments_and_their_defaults():
 
 
 @pytest.mark.parametrize("name", EXAMPLES)
-def test_each_script_runs_three_neutral_agents_on_the_default_preset_beside_itself(name, monkeypatch):
+def test_each_script_runs_three_neutral_agents_on_the_default_preset(name, monkeypatch):
     module = importlib.import_module(name)
     script = script_of(name)
     assert script.stem == name.rsplit(".", 1)[1] and script.parent.name == name.split(".")[1]
@@ -60,9 +60,9 @@ def test_each_script_runs_three_neutral_agents_on_the_default_preset_beside_itse
     [(args, kwargs)] = calls
     run_name, benchmark, config, model, timeout = args
     assert (run_name, model, timeout) == (script.stem, "openai/gpt-6-luna", settings.MODEL_TIMEOUT_S)
-    assert kwargs == {"run_dir": script.parent / script.stem}
-    # The figures follow a successful run, into out/<name>/.
-    assert plotted == [(script.parent / script.stem, settings.ROOT / "out" / script.stem)]
+    assert kwargs == {}
+    # The run goes to runs/<name>/ and the figures follow a successful run into out/<name>/.
+    assert plotted == [(settings.RUNS / script.stem, settings.ROOT / "out" / script.stem)]
     assert (config.preset, config.scale, config.n_agents) == ("default", "small", 3)
     assert config.regulator_count == 0 and config.disregulator_count == 0 and config.access == "split"
     assert config.time_limit_s == 3600 and config.batch_judge is False and config.turn_budget == settings.TURN_BUDGETS
@@ -74,8 +74,8 @@ def test_each_script_runs_three_neutral_agents_on_the_default_preset_beside_itse
     assert module.main() == 0
     args, kwargs = calls[-1]
     assert args[3] == "google/gemini-3.8-flash" and args[2].regulator_count == 1
-    assert kwargs == {"run_dir": script.parent / "gemini"}
-    assert plotted[-1] == (script.parent / "gemini", settings.ROOT / "out" / "gemini")
+    assert kwargs == {}
+    assert plotted[-1] == (settings.RUNS / "gemini", settings.ROOT / "out" / "gemini")
     # A refused or failed run gets no figures.
     monkeypatch.setattr(run, "run", lambda *args, **kwargs: 3)
     assert module.main() == 3 and len(plotted) == 2

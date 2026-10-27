@@ -10,7 +10,6 @@ from src.configuration import settings
 from src.configuration.swarm_config import build_config
 from src.ui import plots
 
-HERE = Path(__file__).resolve().parent
 OUT = settings.ROOT / "out"
 
 
@@ -20,10 +19,9 @@ def main() -> int:
     # domain's turn budget), an hour for the agents and a synchronous judge, then whatever --set says.
     config = build_config(args.preset, args.scale, args.settings)
     benchmark = SWE("flipt-02e2", "jigsaw", grade=True)
-    run_dir = HERE / args.name
-    exit_code = run.run(args.name, benchmark, config, args.model, args.timeout, run_dir=run_dir)
+    exit_code = run.run(args.name, benchmark, config, args.model, args.timeout)
     if exit_code == 0:
-        plots.plot_run(run_dir, OUT / args.name)
+        plots.plot_run(settings.RUNS / args.name, OUT / args.name)
     return exit_code
 
 

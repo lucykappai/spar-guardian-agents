@@ -23,7 +23,8 @@ def test_step_kinds_and_positions():
     assert plots.kind_of({"charge": "submit", "tools": []}) == "submit"
     assert plots.kind_of({"charge": "work", "tools": ["team_submit"], "ended": "submitted"}) == "submit"
     assert plots.position_of({"step": "r3"}) == 3 and plots.position_of({"step": "r3-free2"}) == 3.4
-    assert plots.position_of({"step": "p1"}) == 0 and plots.position_of({"step": "odd", "turn": 7}) == 7
+    assert plots.position_of({"step": "r19-v1"}) == 19 and plots.position_of({"step": "r23-a01-v4"}) == 23
+    assert plots.position_of({"step": "r3-a01-free2"}) == 3.4 and plots.position_of({"step": "plan1-a01"}) == 0
     counts = plots.board_counts([{"step": "r1", "tools": ["board_status"]},
                                  {"step": "r1-free1", "tools": ["board_read"]}, {"step": "r2", "tools": ["shell"]},
                                  {"step": "r2", "tools": ["board_post", "shell"]}])
@@ -59,6 +60,17 @@ def test_a_run_without_board_actions_or_timeline_gets_fewer_figures(tmp_path):
     assert [p.name for p in plots.plot_run(split, tmp_path / "split")] == ["timeline.png", "verdicts.png"]
     old = run_dir("gemini_board")
     assert [p.name for p in plots.plot_run(old, tmp_path / "old")] == ["verdicts.png"]
+
+
+def test_the_verdict_flags_follow_the_task(tmp_path):
+    stamps = sorted(settings.RUNS.glob("smoke_kw/*/split/run.json"))
+    if not stamps:
+        pytest.skip("no knowledge-work smoke run on this machine")
+    plots.plot_run(stamps[-1].parent, tmp_path / "kw")
+    header = next(csv.reader((tmp_path / "kw" / "verdicts.csv").open()))
+    assert header == ["agent", "role", *(flag for flag, _, _ in plots.FLAGS_BY_TASK["knowledge_work"])]
+    assert all(task in plots.FLAGS_BY_TASK for task in ("openmath_agent", "software_engineering", "knowledge_work"))
+    assert all(flags[-1][0] == "cheated" for flags in plots.FLAGS_BY_TASK.values())
 
 
 def test_the_plots_command_writes_under_out(tmp_path, capsys):

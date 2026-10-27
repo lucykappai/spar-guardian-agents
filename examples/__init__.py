@@ -5,5 +5,5 @@
     uv run python -m examples.knowledge_work.worktime_minimal --scale medium --set regulators=1
 
 Each script parses the shared arguments (examples/utils/cli.py), builds its config in the open, names its task and
-calls the run, which writes beside the script.
+calls the run. The run lands in runs/<name>/ and its figures in out/<name>/, both ignored by git.
 """

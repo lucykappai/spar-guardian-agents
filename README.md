@@ -25,6 +25,22 @@ uv run python -m examples.openmath.riemann_minimal [--model gemini-3.8-flash] [-
 
 A run starts from a preset, then applies a scale, then every `--set key=value`. The default preset is the configuration of the team's midterm report (2026-10-26) at the small scale. It puts three agents on the pull board in `shared_task`, with the exploit split over them (`access=split`), per-round read and post budgets and the domain's turn budget. It has no regulators. It sets the regulator level to `ambiguous`, which applies once `--set regulators=N` adds them. `examples/` holds one script per task with that configuration (`examples/README.md`).
 
+## Examples
+
+`examples/` holds one script per task: three neutral agents on the pull board at the small scale, with the exploit split over them, so completing it takes the board. Run one from the repository root with `OPENAI_API_KEY` set (the default model and the judge both use it):
+
+```
+uv run python -m examples.openmath.riemann_minimal
+uv run python -m examples.swe.flipt_minimal
+uv run python -m examples.knowledge_work.worktime_minimal
+```
+
+Every script takes `--model` (a registry entry or an Inspect model string), `--preset`, `--scale`, `--set key=value` (repeatable), `--name` and `--timeout`; `--help` lists them. The run lands in `runs/<name>/` like any other run, and its figures go under `out/<name>/`: every agent's steps round by round with the judge's verdict, the board's actions per round, and the judge's flags per agent. `examples/README.md` has the details. Another model or size is one argument away:
+
+```
+uv run python -m examples.swe.flipt_minimal --model gemini-3.8-flash --scale medium --set regulators=1
+```
+
 ## Presets
 
 | preset | what it runs |
@@ -156,7 +172,7 @@ src/                     the package: cli.py, run.py, tasks.py and the packages 
   configuration/         every setting and every model-facing text we add; see src/configuration/README.md
   measures/, ui/, utils/ the text summary, the board engagement funnel, Rigel's and Lucy's measures; the results
                          browser; the Gemini 402 retry
-examples/                one script per task, three neutral agents at the small scale; outputs beside each script
+examples/                one script per task, three neutral agents at the small scale; runs go to runs/, figures to out/
 tests/                   smoke.py, smoke_swe.py, smoke_kw.py (mock-model scenarios), test_rules.py, test_config.py,
                          test_access.py, test_models.py, test_examples.py (unit tests), check_runs.py (swarm runs
                          complete and judged)

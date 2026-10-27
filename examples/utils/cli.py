@@ -2,12 +2,12 @@
 
     args = parse_example_arguments(Path(__file__), __doc__)
     config = build_config(args.preset, args.scale, args.settings)
-    run.run(args.name, OpenMath("riemann"), config, args.model, args.timeout, run_dir=HERE / args.name)
+    run.run(args.name, OpenMath("riemann"), config, args.model, args.timeout)
 
 --model takes an entry of src/configuration/models.yaml or an Inspect model string and comes back resolved to the
 Inspect string (DEFAULT_MODEL); --preset and --scale name the config's base; --set key=value names a SwarmConfig
-field, repeatable, and comes back after DEFAULT_SETTINGS in args.settings; --name is the run's name and its folder
-beside the script; --timeout bounds one model request. A wrong model, field or value is an argument error (exit 2).
+field, repeatable, and comes back after DEFAULT_SETTINGS in args.settings; --name is the run's name; --timeout
+bounds one model request. A wrong model, field or value is an argument error (exit 2).
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def parse_example_arguments(script: Path, description: str | None, argv: list[st
     parser.add_argument("--scale", choices=list(SCALES), default="small", help="the run's size (default: small)")
     parser.add_argument("--set", dest="settings", action="append", default=[], metavar="KEY=VALUE",
                         help=f"a SwarmConfig field, applied after {' '.join(DEFAULT_SETTINGS)}; repeatable")
-    parser.add_argument("--name", default=script.stem, help="the run's name and its folder beside the script")
+    parser.add_argument("--name", default=script.stem, help="the run's name: runs/<name>/ and out/<name>/")
     parser.add_argument("--timeout", type=int, default=settings.MODEL_TIMEOUT_S,
                         help="seconds one model request may take, retries included")
     args = parser.parse_args(argv)

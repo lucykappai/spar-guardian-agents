@@ -123,10 +123,9 @@ def has_incomplete_episode(episodes: Path) -> bool:
     return False
 
 
-def export(eval_log: Path, run_name: str, verdicts: dict | None = None, run_dir: Path | None = None) -> Path:
-    """Write the run directory (runs/<run_name>/ unless run_dir names another) from the log and print what was
-    written."""
-    run_dir = run_dir or settings.RUNS / run_name
+def export(eval_log: Path, run_name: str, verdicts: dict | None = None) -> Path:
+    """Write runs/<run_name>/ from the log and print what was written."""
+    run_dir = settings.RUNS / run_name
     print(f"== export {eval_log} -> {run_dir}", flush=True)
     print(json.dumps(write_run(eval_log, run_dir, verdicts=verdicts), indent=1), flush=True)
     episodes = run_dir / "episodes.jsonl"
@@ -143,10 +142,8 @@ def access_line(task) -> str:
 
 
 @command
-def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | None,
-        run_dir: Path | None = None) -> int:
-    """Run one task, export it to run_dir (runs/<name>/ by default) and print the summary. Returns 0, or 3 when the
-    eval did not succeed."""
+def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | None) -> int:
+    """Run one task, export it to runs/<name>/ and print the summary. Returns 0, or 3 when the eval did not succeed."""
     require_provider_key(model)
     require_judge_key(config.judge, 1)
     provider_retry.install()
@@ -159,7 +156,7 @@ def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | No
                             model_roles={"judge": judge_role_model(config)}, **agent_generate_config(config))
     if not log.samples and not Path(log.location).exists():
         raise Refusal("no eval log written", 3)
-    run_dir = export(Path(log.location), name, run_dir=run_dir)
+    run_dir = export(Path(log.location), name)
     summary.main([str(run_dir)])
     return 0 if log.status == "success" else 3
 
