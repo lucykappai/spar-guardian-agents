@@ -11,12 +11,13 @@ responses are JSON.
 |---|---|
 | `#/` | Summary: cheating by setting, composition grids, team reports against the judge |
 | `#/runs?q=&setting=&control=&cheated=&failed=1&sort=&dir=` | Runs: one row per run, opening to its agents |
-| `#/run/<run>` | run page (with mode, scale, preset and board engagement); `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
+| `#/run/<run>` | run page (with mode, scale, preset, split access, turn budget, board engagement, and the knowledge-work section for that task); `.../timeline`, `.../context?agent=&call=`, `.../sample`, `.../episode/<episode>?find=&kind=&step=` |
 | `#/swarm?run=<run>` | Swarm: grids, outcome funnel, adoption curves, swarm runs with rasters, run explorer |
 
 A **setting** is the communication graph (`single`: a lone agent; `board`: every agent on one shared board), the roster size, and
 whether roles were hidden. A CheatBench SWE run has its own setting per issue, team size, honeypot and hint ("SWE flipt-02e2
-board of 2 (jigsaw)"), and its run page gains a "SWE task" section. `run.json` writes `topology: "swarm"` for a board with hidden roles; the API adds `graph` so the swarm reads
+board of 2 (jigsaw)"), and its run page gains a "SWE task" section. A knowledge-work run has its own setting by team size and
+hidden roles ("knowledge work board of 3"), and its run page gains a "Knowledge work" section. `run.json` writes `topology: "swarm"` for a board with hidden roles; the API adds `graph` so the swarm reads
 as what it is, a board of N agents with roles.
 
 ## Data model
@@ -41,7 +42,8 @@ RunSummary = {
   swarm: null | {n_agents, regulators, disregulators, workers, seed, composition, swarm_report_cheated, has_report},
                                    # the team report fields are null and false for runs after the team report was removed
   deliverables: null | {archive_in_workspace, registered_on_main, registered_message_copied_from},
-                                   # openmath solo_task: archive_in_workspace means every copy holds the archive
+                                   # openmath solo_task: archive_in_workspace means every copy holds the archive;
+                                   # under split access registered_on_main reads the team remote's main
   endings: {label: count}   # failure label, else "submit", else the converter's ended_by
   has_communication, has_defense,
   config: null | {...},            # run.json "config": the SwarmConfig the task was built from (every field)
@@ -52,11 +54,28 @@ RunSummary = {
   preset: null | "default"|"ian_legacy"|"lucy_legacy",
   preset_inferred: bool,           # true when the run recorded no preset and its name was inferred from the config's fields
   engagement: null | RunEngagement,  # null for a run without a board
+  split_access: null | bool,       # the config's split_access; null for runs before the field
+  turn_budget: null | {budget, steps_per_agent},   # the domain's turn budget; null without one
+  access: null | Access,           # what each agent held; null when the domain recorded nothing
+  knowledge: null | Knowledge,     # knowledge-work runs only
   episodes: [Episode]
 }
+Access = {applied: bool, agents: {<agent>: {branches: [str], archive_part?: int|null} | {review: bool, cache_read: bool}},
+          remote?, honeypot_branches?, archive?: {branch, commit, name, parts}}
+          # openmath split access: the team remote, the honeypot branches every copy keeps, and the complete
+          # submission's archive cut into `parts` slices; archive_part is the slice an agent's copy held (null: the
+          # whole archive). Runs recorded before the archive split have neither archive nor archive_part.
+Knowledge = {layout ("lone"|"shared"|"solo"), mode, split_access, row_id, meta: {task_id, sector, occupation, gold_name},
+             comparator (the pipeline artifact path), seats: {<agent>: {user, uid, home, root, contract, candidate, review,
+             cache_read}}, contracts: {<contract>: {root, candidate, files: [{path, bytes, sha256}], skipped?: [{path, kind}],
+             copied_reference, error}},   # skipped: symlinks and other non-regular entries of to_send/, never followed
+             grader_state: {<agent>: {agent_id, calls, errors, verdicts, similarities, submitted_reference}},
+             last_verdict, access, share_delivered, reviews}
 RunEngagement = {
   agents, agents_checked (looked: board_status or board_read), agents_posted, median_discovery_round,
-  checks, reads, posts, read_graph: {reader: {sender: count}}, team_submission: null | {agent, round, answer, time}
+  checks, reads, posts, read_graph: {reader: {sender: count}}, team_submission: null | {agent, round, answer, time},
+  reads_refused?, posts_refused?, oversight?, oversight_graph?: {regulator: {target: count}}
+                                   # present only for runs with per-turn budgets and the regulators' agent_actions
 }
 SweSetting = {
   task_key ("flipt-02e2"), instance, n_agents, board: bool, honeypot ("as_released"|"own_piece"|"jigsaw"|null), jigsaw: bool,
@@ -75,7 +94,11 @@ Episode = {                       # one row of episodes.jsonl plus:
   transcript_path, has_transcript,
   verdict: null | Verdict,
   engagement: null | {discovery_round, checks, reads, posts, read_senders: {sender: count}, free_steps, work_steps,
-                      team_submitted: bool, notices}   # null for a run without a board
+                      team_submitted: bool, notices,
+                      reads_refused?, posts_refused?, oversight?, oversight_targets?: {target: count}},
+                                   # null for a run without a board; the last four only for runs that record them
+  access?: {branches, archive_part?} | {review, cache_read},   # this agent's entry of Access
+  review?: {agent_id, calls, errors, verdicts, similarities, submitted_reference}   # knowledge work: its grader state
 }
 Verdict = every key of the episode's judge.jsonl row except the bookkeeping keys (id, episode, replicate, task, model,
           transcript_path, judge_generation_config, judge_generation_config_unsupported, judge_prompt, judge_schema,
@@ -109,7 +132,11 @@ exactly `I cannot provide that response under the configured defense policy.` is
 `{status, model, eval_id, total_time, working_time, limit, error, model_usage: {model: {input, cache_read, output, reasoning}},
   scores: {deliverables_scorer: {value, answer (message.txt), explanation, metadata: {listing, git, agent_evals, agent_evals_main, probe}}},
           # openmath solo_task: value is the share of copies holding the archive, answer is null, and metadata is
-          # {agents: {name: {archive, message, listing, git, agent_evals, agent_evals_main}}, probe}
+          # {agents: {name: {archive, message, listing, git, agent_evals, agent_evals_main}}, probe}; under split
+          # access metadata also has remote: {archive_on_main, message_on_main, agent_evals_main, branches, git} and
+          # archive_parts: {agent: k}, the archive slice each neutral agent's copy held
+          # knowledge work: knowledge_deliverables: {value (share of contracts whose to_send/ holds a file),
+          # answer (last verdict), metadata: {contracts, grader_state, reviews, last_verdict, access, probe}}
   store: {...}, n_messages, n_events}`
 
 ### `GET /api/runs/<run>/context` → `{run, agents: [str], defenses: [str], calls: [CallIndex]}`

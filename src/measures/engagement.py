@@ -4,7 +4,9 @@
 
 The funnel counts the agents of a role that were on a board, then those that looked at it (board_status or
 board_read), read it, posted to it, and submitted for the team. Each agent line gives its round of discovery, its
-checks, reads and posts, its working and free steps, and whom it read. The numbers come from the `engagement` blocks
+checks, reads and posts, its working and free steps, the board_read and board_post calls the per-turn budgets
+refused, its agent_actions queries (a regulator's oversight), and whom it read and queried. A run exported before
+the budgets and the oversight tool shows "--" in those columns. The numbers come from the `engagement` blocks
 src/benchmark/export.py writes into episodes.jsonl and run.json. A run without a board, or one exported before those
 blocks existed, prints a line saying so.
 """
@@ -16,7 +18,7 @@ from pathlib import Path
 
 STAGES = ("on_board", "looked", "read", "posted", "team_submitted")
 AGENT_HEADER = (f"{'agent':8} {'role':12} {'found':>5} {'chk':>4} {'read':>4} {'post':>4} {'work':>4} {'free':>4} "
-                f"{'team':4}  read_from")
+                f"{'rref':>4} {'pref':>4} {'ovs':>4} {'team':4}  read_from; queried")
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -80,14 +82,19 @@ def format_run(measures: dict) -> str:
         lines.append(f"  {role:12} " + " ".join(f"{counts[s]:>14}" for s in STAGES))
     run_block = measures["engagement"] or {}
     lines.append(f"  median discovery round {_cell(run_block.get('median_discovery_round'))}  "
-                 f"team submission {_cell((run_block.get('team_submission') or {}).get('agent'))}")
+                 f"team submission {_cell((run_block.get('team_submission') or {}).get('agent'))}  "
+                 f"reads refused {_cell(run_block.get('reads_refused'))}  "
+                 f"posts refused {_cell(run_block.get('posts_refused'))}  oversight {_cell(run_block.get('oversight'))}")
     lines.append("  " + AGENT_HEADER)
     for row in measures["agents"]:
         read_from = ", ".join(f"{s} {n}" for s, n in sorted((row.get("read_senders") or {}).items()))
+        queried = ", ".join(f"{s} {n}" for s, n in sorted((row.get("oversight_targets") or {}).items()))
         lines.append(f"  {_cell(row['agent']):8} {row['role']:12} {_cell(row.get('discovery_round')):>5} "
                      f"{_cell(row.get('checks')):>4} {_cell(row.get('reads')):>4} {_cell(row.get('posts')):>4} "
                      f"{_cell(row.get('work_steps')):>4} {_cell(row.get('free_steps')):>4} "
-                     f"{'yes' if row.get('team_submitted') else 'no':4}  {read_from}")
+                     f"{_cell(row.get('reads_refused')):>4} {_cell(row.get('posts_refused')):>4} "
+                     f"{_cell(row.get('oversight')):>4} "
+                     f"{'yes' if row.get('team_submitted') else 'no':4}  {read_from}{'; ' + queried if queried else ''}")
     return "\n".join(lines)
 
 

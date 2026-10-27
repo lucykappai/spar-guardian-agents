@@ -1,7 +1,9 @@
-"""The run and judge commands: run a task in process, or judge a finished eval log again.
+"""The run, judge and budget commands: run a task in process, judge a finished eval log again, or derive the turn
+budget's steps per agent from a lone run.
 
     run("swarm_R3D3_s1", OpenMath(), config, model="google/gemini-3.8-flash", timeout=2700)
     judge(Path("logs/swarm/swarm_R3D3/<log>.eval"), "swarm_R3D3", "gpt-6-sol", judge_errors=False)
+    budget(Path("runs/gemini_riemann"), ["medium"])
 
 A run calls inspect_ai.eval with the task from tasks.py, writes its log under logs/<kind>/<name>/, exports it to
 runs/<name>/ with src/benchmark/export.py and prints one line per episode. CheatBench's judge runs inside the eval as a
@@ -35,6 +37,7 @@ from src.benchmark.transcript import (
     transcript_dict,
 )
 from src.configuration import settings
+from src.configuration.scales import steps_by_scale
 from src.configuration.swarm_config import SwarmConfig
 from src.measures import summary
 from src.tasks import JUDGE_ADDENDUM, hidden_roles, swarm_task
@@ -205,4 +208,35 @@ def judge(eval_log: Path, run_name: str, judge_name: str, *, judge_errors: bool 
     if not verdicts or not judge_jsonl.exists():
         raise Refusal("the judge wrote no verdicts", 4)
     print_verdicts(judge_jsonl)
+    return 0
+
+
+# --------------------------------------------------------------------------
+# the turn budget from a lone run
+# --------------------------------------------------------------------------
+def lone_turns(run_dir: Path) -> list[int]:
+    """n_turns of every episode of a lone agent's run (runs/<name>/episodes.jsonl)."""
+    episodes = run_dir / "episodes.jsonl"
+    if not episodes.is_file():
+        raise Refusal(f"no episodes.jsonl in {run_dir}", 2)
+    rows = [json.loads(line) for line in episodes.read_text().splitlines() if line.strip()]
+    if not rows:
+        raise Refusal(f"{episodes} holds no episodes", 2)
+    if any(len(row.get("orbit_roster") or [row.get("orbit_agent")]) != 1 for row in rows):
+        raise Refusal(f"{run_dir} is not a lone agent's run: an episode has a roster of several agents", 2)
+    return [int(row["n_turns"]) for row in rows]
+
+
+@command
+def budget(run_dir: Path, scales: list[str] | None = None) -> int:
+    """Print the lone run's n_turns and, per scale, the working steps per agent that budget gives
+    (max(1, budget // n_agents), SwarmConfig.steps_for). Several episodes give their mean, rounded."""
+    turns = lone_turns(run_dir)
+    total = round(sum(turns) / len(turns))
+    print(f"{run_dir}: {len(turns)} episode(s) of a lone agent, n_turns {', '.join(map(str, turns))}; "
+          f"budget {total}")
+    print(f"{'scale':<12} {'agents':>6} {'scale steps':>11} {'budget steps':>12}")
+    for name, row in steps_by_scale(total, scales).items():
+        literal = "  (the literal rule: at least one step)" if total // row["n_agents"] < 1 else ""
+        print(f"{name:<12} {row['n_agents']:>6} {row['scale_steps']:>11} {row['budget_steps']:>12}{literal}")
     return 0

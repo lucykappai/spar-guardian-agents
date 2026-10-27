@@ -667,6 +667,14 @@ function settingOf(run) {
   const n = run.n_agents || (run.agents || []).length || (run.episodes || []).length;
   const sw = run.swarm || null;
   if (run.swe) return sweSetting(run.swe, n);
+  if (run.task === 'knowledge_work') {
+    // knowledge work is its own setting, apart from openmath, by team size and hidden roles
+    const n1 = graph === 'single' ? 1 : n;
+    const hidden = !!(sw && sw.composition);
+    return { key: `kw-${hidden ? 'roles' : 'board'}-${n1}`, order: 4, n: n1,
+      label: `knowledge work ${n1 === 1 ? 'lone agent' : `board of ${n1}`}${hidden ? ', hidden roles' : ''}`,
+      ...(hidden ? { composition: sw.composition, R: sw.regulators, D: sw.disregulators, W: sw.workers } : {}) };
+  }
   if (graph === 'single') return { key: 'single', label: 'lone agent', order: 0, n: 1 };
   if (sw && sw.composition) {
     return { key: `roles-${n}`, label: `board of ${n}, hidden roles`, order: 2, n,
@@ -1062,6 +1070,11 @@ async function viewRun({ run }, view) {
     ['mode', d.mode],
     ['scale', d.scale],
     ['preset', d.preset ? (d.preset_inferred ? `${d.preset} (inferred from the config)` : d.preset) : null],
+    // split access and the turn budget: shown only for runs that recorded them
+    ['split access', d.split_access == null ? undefined
+      : (d.access ? `${d.split_access ? 'on' : 'off'}; ${d.access.applied ? 'applied' : 'not applied to this roster'}`
+        : (d.split_access ? 'on' : 'off'))],
+    ['turn budget', d.turn_budget ? `${d.turn_budget.budget} turns, ${d.turn_budget.steps_per_agent} working steps per agent` : undefined],
     ['eval id', rj.eval_id ? mono(rj.eval_id) : null],
     ['run id', rj.run_id],
     ['variant', rj.variant || null],
@@ -1087,9 +1100,78 @@ async function viewRun({ run }, view) {
   const configSection = d.config ? section('Configuration', configKv(d.config)) : null;
   const rulesSection = d.rules ? section('Turn rules', rulesTable(d.rules)) : null;
   const engagementSection = d.engagement ? section('Board engagement', engagementView(d.engagement, eps)) : null;
+  const accessSection = d.access ? section('Split access', accessView(d.access, eps)) : null;
+  const knowledgeSection = d.knowledge ? section('Knowledge work', knowledgeView(d.knowledge)) : null;
 
-  return h('div', { class: 'page' }, head, meta, configSection, defSection, sweSection, swarmSection, rulesSection,
-    engagementSection, epSection, boardSection, evidence);
+  return h('div', { class: 'page' }, head, meta, configSection, defSection, sweSection, knowledgeSection, swarmSection,
+    accessSection, rulesSection, engagementSection, epSection, boardSection, evidence);
+}
+
+// What each agent held (run.json "access"): its honeypot branches and archive slice on openmath, the review tool and
+// the read permission on the pipeline artifact on knowledge work.
+function accessView(access, eps) {
+  const agents = Object.keys(access.agents || {}).sort();
+  const roleOf = a => (eps.find(e => e.orbit_agent === a) || {}).role;
+  const branchy = agents.some(a => (access.agents[a] || {}).branches !== undefined);
+  const sliced = agents.some(a => 'archive_part' in (access.agents[a] || {}));
+  const archive = access.archive ? access.archive.name : 'archive';
+  const cols = ['agent', 'role', ...(branchy ? ['honeypot branches held'] : ['review tool', 'artifact read']),
+    ...(sliced ? [archive + ' held'] : [])];
+  const table = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+    h('thead', null, h('tr', null, cols.map(c => h('th', null, c)))),
+    h('tbody', null, agents.map(a => {
+      const x = access.agents[a] || {};
+      const cells = branchy
+        ? [h('td', null, (x.branches || []).length ? mono(x.branches.join(', ')) : muted('none'))]
+        : [h('td', null, yn(x.review, 'plain', 'plain')), h('td', null, yn(x.cache_read, 'plain', 'plain'))];
+      if (sliced) {
+        cells.push(h('td', null, x.archive_part == null ? 'whole'
+          : mono(`${archive}.part${x.archive_part} of ${access.archive ? access.archive.parts : '?'}`)));
+      }
+      return h('tr', null, h('td', null, a), h('td', null, roleOf(a) || muted(DASH)), ...cells);
+    }))));
+  return h('div', null, kv([
+    ['applied', yn(access.applied, 'plain', 'plain')],
+    ['team remote', access.remote ? mono(access.remote) : undefined],
+    ['honeypot branches', access.honeypot_branches ? mono(access.honeypot_branches.join(', ')) : undefined],
+    ['split archive', access.archive && access.archive.parts
+      ? mono(`${access.archive.name} on ${access.archive.branch}, ${access.archive.parts} slices`) : undefined],
+  ], 'kv-grid'), table);
+}
+
+// The knowledge-work sample and its reviews (run.json "knowledge"): the layout, the pipeline artifact, each contract's
+// to_send/ files and each agent's grader state.
+function knowledgeView(kw) {
+  const meta = kw.meta || {};
+  const state = kw.grader_state || {};
+  const last = kw.last_verdict || null;
+  const contracts = Object.entries(kw.contracts || {});
+  const agents = Object.keys(state).sort();
+  const reviewTable = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+    h('thead', null, h('tr', null, ['agent', 'candidate', 'reviews', 'errors', 'verdicts', 'submitted the reference']
+      .map(c => h('th', null, c)))),
+    h('tbody', null, agents.map(a => {
+      const g = state[a] || {};
+      return h('tr', null, h('td', null, a), h('td', null, mono(g.agent_id)), h('td', null, String(g.calls ?? DASH)),
+        h('td', null, String(g.errors ?? DASH)), h('td', null, (g.verdicts || []).join(', ') || muted(DASH)),
+        h('td', null, String(g.submitted_reference ?? DASH)));
+    }))));
+  const contractTable = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+    h('thead', null, h('tr', null, ['contract', 'candidate', 'files in to_send/', 'copied the artifact']
+      .map(c => h('th', null, c)))),
+    h('tbody', null, contracts.map(([c, x]) => h('tr', null, h('td', null, mono(c)), h('td', null, mono(x.candidate)),
+      h('td', null, (x.files || []).length ? (x.files || []).map(f => h('div', null, mono(`${f.path} (${f.bytes} B)`))) : muted('none')),
+      h('td', null, yn(x.copied_reference, 'bad', 'plain')))))));
+  return h('div', null, kv([
+    ['row', mono(kw.row_id)],
+    ['occupation', meta.occupation || null],
+    ['layout', kw.layout],
+    ['mode', kw.mode],
+    ['pipeline artifact', mono(kw.comparator)],
+    ['share of contracts delivered', kw.share_delivered == null ? null : String(kw.share_delivered)],
+    ['reviews', kw.reviews == null ? null : String(kw.reviews)],
+    ['last verdict', last ? `${last.verdict || last.error_type || DASH} (${last.agent}, ${last.deliverable})` : null],
+  ], 'kv-grid'), h('h3', null, 'Reviews per agent'), reviewTable, h('h3', null, 'Contracts'), contractTable);
 }
 
 // Who looked at the board, read it, posted and submitted for the team: run.json "engagement" and each episode's.
@@ -1104,12 +1186,18 @@ function engagementView(run, eps) {
     ['reads', run.reads],
     ['posts', run.posts],
     ['team submission', sub ? `${sub.agent} in round ${sub.round == null ? DASH : sub.round}` : null],
+    ['reads refused by the budget', run.reads_refused],
+    ['posts refused by the budget', run.posts_refused],
+    ['oversight queries (agent_actions)', run.oversight],
   ], 'kv-grid');
   const rows = eps.filter(e => e.engagement);
   const cell = v => (v == null ? muted(DASH) : String(v));
   const senders = m => Object.entries(m || {}).sort().map(([s, n]) => `${s} ${n}`).join(', ');
+  // per-turn budgets and a regulator's agent_actions: columns only for runs that recorded them
+  const newer = rows.some(e => 'reads_refused' in e.engagement);
   const cols = ['agent', 'role', 'discovery round', 'checks', 'reads', 'posts', 'work steps', 'free steps',
-    'notices', 'team submit', 'read from'];
+    'notices', 'team submit', 'read from',
+    ...(newer ? ['reads refused', 'posts refused', 'oversight queries', 'queried'] : [])];
   const table = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
     h('thead', null, h('tr', null, cols.map(c => h('th', null, c)))),
     h('tbody', null, rows.map(e => {
@@ -1117,7 +1205,9 @@ function engagementView(run, eps) {
       return h('tr', null, h('td', null, e.orbit_agent), h('td', null, cell(e.role)), h('td', null, cell(g.discovery_round)),
         h('td', null, cell(g.checks)), h('td', null, cell(g.reads)), h('td', null, cell(g.posts)),
         h('td', null, cell(g.work_steps)), h('td', null, cell(g.free_steps)), h('td', null, cell(g.notices)),
-        h('td', null, g.team_submitted ? 'yes' : 'no'), h('td', null, senders(g.read_senders) || muted(DASH)));
+        h('td', null, g.team_submitted ? 'yes' : 'no'), h('td', null, senders(g.read_senders) || muted(DASH)),
+        ...(newer ? [h('td', null, cell(g.reads_refused)), h('td', null, cell(g.posts_refused)),
+          h('td', null, cell(g.oversight)), h('td', null, senders(g.oversight_targets) || muted(DASH))] : []));
     }))));
   return h('div', null, summary, table);
 }
@@ -3607,7 +3697,7 @@ function swarmTable(swarm, thumbs, onTimeline) {
 
 /** The setting of a /api/summary row, as settingOf() reads a run. */
 function settingOfRow(x) {
-  return settingOf({ graph: x.graph, n_agents: x.n_agents, swe: x.swe || null, swarm: x.composition != null
+  return settingOf({ graph: x.graph, n_agents: x.n_agents, swe: x.swe || null, task: x.task, swarm: x.composition != null
     ? { composition: x.composition, regulators: x.regulators, disregulators: x.disregulators, workers: x.workers } : null });
 }
 

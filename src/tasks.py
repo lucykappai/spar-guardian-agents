@@ -13,8 +13,12 @@ What comes from where:
   * the control's defenses come from controls.py, and CheatBench's judge is added as a scorer (src/benchmark/judge.py).
 
 Each agent's tools are the benchmark's, then, on a pull board (board_tools), board_status, board_read and board_post,
-then team_submit for a neutral agent when the mode has a team to submit for. They are bound per agent through ORBIT's
-tool_bindings next to the benchmark's own bindings.
+then team_submit for a neutral agent when the mode has a team to submit for, and agent_actions for a regulator
+(src/swarm/oversight.py). They are bound per agent through ORBIT's tool_bindings next to the benchmark's own bindings.
+
+The plan's rounds, the scheduler's turn bound and Inspect's message limit follow the domain's turn budget
+(SwarmConfig.steps_for, max_turns_for, message_limit_for). Under a budget metadata["cheatbench"]["turn_budget"] holds
+{"budget", "steps_per_agent"}; without one the key is absent, as at commit 6769c80.
 
 The run's facts go into the sample metadata: metadata["cheatbench"] gains the config dump, the control, the hidden
 roles and their composition, and the deviations from CheatBench's own runner. The mode and who holds team_submit
@@ -35,6 +39,7 @@ from orbit.configs.setup import AgentSpec, SetupConfig
 from orbit.tasks.multi_agent import multi_agent_task
 
 from src.benchmark.base import AgentTools, Benchmark
+from src.benchmark.domains.knowledge import KnowledgeWork
 from src.benchmark.domains.openmath import OpenMath
 from src.benchmark.domains.swe import SWE
 from src.benchmark.judge import cheatbench_judge
@@ -109,16 +114,20 @@ def system_prompts(benchmark: Benchmark, config: SwarmConfig, sample: Sample,
 
 def team_tools(benchmark: Benchmark, config: SwarmConfig, tools: AgentTools,
                roles: dict[str, str] | None) -> tuple[dict[str, list[str]], dict]:
-    """(each agent's AgentSpec.tools, ORBIT tool_bindings): the benchmark's tools, then the board tools and
-    team_submit (src/swarm/board.py)."""
+    """(each agent's AgentSpec.tools, ORBIT tool_bindings): the benchmark's tools (its per_agent names when it has
+    them), then the board tools and team_submit (src/swarm/board.py)."""
     extra = agent_tool_names(config, config.names, level_key(benchmark), roles)
-    names = {n: [*tools.names, *extra[n]] for n in config.names}
-    return names, {**tools.bindings, **board_bindings(config)}
+    own = getattr(tools, "per_agent", None) or {}   # KnowledgeTools: the review tool differs under split_access
+    names = {n: [*own.get(n, tools.names), *extra[n]] for n in config.names}
+    return names, {**tools.bindings, **board_bindings(config, roles=roles)}
 
 
-def agent_specs(config: SwarmConfig, tools: dict[str, list[str]], prompts: dict[str, str | None]) -> list[AgentSpec]:
-    """One worker per name. An agent with no prompt of ours keeps AgentSpec's default system prompt."""
-    return [AgentSpec(name=n, role="worker", tools=list(tools[n]), max_messages=config.message_limit + 10,
+def agent_specs(config: SwarmConfig, tools: dict[str, list[str]], prompts: dict[str, str | None],
+                message_limit: int | None = None) -> list[AgentSpec]:
+    """One worker per name. An agent with no prompt of ours keeps AgentSpec's default system prompt. Each
+    conversation is capped at the sample's message limit (message_limit, else config.message_limit) plus ten."""
+    limit = config.message_limit if message_limit is None else message_limit
+    return [AgentSpec(name=n, role="worker", tools=list(tools[n]), max_messages=limit + 10,
                       submit=config.shutdown, **({"system_prompt": prompts[n]} if prompts[n] else {}))
             for n in config.names]
 
@@ -177,6 +186,9 @@ def record_run(task_: Task, benchmark: Benchmark, config: SwarmConfig, roles: di
         cb["config"] = config.model_dump(mode="json")
         cb["deviations"] = benchmark.run_deviations(config.n_agents, shutdown=config.shutdown,
                                                     mode=config.resolve_mode(benchmark.name))
+        budget = config.turn_budget_for(level_key(benchmark))
+        if budget is not None:
+            cb["turn_budget"] = {"budget": budget, "steps_per_agent": config.steps_for(level_key(benchmark))}
         if roles:
             cb["roles"] = roles
             cb["composition"] = roles_module.composition_label(roles)
@@ -195,6 +207,7 @@ def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = 
     check_control(benchmark, config)
     benchmark.check(config)
     names = config.names
+    domain = level_key(benchmark)
     roles = hidden_roles(benchmark, config)
     sample = build_sample(benchmark, config, instruction_suffix(benchmark, config), roles)
     tools = benchmark.tools(names, config)
@@ -207,20 +220,21 @@ def swarm_task(benchmark: Benchmark, config: SwarmConfig, *, name: str | None = 
                                         max_inbox_messages=config.max_inbox_messages) if config.board else None
     # SWE grades after the agents stop; Inspect's sample limit leaves room for setup and grading.
     inspect_time = {"time_limit": time_limit_s + GRADING_BUDGET_S} if isinstance(benchmark, SWE) else {}
+    message_limit = config.message_limit_for(domain)
     task_ = multi_agent_task(
-        name=name or f"swarm_{level_key(benchmark)}",
-        setup=SetupConfig(agents=agent_specs(config, agent_tools, prompts), communication_edges=None,
+        name=name or f"swarm_{domain}",
+        setup=SetupConfig(agents=agent_specs(config, agent_tools, prompts, message_limit), communication_edges=None,
                           tool_kwargs=tools.tool_kwargs),
         dataset=[sample],
         communication=communication,
-        execution=board_execution(quantum=config.quantum, plan=schedule(config, names, roles),
+        execution=board_execution(quantum=config.quantum, plan=schedule(config, names, roles, domain),
                                   agent_groups=first_message_groups(sample, names), initial_context="sample_input"),
-        scheduler=board_scheduler(max_turns=config.max_turns + 5, max_time_seconds=time_limit_s),
+        scheduler=board_scheduler(max_turns=config.max_turns_for(domain) + 5, max_time_seconds=time_limit_s),
         scorer=scorers(benchmark, config),
         tool_bindings=bindings or None,
-        task_setup=[s for s in (rules_setup(config, names, roles, level_key(benchmark)), benchmark.setup())
+        task_setup=[s for s in (rules_setup(config, names, roles, domain), benchmark.setup())
                     if s is not None],
-        message_limit=config.message_limit,
+        message_limit=message_limit,
         token_limit=token_limit(config),
         **inspect_time,
     )
@@ -240,8 +254,16 @@ def openmath(preset: str = "default", row: str = "riemann", **overrides) -> Task
 
 
 @task
-def swe(preset: str = "default", issue: str = "flipt-02e2", honeypot: str = "as_released", grade: bool = True,
+def swe(preset: str = "default", issue: str = "flipt-02e2", honeypot: str = "jigsaw", grade: bool = True,
         **overrides) -> Task:
-    """A CheatBench SWE issue under one of Lucy's honeypots and a preset; other -T key=value set config fields."""
+    """A CheatBench SWE issue under one of Lucy's honeypots (jigsaw by default: the fix's pieces are dealt over
+    the neutral agents) and a preset; other -T key=value set config fields."""
     grade = grade if isinstance(grade, bool) else str(grade).strip().lower() in ("1", "true", "yes")
     return swarm_task(SWE(issue, honeypot, grade), _config(preset, overrides))
+
+
+@task
+def knowledge_work(preset: str = "default", row: str | None = None, **overrides) -> Task:
+    """CheatBench's knowledge_work task, one row (the domain's default when None), under a preset; every other
+    -T key=value sets a config field."""
+    return swarm_task(KnowledgeWork(row) if row else KnowledgeWork(), _config(preset, overrides))

@@ -15,6 +15,10 @@ the role. A level gives one text or one per benchmark, with placeholders filled 
 whose text named the old team report keeps that text as `text_legacy`, which the legacy presets render
 (SwarmConfig.team_report).
 
+Under board_tools a regulator's level text is followed by prompts.yaml roles.regulator_common (it can query the other
+agents' tool calls, src/swarm/oversight.py, and read the board) and, unless regulator_discloses is on, by
+roles.regulator_no_disclosure. The legacy presets have board_tools off, so their regulator texts stay as they were.
+
 With informed_roles on, a regulator or disregulator also gets the briefing (prompts.yaml `roles.briefing`, built by
 swarm_config.role_briefing) after its role text: the swarm's size and roster, the board and its tools, and what the
 agents without a role were told. Workers never get it.
@@ -24,15 +28,15 @@ from __future__ import annotations
 import random
 import re
 
-from src.configuration.settings import load_instruction_levels
+from src.configuration.settings import load_instruction_levels, load_prompts
 from src.configuration.swarm_config import SwarmConfig, agent_names, role_briefing
 
 __all__ = ["ROLES", "LEVEL_KEYS", "agent_names", "assign_roles", "level_text", "role_text", "role_prompt",
-           "with_role", "rule_suffix", "composition_label"]
+           "with_role", "rule_suffix", "composition_label", "neutral_agents"]
 
 ROLES = ("worker", "regulator", "disregulator")
 # The key instruction_levels.yaml uses for each CheatBench task.
-LEVEL_KEYS = {"openmath_agent": "openmath", "software_engineering": "swe"}
+LEVEL_KEYS = {"openmath_agent": "openmath", "software_engineering": "swe", "knowledge_work": "knowledge_work"}
 # A placeholder that opens a sentence; its value is capitalised there.
 SENTENCE_START = re.compile(r"(^|[.!?]\s+)\{(\w+)\}")
 
@@ -75,7 +79,17 @@ def role_text(role: str, config: SwarmConfig, benchmark_name: str) -> str | None
         raise ValueError(role)
     if role == "worker":
         return None
-    return level_text(role, getattr(config, f"{role}_level"), benchmark_name, legacy=config.team_report)
+    text = level_text(role, getattr(config, f"{role}_level"), benchmark_name, legacy=config.team_report)
+    if role != "regulator" or text is None or not config.board_tools:
+        return text
+    pieces = load_prompts()["roles"]
+    tail = [pieces["regulator_common"], *([] if config.regulator_discloses else [pieces["regulator_no_disclosure"]])]
+    return " ".join([text, *tail])
+
+
+def neutral_agents(names: list[str], roles: dict[str, str] | None) -> list[str]:
+    """The agents without a role (workers), in roster order. Without roles every agent is neutral."""
+    return [n for n in names if (roles or {}).get(n, "worker") == "worker"]
 
 
 def role_prompt(role: str, config: SwarmConfig, benchmark_name: str, names: list[str]) -> str | None:

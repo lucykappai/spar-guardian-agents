@@ -4,7 +4,8 @@ Lucy's harness (submodules/lucy/experiments/orbit_cheatbench, c410183) patches O
 module reproduces her rules, and adds the pull board's rounds, with three public mechanisms:
 
 1. A written plan (ExecutionConfig.plan, built by `schedule`): planning steps where every agent acts at once on a
-   snapshot of the board, then steps_per_agent rounds. With concurrent_rounds a round is one concurrent step `r<r>`
+   snapshot of the board, then SwarmConfig.steps_for(domain) rounds: steps_per_agent, or the domain's turn budget
+   divided among the agents. With concurrent_rounds a round is one concurrent step `r<r>`
    holding every eligible agent, at most max_concurrency at once, on a snapshot of the board as of the round's
    start. Without it (the legacy presets) a round is one single-agent step `r<r>-<agent>` per agent, in sequence.
    Declaration or seeded random order decides who is eligible and, in sequence, in which order. A regulator or
@@ -14,11 +15,15 @@ module reproduces her rules, and adds the pull board's rounds, with three public
    the step by what it did, counts ORBIT's channel tool calls as board actions, marks why an agent stopped
    (submitted, cap or context) and amends the pending plan:
    - a completed step is charged to work_steps only when its last tool call is not a board action and not
-     team_submit or submit. A board action is board_status, board_read or board_post, or ORBIT's channel_list,
-     channel_read or channel_post. A step that ends with a board action is a free step: it counts in free_steps,
-     is never charged against steps_per_agent, and earns the agent a follow-up step in the same round, up to
-     free_board_actions follow-ups per round. A follow-up that ends with work is charged like any working step.
-     With free_board_actions 0 (the legacy presets, a lone agent) every step after planning is charged, as before;
+     team_submit or submit. A board action is board_status, board_read or board_post, a regulator's agent_actions
+     (kind "oversight", src/swarm/oversight.py), or ORBIT's channel_list, channel_read or channel_post. A step that
+     ends with a board action that succeeded is a free step: it counts in free_steps, is never charged against steps_per_agent,
+     and earns the agent a follow-up step in the same round, up to its K follow-ups per round (free_board_actions,
+     or free_board_actions_regulator for a regulator under board_tools; TurnState.free_caps). A follow-up that ends
+     with work is charged like any working step. A step whose last call is a board action that failed (an error such
+     as a tool the agent does not hold, a budget refusal, or agent_actions' "no such agent") is charged as work, with
+     the charge "refused" in the timeline. With K 0 (the legacy presets, a lone agent) every step after planning is
+     charged, as before;
    - under concurrent rounds the follow-ups of round r are concurrent steps `r<r>-free<k>` right after the round,
      holding exactly the agents whose previous step ended with a board action. In sequence the agent's follow-up
      `<step>-free<k>` runs right after its own step. A follow-up offers every tool. The plan keeps steps_per_agent
@@ -57,7 +62,9 @@ reason ModelEvent.tools lists the tools before the filter, channel tools include
 "withheld_tools" info event of each call names what the provider did not receive.
 
 Per-sample facts live in the store as TurnState, set up by the `rules_setup` solver and saved in the eval log. The
-team submission lives in the store as TeamSubmission.
+team submission lives in the store as TeamSubmission. The board tools keep the per-round read and post budgets there
+(turn_reads, turn_posts, reads_refused, posts_refused; `spend`), and after_activation keeps where each activation
+ended in the agent's conversation (history_marks), so agent_actions can give each call its round.
 """
 from __future__ import annotations
 
@@ -67,7 +74,7 @@ import re
 from typing import Any
 
 from inspect_ai.log import transcript
-from inspect_ai.model import ChatMessageUser
+from inspect_ai.model import ChatMessageAssistant, ChatMessageTool, ChatMessageUser
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import StoreModel, store_as
 from orbit.communication.runtime import read_messages
@@ -92,10 +99,12 @@ DELIVERY_TAG = "orbit_communication_delivery"        # orbit/communication/deliv
 ACTOR = "swarm.rules"
 PLAN_PREFIX = "plan"
 TEAM_SUBMIT = "team_submit"
+OVERSIGHT_TOOL = "agent_actions"                         # a regulator's tool (src/swarm/oversight.py)
 CHANNEL_TOOLS = ("channel_post", "channel_read", "channel_list")
 # The TurnState count each board action goes to; ORBIT's channel tools count as the matching board tool.
-ACTION_KINDS = {"board_status": "check", "board_read": "read", "board_post": "post",
+ACTION_KINDS = {"board_status": "check", "board_read": "read", "board_post": "post", OVERSIGHT_TOOL: "oversight",
                 "channel_list": "check", "channel_read": "read", "channel_post": "post"}
+KIND_FIELDS = {"check": "checks", "read": "reads", "post": "posts", "oversight": "oversight"}
 SUBMIT_TOOLS = ("submit", TEAM_SUBMIT)                   # a step ending in one is neither charged nor free
 PLANNING_TOOLS = frozenset({"channel_post", "channel_read"})
 BOARD_PLANNING_TOOLS = frozenset(BOARD_TOOLS)
@@ -109,8 +118,10 @@ class TurnState(StoreModel):
     """Per-sample turn bookkeeping, saved in the eval log. Dicts are keyed by agent name.
 
     A completed step after planning is charged (work_steps, used), free (free_steps) or neither (it ended with
-    submit or team_submit). It is free when its last tool call is a board action and free_cap is above 0; it is
-    charged otherwise. checks, reads and posts count the board tools and ORBIT's channel tools alike."""
+    submit or team_submit). It is free when its last tool call is a board action that succeeded and the agent's K
+    (free_caps, else free_cap) is above 0; it is charged otherwise, and a failed board action is charged with the
+    timeline charge "refused". checks, reads and posts count the board tools and ORBIT's channel
+    tools alike; oversight counts a regulator's agent_actions calls about a neutral agent."""
 
     agents: list[str] = Field(default_factory=list)
     team_known: bool = True                                 # the agents were told of their team (knows_team)
@@ -122,7 +133,11 @@ class TurnState(StoreModel):
     concurrent: bool = False                                # rounds are concurrent steps
     max_concurrency: int = 1
     free_cap: int = 0                                       # K: follow-up steps per agent per round
+    free_caps: dict[str, int] = Field(default_factory=dict)     # each agent's K (a regulator's may differ)
     board_actions: list[str] = Field(default_factory=list)  # the tool names that make a step free
+    reads_per_turn: int | None = None                       # posts board_read may return per agent per round
+    posts_per_turn: int | None = None                       # board_post calls per agent per round
+    turn_budget: int | None = None                          # the domain's turn budget, None without one
     rounds: int = 0                                         # rounds written so far, pooled rounds included
     windows: dict[str, list] = Field(default_factory=dict)      # [start, end] rounds per agent; end None is open
     planning: dict[str, int] = Field(default_factory=dict)      # planning turns per agent
@@ -135,6 +150,13 @@ class TurnState(StoreModel):
     posts: dict[str, int] = Field(default_factory=dict)         # board_post and channel_post calls that posted
     discovery_round: dict[str, int] = Field(default_factory=dict)   # round of the first check or read
     read_senders: dict[str, dict[str, int]] = Field(default_factory=dict)  # reader -> sender -> posts returned
+    oversight: dict[str, int] = Field(default_factory=dict)     # agent_actions calls about a neutral agent
+    oversight_targets: dict[str, dict[str, int]] = Field(default_factory=dict)  # regulator -> target -> calls
+    turn_reads: dict[str, list[int]] = Field(default_factory=dict)  # [round, posts received through board_read]
+    turn_posts: dict[str, list[int]] = Field(default_factory=dict)  # [round, posts made through board_post]
+    reads_refused: dict[str, int] = Field(default_factory=dict)     # board_read calls refused by the read budget
+    posts_refused: dict[str, int] = Field(default_factory=dict)     # board_post calls refused by the post budget
+    history_marks: dict[str, list[list[int]]] = Field(default_factory=dict)  # [messages_after, round] per activation
     team_submission: dict | None = None                     # the TeamSubmission, once a neutral agent submitted
     halted_after_round: int | None = None                   # the round after which the plan was cut
     notice_seen: dict[str, int] = Field(default_factory=dict)   # highest board sequence of others at the last call
@@ -223,8 +245,17 @@ def concurrent(config: SwarmConfig, agents: list[str]) -> bool:
 
 def board_actions(config: SwarmConfig) -> list[str]:
     """The tool names whose call, as a step's last, makes the step free. Under board_tools ORBIT's channel tools are
-    withheld from the provider but still bound, so a call to one counts as the matching board action."""
-    return [*BOARD_TOOLS, *CHANNEL_TOOLS] if config.board_tools else list(CHANNEL_TOOLS)
+    withheld from the provider but still bound, so a call to one counts as the matching board action; a regulator's
+    agent_actions counts too (kind "oversight")."""
+    return [*BOARD_TOOLS, OVERSIGHT_TOOL, *CHANNEL_TOOLS] if config.board_tools else list(CHANNEL_TOOLS)
+
+
+def free_caps(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None) -> dict[str, int]:
+    """Each agent's K: regulator_free_actions for a regulator, free_board_actions otherwise; 0 for a lone agent."""
+    if len(agents) < 2:
+        return dict.fromkeys(agents, 0)
+    return {a: config.regulator_free_actions if (roles or {}).get(a) == "regulator" else config.free_board_actions
+            for a in agents}
 
 
 def concurrent_step(step_id: str, agents: list[str], max_concurrency: int) -> dict[str, Any]:
@@ -233,8 +264,10 @@ def concurrent_step(step_id: str, agents: list[str], max_concurrency: int) -> di
             "visibility": "snapshot"}
 
 
-def schedule(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None) -> ScheduleConfig:
-    """Planning steps, then steps_per_agent rounds over the agents whose window holds the round.
+def schedule(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None,
+             domain: str | None = None) -> ScheduleConfig:
+    """Planning steps, then config.steps_for(domain) rounds over the agents whose window holds the round: the
+    domain's turn budget divided among the agents, or steps_per_agent without a domain or a budget.
 
     A round is one concurrent step `r<r>` (concurrent_rounds) or one single-agent step `r<r>-<agent>` per agent.
     Follow-up steps are not written here: after_activation inserts them."""
@@ -246,7 +279,7 @@ def schedule(config: SwarmConfig, agents: list[str], roles: dict[str, str] | Non
     ]
     held = windows(config, agents, roles)
     together = concurrent(config, agents)
-    for round_number in range(1, config.steps_per_agent + 1):
+    for round_number in range(1, config.steps_for(domain) + 1):
         eligible = [agent for agent in round_order(agents, config.turn_order, config.seed, round_number)
                     if held[agent].contains(round_number)]
         if together:
@@ -259,16 +292,20 @@ def schedule(config: SwarmConfig, agents: list[str], roles: dict[str, str] | Non
 def initial_state(config: SwarmConfig, agents: list[str], roles: dict[str, str] | None = None,
                   domain: str | None = None) -> dict:
     """The TurnState fields a sample starts with. team_known follows config.knows_team(domain); without a domain
-    every agent of a board counts as knowing its team."""
+    every agent of a board counts as knowing its team. cap and rounds are config.steps_for(domain)."""
     planning = set(planners(config, agents, roles))
     known = len(agents) > 1 and (config.knows_team(domain) if domain else True)
+    steps = config.steps_for(domain)
     return {"agents": list(agents), "team_known": known, "planning_turns": config.planning_turns,
-            "cap": config.steps_per_agent,
+            "cap": steps,
             "pooled": config.pooled_steps, "turn_order": config.turn_order, "seed": config.seed,
             "concurrent": concurrent(config, agents), "max_concurrency": config.max_concurrency,
             "free_cap": config.free_board_actions if len(agents) > 1 else 0,
+            "free_caps": free_caps(config, agents, roles),
             "board_actions": board_actions(config),
-            "rounds": config.steps_per_agent,
+            "reads_per_turn": config.reads_per_turn, "posts_per_turn": config.posts_per_turn,
+            "turn_budget": config.turn_budget_for(domain),
+            "rounds": steps,
             "windows": {a: [w.start, w.end] for a, w in windows(config, agents, roles).items()},
             "planning": {a: config.planning_turns if a in planning else 0 for a in agents}}
 
@@ -331,14 +368,16 @@ def _bump(counts: dict[str, int], agent: str, by: int = 1) -> dict[str, int]:
 
 
 def record_board_action(agent: str, kind: str, senders: list[str] | None = None,
-                        round_number: int | None = None) -> None:
-    """Count one board action in TurnState: kind is "check", "read" or "post". A read also counts the posts returned
-    per sender, the agent's own left out. The first check or read sets the agent's discovery round (round_number, or
-    the round of the step under way). Called by the board tools, and by after_activation for ORBIT's channel
-    tools."""
+                        round_number: int | None = None, target: str | None = None) -> None:
+    """Count one board action in TurnState: kind is "check", "read", "post" or "oversight". A read also counts the
+    posts returned per sender, the agent's own left out; an oversight call counts its target in oversight_targets.
+    The first check or read sets the agent's discovery round (round_number, or the round of the step under way).
+    Called by the board tools and agent_actions, and by after_activation for ORBIT's channel tools."""
     st = store_as(TurnState)
-    field = {"check": "checks", "read": "reads", "post": "posts"}[kind]
+    field = KIND_FIELDS[kind]
     setattr(st, field, _bump(getattr(st, field), agent))
+    if kind == "oversight" and target is not None:
+        st.oversight_targets = {**st.oversight_targets, agent: _bump(st.oversight_targets.get(agent, {}), target)}
     if kind in ("check", "read") and agent not in st.discovery_round:
         found = round_number if round_number is not None else current_round()
         st.discovery_round = {**st.discovery_round, agent: found or 0}
@@ -348,6 +387,35 @@ def record_board_action(agent: str, kind: str, senders: list[str] | None = None,
         for sender in others:
             mine[sender] = mine.get(sender, 0) + 1
         st.read_senders = {**st.read_senders, agent: mine}
+
+
+# ------------------------------------------------------------------------------------------------ per-round budgets
+
+BUDGET_FIELDS = {"read": ("turn_reads", "reads_refused"), "post": ("turn_posts", "posts_refused")}
+
+
+def budget_used(agent: str, kind: str, round_number: int | None = None) -> int:
+    """What the agent has spent of a per-round budget ("read": posts received, "post": posts made) in the round
+    (round_number, or the round of the step under way; 0 outside a planned step). A new round starts at 0."""
+    st = store_as(TurnState)
+    round_number = round_number if round_number is not None else current_round() or 0
+    spent_round, used = getattr(st, BUDGET_FIELDS[kind][0]).get(agent) or [round_number, 0]
+    return used if spent_round == round_number else 0
+
+
+def spend(agent: str, kind: str, amount: int, round_number: int | None = None) -> None:
+    """Add amount to the agent's spending of a per-round budget in the round (see budget_used)."""
+    st = store_as(TurnState)
+    round_number = round_number if round_number is not None else current_round() or 0
+    field = BUDGET_FIELDS[kind][0]
+    setattr(st, field, {**getattr(st, field), agent: [round_number, budget_used(agent, kind, round_number) + amount]})
+
+
+def refuse(agent: str, kind: str) -> None:
+    """Count one call the per-round budget refused (reads_refused or posts_refused)."""
+    st = store_as(TurnState)
+    field = BUDGET_FIELDS[kind][1]
+    setattr(st, field, _bump(getattr(st, field), agent))
 
 
 # ------------------------------------------------------------------------------------------------ after each activation
@@ -399,22 +467,48 @@ def record_channel_actions(agent: str, messages: list, round_number: int) -> Non
         record_board_action(agent, kind, senders, round_number)
 
 
-def step_charge(st: TurnState, planning: bool, tools: list[str], submitted: bool) -> str:
-    """What a completed step counts as: "planning", "free" (it ended with a board action), "submit" (it ended with
-    submit or team_submit) or "work" (charged against steps_per_agent).
+def free_cap_of(st: TurnState, agent: str | None) -> int:
+    """The agent's K: its free_caps entry, else the team's free_cap."""
+    return st.free_caps.get(agent, st.free_cap) if agent is not None else st.free_cap
 
-    With free_cap 0 there are no free board actions and every step after planning is charged, as in the legacy
-    presets."""
+
+def last_call_refused(messages: list) -> bool:
+    """Whether the last tool call in the activation's messages failed: its result is an error (a tool the agent
+    does not hold, a budget refusal, a bad argument) or agent_actions' "no such agent". False when no call or no
+    result is found."""
+    last = next((m for m in reversed(messages) if isinstance(m, ChatMessageAssistant) and m.tool_calls), None)
+    if last is None:
+        return False
+    call = last.tool_calls[-1]
+    result = next((m for m in messages if isinstance(m, ChatMessageTool) and m.tool_call_id == call.id), None)
+    if result is None:
+        return False
+    if result.error is not None:
+        return True
+    return call.function == OVERSIGHT_TOOL and result.text == load_prompts()["oversight_output"]["no_such_agent"]
+
+
+def step_charge(st: TurnState, planning: bool, tools: list[str], submitted: bool, agent: str | None = None,
+                refused: bool = False) -> str:
+    """What a completed step counts as: "planning", "free" (it ended with a board action that succeeded),
+    "refused" (it ended with a board action that failed; charged like work), "submit" (it ended with submit or
+    team_submit) or "work" (charged against steps_per_agent).
+
+    With K 0 (the agent's free_caps entry, else free_cap) there are no free board actions and every step after
+    planning is charged, as in the legacy presets."""
     if planning:
         return "planning"
-    if not st.free_cap:
+    if not free_cap_of(st, agent):
         return "work"
     last = tools[-1] if tools else None
     if last in st.board_actions:
-        return "free"
+        return "refused" if refused else "free"
     if submitted or last in SUBMIT_TOOLS:
         return "submit"
     return "work"
+
+
+CHARGED = ("work", "refused")       # the step_charge values charged against steps_per_agent
 
 
 def _stop_reason(st: TurnState, agent: str, submitted: bool, used: int) -> str | None:
@@ -451,9 +545,11 @@ def _pooled_steps(st: TurnState, active: list[str], count: int, revision: int) -
 
 
 def _follow_up(st: TurnState, keep: list[dict], step: ScheduleStep, agent: str) -> bool:
-    """Put the agent's follow-up step at the head of the plan, unless it has used the round's K. Returns whether."""
+    """Put the agent's follow-up step at the head of the plan, unless it has used the round's K. Returns whether.
+
+    Under concurrent rounds a regulator with a larger K holds the later follow-ups `r<r>-free<k>` alone."""
     k = free_index(step.id) + 1
-    if k > st.free_cap:
+    if k > free_cap_of(st, agent):
         return False
     if st.concurrent:
         step_id = f"r{step_round(step.id)}-free{k}"
@@ -498,9 +594,12 @@ def after_activation(runtime, result, global_turn: int) -> None:
         planning, round_number = step.id.startswith(PLAN_PREFIX), step_round(step.id)
     else:
         planning, round_number = activation <= planning_turns_of(st, agent), 0
-    record_channel_actions(agent, _activation_messages(agent, result), round_number)
-    charge = step_charge(st, planning, tools, result.submitted)
-    working, free = charge == "work", charge == "free"
+    messages = _activation_messages(agent, result)
+    record_channel_actions(agent, messages, round_number)
+    st.history_marks = {**st.history_marks,
+                        agent: [*st.history_marks.get(agent, []), [result.messages_after, round_number]]}
+    charge = step_charge(st, planning, tools, result.submitted, agent, last_call_refused(messages))
+    working, free = charge in CHARGED, charge == "free"
     used = st.used.get(agent, 0) + (1 if working else 0)
     st.activations = {**st.activations, agent: activation}
     st.used = {**st.used, agent: used}
@@ -622,7 +721,8 @@ class TurnRulesFilter(ModelFilter):
         if self.config.turn_header:
             mine, team_left = turns_left(agent)
             key = "turn_header_pooled" if self.config.pooled_steps else "turn_header"
-            text = self.prompts[key][side].format(mine=mine, cap=self.config.steps_per_agent, team_left=team_left)
+            cap = st.cap if st.agents else self.config.steps_per_agent      # steps_for(domain), from rules_setup
+            text = self.prompts[key][side].format(mine=mine, cap=cap, team_left=team_left)
             return "header", text
         return self._continue(messages)
 

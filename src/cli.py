@@ -1,19 +1,21 @@
 """Command line for the peer-pressure experiment. Argument parsing only; every command calls run.py.
 
-    python -m src run <name> [--benchmark openmath|swe] [--preset default|ian_legacy|lucy_legacy]
+    python -m src run <name> [--benchmark openmath|swe|knowledge_work] [--preset default|ian_legacy|lucy_legacy]
                              [--scale small|medium|large|extra_large|gigantic] [--set key=value ...]
                              [--row R] [--issue I] [--honeypot H] [--no-grade] [--model M] [--timeout S]
     python -m src judge <eval_log> <run_name> [--judge MODEL] [--judge-errors]
     python -m src ui [start|stop] [--port P] [--no-open]
     python -m src summary <run_dir ...> [--full]
+    python -m src budget <lone_run_dir> [--scale S]
 
-The config is built in this order: the preset, then the scale, then every `--set`. The default preset is the pull
-board at the small scale; `--scale` replaces its size (src/configuration/scales.py). The legacy presets keep their
-own sizes unless `--scale` is given. `--set` takes any SwarmConfig field (src/configuration/swarm_config.py) and
-overrides any value the scale gave, for example `--set regulators=3 --set disregulators=3` for a swarm, or
-`--set shutdown=false` for agents without the submit tool. A run writes its Inspect log under
+The config is built in this order: the preset, then the scale, then every `--set`. The default preset is the
+midterm report's configuration at the small scale; `--scale` replaces its size (src/configuration/scales.py). The
+legacy presets keep their own sizes unless `--scale` is given. `--set` takes any SwarmConfig field
+(src/configuration/swarm_config.py) and overrides any value the scale gave, for example `--set regulators=3 --set
+disregulators=3` for a swarm, `--set shutdown=false` for agents without the submit tool, or `--set turn_budget=none`
+to use the scale's steps_per_agent in place of the domain's turn budget. A run writes its Inspect log under
 logs/<ctrl|swarm|swe>/<name>/, exports it to runs/<name>/ and prints one line per episode; the judge runs inside
-the eval.
+the eval. `budget` prints a lone run's turns and the working steps per agent that budget gives at each scale.
 """
 from __future__ import annotations
 
@@ -28,6 +30,8 @@ from src.configuration.swarm_config import PRESETS, build_config
 from src.measures import summary
 from src.ui import launch
 
+OPENMATH_ROW = "riemann"
+
 
 def env_timeout() -> int:
     """MODEL_TIMEOUT_S from the environment, or the configured default when unset or not a number."""
@@ -41,8 +45,19 @@ def cmd_run(args: argparse.Namespace) -> int:
     from src.benchmark.domains.openmath import OpenMath
     from src.benchmark.domains.swe import SWE
     config = build_config(args.preset, args.scale, args.settings)
-    benchmark = OpenMath(args.row) if args.benchmark == "openmath" else SWE(args.issue, args.honeypot, not args.no_grade)
+    if args.benchmark == "openmath":
+        benchmark = OpenMath(args.row or OPENMATH_ROW)
+    elif args.benchmark == "swe":
+        benchmark = SWE(args.issue, args.honeypot, not args.no_grade)
+    else:
+        from src.benchmark.domains.knowledge import KnowledgeWork
+        benchmark = KnowledgeWork(args.row) if args.row else KnowledgeWork()
     return run.run(args.name, benchmark, config, args.model, args.timeout)
+
+
+def cmd_budget(args: argparse.Namespace) -> int:
+    from src import run  # the same four seconds as in cmd_run
+    return run.budget(Path(args.run_dir), [args.scale] if args.scale else None)
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
@@ -63,7 +78,7 @@ def cmd_summary(args: argparse.Namespace) -> int:
 def add_run_parser(subparsers) -> None:
     run = subparsers.add_parser("run", help="run a task, export it to runs/<name>/ and print the summary")
     run.add_argument("name", help="run name: logs/<kind>/<name>/ and runs/<name>/")
-    run.add_argument("--benchmark", choices=("openmath", "swe"), default="openmath")
+    run.add_argument("--benchmark", choices=("openmath", "swe", "knowledge_work"), default="openmath")
     run.add_argument("--preset", choices=sorted(PRESETS), default="default",
                      help="default: the pull board at the small scale; ian_legacy and lucy_legacy: the presets ours "
                           "and lucy of commit 6769c80 (push delivery, channel tools, sequential rounds)")
@@ -71,10 +86,11 @@ def add_run_parser(subparsers) -> None:
                      help="the run's size, applied after the preset (default: the preset's own, small for default)")
     run.add_argument("--set", dest="settings", action="append", default=[], metavar="KEY=VALUE",
                      help="set a SwarmConfig field after the preset and the scale; repeatable")
-    run.add_argument("--row", default="riemann", help="openmath_agent row")
+    run.add_argument("--row", default=None,
+                     help=f"openmath_agent row (default {OPENMATH_ROW}) or knowledge_work row (the domain's default)")
     run.add_argument("--issue", default="flipt-02e2", help="SWE issue (Lucy's splits)")
-    run.add_argument("--honeypot", choices=("as_released", "own_piece", "jigsaw"), default="as_released",
-                     help="SWE honeypot")
+    run.add_argument("--honeypot", choices=("as_released", "own_piece", "jigsaw"), default="jigsaw",
+                     help="SWE honeypot (default jigsaw: the fix's pieces are dealt over the neutral agents)")
     run.add_argument("--no-grade", action="store_true", help="SWE: collect the diffs and skip the hidden tests")
     run.add_argument("--model", default=settings.DEFAULT_MODEL)
     run.add_argument("--timeout", type=int, default=env_timeout(),
@@ -107,6 +123,13 @@ def add_summary_parser(subparsers) -> None:
     summary.set_defaults(func=cmd_summary)
 
 
+def add_budget_parser(subparsers) -> None:
+    budget = subparsers.add_parser("budget", help="a lone run's turns and the steps per agent they give per scale")
+    budget.add_argument("run_dir", help="runs/<name>/ of a lone agent's run")
+    budget.add_argument("--scale", choices=list(SCALES), default=None, help="one scale (default: every scale)")
+    budget.set_defaults(func=cmd_budget)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -115,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_judge_parser(subparsers)
     add_ui_parser(subparsers)
     add_summary_parser(subparsers)
+    add_budget_parser(subparsers)
     return parser
 
 

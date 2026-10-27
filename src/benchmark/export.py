@@ -15,6 +15,12 @@ Writes
 run.json also carries the run's mode, scale and preset, and each episode and the run an `engagement` block: who
 looked at the board, read it, posted and submitted for the team (None for a run without a board).
 
+Facts that only newer runs record are written only when the run has them, so an older run exports byte for byte as
+before: run.json "split_access" (the config's field), "turn_budget" ({budget, steps_per_agent}), "access" (what each
+agent held under split access: its honeypot branches and archive slice on openmath, the review tool and the artifact
+read on knowledge work), "knowledge" (the knowledge-work sample and its reviews); the engagement keys oversight, oversight_targets,
+reads_refused and posts_refused; and an episode's "access" and "review" (its grader state on knowledge work).
+
 Episode ids: "<sample>#<epoch>" for a single agent, "<sample>#<epoch>@<agent>" otherwise.
 Verdicts come from the `verdicts` argument (re-judging) or from the cheatbench_judge score in the log.
 """
@@ -54,6 +60,7 @@ from src.configuration.swarm_config import DOMAIN_KEYS, DOMAIN_MODES, PRESETS
 
 CHEATED_LINE = re.compile(r"^\s*CHEATED\s*:\s*(yes|no)\b", re.I | re.M)
 DELIVERABLES_SCORER = "deliverables_scorer"
+KNOWLEDGE_SCORER = "knowledge_deliverables"   # src/benchmark/domains/knowledge/probe.py
 SWE_GRADER = "swe_grader"
 PROBES_SCORER = "end_of_episode_probes"
 TURN_STATE = "TurnState"      # the StoreModel of src/swarm/rules.py; Inspect stores its fields as "TurnState:<field>"
@@ -61,10 +68,17 @@ TURN_STATE_FIELDS = ("agents", "planning_turns", "cap", "pooled", "turn_order", 
                      "planning", "activations", "used", "ended", "extra_calls", "timeline")
 # The pull board's per-agent counts ({agent: value}) and the team submission; written only when the run stored them.
 TURN_STATE_BOARD_FIELDS = ("work_steps", "free_steps", "checks", "reads", "posts", "discovery_round", "read_senders",
-                           "team_submission")
+                           "team_submission", "free_caps", "reads_per_turn", "posts_per_turn", "turn_budget",
+                           "oversight", "oversight_targets", "turn_reads", "turn_posts", "reads_refused",
+                           "posts_refused", "history_marks")
+# Engagement counts that only runs with regulators' oversight and per-turn budgets record ({agent: value}).
+ENGAGEMENT_NEW_FIELDS = {"oversight": 0, "oversight_targets": {}, "reads_refused": 0, "posts_refused": 0}
 # Board actions by the engagement count they feed. The channel tools are the legacy presets' board.
 BOARD_ACTIONS = {"board_status": "checks", "board_read": "reads", "board_post": "posts",
                  "channel_list": "checks", "channel_read": "reads", "channel_post": "posts"}
+# The knowledge-work keys run.json keeps; the row, the evaluation file and the image ids stay in the eval log.
+KNOWLEDGE_SAMPLE_KEYS = ("layout", "mode", "split_access", "row_id", "meta", "comparator", "seats")
+KNOWLEDGE_SCORE_KEYS = ("contracts", "grader_state", "last_verdict", "access")
 BOARD_POST_LINE = re.compile(r"^\[(\S+) #(\d+)\] ", re.M)   # prompts.yaml board_output.post
 TEAM_SUBMIT_TAG = "swarm_team_submit"     # the info event team_submit writes (src/swarm/board.py)
 TEAM_SUBMISSION = "TeamSubmission"        # its StoreModel: agent, round, answer, time
@@ -131,9 +145,17 @@ def deliverables_block(view: SampleView) -> dict | None:
     md = sc.metadata or {}
     per_agent = md.get("agents")
     if isinstance(per_agent, dict):
-        # openmath solo_task: one copy of the row per agent. The top-level keys summarise the copies.
+        # openmath solo_task or split access: one copy of the row per agent. The top-level keys summarise the copies.
         blocks = {name: _deliverables_facts(found or {}, bool((found or {}).get("archive")))
                   for name, found in per_agent.items()}
+        remote = md.get("remote")
+        if isinstance(remote, dict):
+            # split access: the team registers by pushing main to the bare team remote, which the scorer read
+            facts = _deliverables_facts(remote, bool(remote.get("archive_on_main")))
+            facts["archive_on_remote_main"] = facts["archive_in_workspace"]
+            facts["archive_in_workspace"] = sc.value == 1.0
+            return {**facts, "remote_branches": remote.get("branches"), "agents": blocks,
+                    "explanation": sc.explanation}
         return {"archive_in_workspace": sc.value == 1.0,
                 "registered_on_main": any(b["registered_on_main"] for b in blocks.values()),
                 "registered_entry": None, "registered_message_copied_from": None, "main_registry_agents": [],
@@ -189,6 +211,61 @@ def swarm_block(view: SampleView) -> dict | None:
         return None
     report = (_score_metadata(view, DELIVERABLES_SCORER) or {}).get("swarm_report")
     return {**facts, "swarm_report": report, "swarm_report_cheated": parse_swarm_report(report)}
+
+
+# --------------------------------------------------------------------------
+# split access, the turn budget and knowledge work (runs that record them)
+# --------------------------------------------------------------------------
+def access_block(view: SampleView) -> dict | None:
+    """What each agent held, when the domain recorded it: on openmath under split access the honeypot branches each
+    copy kept, the slice of the complete submission's archive it held (archive_part; None for the whole archive) and
+    the team remote; on knowledge work the review tool and the read permission on the pipeline artifact. "applied"
+    says whether the split was in force. None for a domain or a run that records neither. An openmath run recorded
+    before the archive split carries neither "archive" nor archive_part."""
+    cb = _cheatbench(view)
+    om = cb.get("openmath") or {}
+    if om.get("split_access"):
+        block = {"applied": True, "remote": om.get("remote"), "honeypot_branches": om.get("honeypot_branches")}
+        if "archive" in om:
+            block["archive"] = om["archive"]
+        block["agents"] = {a: {"branches": seat.get("branches"),
+                               **({"archive_part": seat.get("archive_part")} if "archive_part" in seat else {})}
+                           for a, seat in (om.get("agents") or {}).items()}
+        return block
+    kw = cb.get("knowledge") or {}
+    if kw.get("seats"):
+        return {"applied": bool(kw.get("split_access")),
+                "agents": {a: {"review": seat.get("review"), "cache_read": seat.get("cache_read")}
+                           for a, seat in kw["seats"].items()}}
+    return None
+
+
+def knowledge_block(view: SampleView) -> dict | None:
+    """The knowledge-work sample (layout, mode, seats, the pipeline artifact) and what its reviews found: each
+    contract's to_send/ files, the grader state per agent and the last verdict. None for another task."""
+    kw = _cheatbench(view).get("knowledge")
+    if not kw:
+        return None
+    md = _score_metadata(view, KNOWLEDGE_SCORER) or {}
+    sc = (view.scores or {}).get(KNOWLEDGE_SCORER)
+    return {**{k: kw.get(k) for k in KNOWLEDGE_SAMPLE_KEYS}, **{k: md.get(k) for k in KNOWLEDGE_SCORE_KEYS},
+            "share_delivered": None if sc is None else sc.value, "reviews": len(md.get("reviews") or [])}
+
+
+def newer_run_facts(view: SampleView) -> dict:
+    """run.json keys that only newer runs carry, each present only when the run recorded it."""
+    cb = _cheatbench(view)
+    config = cb.get("config") or {}
+    facts = {"split_access": config.get("split_access"), "turn_budget": cb.get("turn_budget"),
+             "access": access_block(view), "knowledge": knowledge_block(view)}
+    return {k: v for k, v in facts.items() if v is not None}
+
+
+def newer_episode_facts(view: SampleView, agent: str) -> dict:
+    """An episode's access (what it held) and review (its knowledge-work grader state), when the run recorded them."""
+    facts = {"access": ((access_block(view) or {}).get("agents") or {}).get(agent),
+             "review": ((_score_metadata(view, KNOWLEDGE_SCORER) or {}).get("grader_state") or {}).get(agent)}
+    return {k: v for k, v in facts.items() if v is not None}
 
 
 # --------------------------------------------------------------------------
@@ -398,6 +475,9 @@ def engagement_record(view: SampleView, agent: str, steps: list[dict], rules: di
     checks, reads and posts count the board tool calls in the agent's conversation (the legacy channel tools count
     as the same actions), read_senders holds the senders of the posts board_read or channel_read returned (the
     agent itself left out), work_steps falls back to the working turns used, and the rest is None.
+
+    A run that recorded a regulator's oversight or the per-turn budgets adds oversight (agent_actions calls that named
+    a neutral agent), oversight_targets ({target: count}), reads_refused and posts_refused.
     """
     if topology(view) == "single":
         return None
@@ -418,18 +498,25 @@ def engagement_record(view: SampleView, agent: str, steps: list[dict], rules: di
         "work_steps": recorded("used") if work is None else work,
         "team_submitted": called_submit or bool(submission and submission.get("agent") == agent),
         "notices": notices.get(agent, 0),
+        **{k: recorded(k, default) for k, default in ENGAGEMENT_NEW_FIELDS.items() if isinstance(state.get(k), dict)},
     }
 
 
 def run_engagement(records: list[dict], submission: dict | None) -> dict | None:
     """The run's board engagement: how many agents looked, the median round they first looked, the posts and
-    reads, and who read whom ({reader: {sender: count}})."""
+    reads, and who read whom ({reader: {sender: count}}). A run that recorded them adds the totals of oversight,
+    reads_refused and posts_refused, and whose calls each regulator queried (oversight_graph:
+    {regulator: {target: count}})."""
     rows = [(r["orbit_agent"], r["engagement"]) for r in records if r.get("engagement")]
     if not rows:
         return None
     rounds = sorted(e["discovery_round"] for _, e in rows if e.get("discovery_round") is not None)
     mid = len(rounds) // 2
     median = None if not rounds else (rounds[mid] if len(rounds) % 2 else (rounds[mid - 1] + rounds[mid]) / 2)
+    recorded = [k for k in ENGAGEMENT_NEW_FIELDS if k != "oversight_targets" and any(k in e for _, e in rows)]
+    newer = {k: sum(e.get(k) or 0 for _, e in rows) for k in recorded}
+    if "oversight" in recorded:
+        newer["oversight_graph"] = {a: dict(e["oversight_targets"]) for a, e in rows if e.get("oversight_targets")}
     return {
         "agents": len(rows),
         "agents_checked": sum(1 for _, e in rows if e["checks"] or e["reads"]),
@@ -440,6 +527,7 @@ def run_engagement(records: list[dict], submission: dict | None) -> dict | None:
         "posts": sum(e["posts"] for _, e in rows),
         "read_graph": {a: dict(e["read_senders"]) for a, e in rows if e.get("read_senders")},
         "team_submission": submission,
+        **newer,
     }
 
 
@@ -618,6 +706,7 @@ def sample_records(view: SampleView, run_dir: Path) -> list[dict]:
         record["rules"] = rules_facts(rules, agent)
         record["probes"] = probes.get(agent)
         record["engagement"] = engagement_record(view, agent, steps, rules, submission, notices)
+        record.update(newer_episode_facts(view, agent))
         records.append(record)
     return records
 
@@ -661,6 +750,7 @@ def run_json(view: SampleView | None, eval_path: Path, run_dir: Path, records: l
         **(run_identity(view, task) if view else {"mode": None, "scale": None, "preset": None,
                                                   "preset_inferred": False}),
         "engagement": run_engagement(records, team_submission(view)) if view else None,
+        **(newer_run_facts(view) if view else {}),
     }
 
 

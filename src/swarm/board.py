@@ -18,9 +18,17 @@ team_submit is bound to neutral agents only (not to a regulator or a disregulato
 to submit for (SwarmConfig.has_team_submit). The first call records rules.TeamSubmission and an info event tagged
 rules.TEAM_SUBMIT_TAG; rules.after_activation then lets the round finish and drops every later step.
 
+agent_actions (src/swarm/oversight.py) is bound to regulators only, over the neutral agents.
+
+Budgets per round (SwarmConfig.reads_per_turn, posts_per_turn; rules.spend). board_read returns at most the posts
+left in the agent's read budget for the round, the newest of its selection, and says how many it left out; with none
+left it raises a ToolError and counts the refusal (TurnState.reads_refused). board_post past the post budget raises a
+ToolError, sends nothing and counts the refusal (posts_refused). The counts reset at each round. Regulators read
+without a budget and without the read_page cap: a board_read with no selection returns the whole board.
+
 Each tool also counts the action in rules.TurnState (checks, reads, posts, read_senders, discovery_round).
-Descriptions come from src/configuration/prompts.yaml `tools`, argument descriptions from `tool_args`, and the result
-lines from `board_output`.
+Descriptions come from src/configuration/prompts.yaml `tools`, argument descriptions from `tool_args`, the result
+lines from `board_output` and the budget texts from `budget`.
 """
 from __future__ import annotations
 
@@ -37,16 +45,22 @@ from orbit.tools import ToolFactory
 
 from src.configuration.settings import BOARD_ID, load_prompts
 from src.configuration.swarm_config import BOARD_TOOLS, SwarmConfig
+from src.swarm.oversight import agent_actions
+from src.swarm.roles import neutral_agents
 from src.swarm.rules import (
+    OVERSIGHT_TOOL,
     TEAM_SUBMIT,
     TEAM_SUBMIT_TAG,
     TeamSubmission,
     TurnState,
+    budget_used,
     current_round,
     record_board_action,
+    refuse,
+    spend,
 )
 
-__all__ = ["BOARD_TOOLS", "TEAM_SUBMIT", "board_status", "board_read", "board_post", "team_submit",
+__all__ = ["BOARD_TOOLS", "TEAM_SUBMIT", "OVERSIGHT_TOOL", "board_status", "board_read", "board_post", "team_submit",
            "board_bindings", "agent_tool_names"]
 
 SUBMITTED = "Submitted for the team. The run ends after this round."
@@ -92,10 +106,18 @@ def board_status(agent: str, board: str = BOARD_ID) -> ToolDef:
     return ToolDef(execute, name="board_status", description=prompts["tools"]["board_status"])
 
 
-def board_read(agent: str, read_page: int, board: str = BOARD_ID) -> ToolDef:
-    """The selected posts, oldest first, at most read_page in all; marks them read."""
+def _newest(posts: list, count: int | None) -> list:
+    """The newest `count` posts, or every post when count is None."""
+    return posts if count is None else posts[-count:]
+
+
+def board_read(agent: str, read_page: int | None, board: str = BOARD_ID, reads_per_turn: int | None = None) -> ToolDef:
+    """The selected posts, oldest first, at most read_page in all and at most what is left of the agent's read
+    budget for the round; marks them read. read_page None (a regulator) selects without a cap, and a call with no
+    selection then returns the whole board; reads_per_turn None reads without a budget."""
     prompts = load_prompts()
     args = prompts["tool_args"]["board_read"]
+    budget = prompts["budget"]
 
     async def execute(latest: int | None = None, from_agent: str | None = None,
                       latest_from: int | None = None) -> str:
@@ -104,39 +126,59 @@ def board_read(agent: str, read_page: int, board: str = BOARD_ID) -> ToolDef:
                 raise ToolError(f"{name} must be at least 1")
         if latest_from is not None and from_agent is None:
             raise ToolError("latest_from needs from_agent")
+        left = None
+        if reads_per_turn is not None:
+            used = budget_used(agent, "read")
+            left = reads_per_turn - used
+            if left <= 0:
+                refuse(agent, "read")
+                raise ToolError(budget["read_refused"].format(used=used))
         posts = _board(agent, board)
-        if latest is None and from_agent is None:
-            latest = read_page
         chosen: dict[str, object] = {}
+        if latest is None and from_agent is None:
+            chosen.update({m.id: m for m in _newest(posts, read_page)})
         if latest is not None:
             chosen.update({m.id: m for m in posts[-latest:]})
         if from_agent is not None:
             theirs = [m for m in posts if m.sender == from_agent]
-            chosen.update({m.id: m for m in theirs[-(latest_from or read_page):]})
-        selected = sorted(chosen.values(), key=lambda m: m.sequence)[-read_page:]
+            chosen.update({m.id: m for m in _newest(theirs, latest_from or read_page)})
+        selected = _newest(sorted(chosen.values(), key=lambda m: m.sequence), read_page)
+        cut = 0
+        if left is not None and len(selected) > left:
+            cut, selected = len(selected) - left, selected[-left:]
         numbers = _numbers(board)
         rendered = {m.id: _render(m, numbers[m.id]) for m in selected}
         if rendered:
             record_read(board, agent_id=agent, rendered_messages=rendered)
+        if reads_per_turn is not None:
+            spend(agent, "read", len(selected))
         record_board_action(agent, "read", [m.sender for m in selected])
-        return "\n".join(rendered.values())
+        lines = list(rendered.values()) + ([budget["read_cut"].format(cut=cut)] if cut else [])
+        return "\n".join(lines)
 
     return ToolDef(execute, name="board_read", description=prompts["tools"]["board_read"],
                    parameters={"latest": args["latest"], "from_agent": args["from_agent"],
                                "latest_from": args["latest_from"]})
 
 
-def board_post(agent: str, board: str = BOARD_ID) -> ToolDef:
-    """Post through ORBIT's send_message, as channel_post does."""
+def board_post(agent: str, board: str = BOARD_ID, posts_per_turn: int | None = None) -> ToolDef:
+    """Post through ORBIT's send_message, as channel_post does, within the agent's post budget for the round."""
     prompts = load_prompts()
 
     async def execute(message: str) -> str:
         if not message:
             raise ToolError("A nonempty message is required")
+        if posts_per_turn is not None:
+            used = budget_used(agent, "post")
+            if used >= posts_per_turn:
+                refuse(agent, "post")
+                raise ToolError(prompts["budget"]["post_refused"].format(used=used))
         try:
             sent = send_message(board, agent_id=agent, content=message)
         except (ChannelCapacityError, PermissionError) as error:
             raise ToolError(str(error)) from None
+        if posts_per_turn is not None:
+            spend(agent, "post", 1)
         record_board_action(agent, "post")
         return prompts["board_output"]["posted"].format(sequence=_numbers(board)[sent.id])
 
@@ -167,24 +209,42 @@ def team_submit(agent: str) -> ToolDef:
 
 # ------------------------------------------------------------------------------------------------ binding
 
-def board_bindings(config: SwarmConfig, board: str = BOARD_ID) -> dict[str, ToolFactory]:
-    """ORBIT tool_bindings for the board tools and team_submit, built per agent. Empty without a pull board.
+def board_bindings(config: SwarmConfig, board: str = BOARD_ID,
+                   roles: dict[str, str] | None = None) -> dict[str, ToolFactory]:
+    """ORBIT tool_bindings for the board tools, team_submit and agent_actions, built per agent. Empty without a
+    pull board.
 
-    A binding is built only for the agents whose AgentSpec.tools names it (agent_tool_names)."""
+    A binding is built only for the agents whose AgentSpec.tools names it (agent_tool_names). A regulator (roles)
+    reads without the read_page cap and without a read budget; agent_actions covers the neutral agents of the
+    roster (config.names)."""
     if not config.board or not config.board_tools:
         return {}
+    roles = roles or {}
+
+    def regulator(ctx) -> bool:
+        return roles.get(ctx.agent_name) == "regulator"
+
+    neutral = neutral_agents(config.names, roles)
     return {"board_status": ToolFactory(lambda ctx: board_status(ctx.agent_name, board)),
-            "board_read": ToolFactory(lambda ctx: board_read(ctx.agent_name, config.read_page, board)),
-            "board_post": ToolFactory(lambda ctx: board_post(ctx.agent_name, board)),
-            TEAM_SUBMIT: ToolFactory(lambda ctx: team_submit(ctx.agent_name))}
+            "board_read": ToolFactory(lambda ctx: board_read(
+                ctx.agent_name, None if regulator(ctx) else config.read_page, board,
+                None if regulator(ctx) else config.reads_per_turn)),
+            "board_post": ToolFactory(lambda ctx: board_post(ctx.agent_name, board, config.posts_per_turn)),
+            TEAM_SUBMIT: ToolFactory(lambda ctx: team_submit(ctx.agent_name)),
+            OVERSIGHT_TOOL: ToolFactory(lambda ctx: agent_actions(ctx.agent_name, neutral))}
 
 
 def agent_tool_names(config: SwarmConfig, names: list[str], domain: str,
                      roles: dict[str, str] | None = None) -> dict[str, list[str]]:
-    """The board tool names each agent gets: the three board tools on a pull board, and team_submit for a neutral
-    agent (no role, or the worker role) when the mode has a team to submit for."""
+    """The board tool names each agent gets: the three board tools on a pull board, team_submit for a neutral
+    agent (no role, or the worker role) when the mode has a team to submit for, and agent_actions for a
+    regulator."""
     if not config.board or not config.board_tools:
         return {n: [] for n in names}
     submit = config.has_team_submit(domain)
-    return {n: [*BOARD_TOOLS, *([TEAM_SUBMIT] if submit and (roles or {}).get(n, "worker") == "worker" else [])]
-            for n in names}
+    out = {}
+    for n in names:
+        role = (roles or {}).get(n, "worker")
+        out[n] = [*BOARD_TOOLS, *([TEAM_SUBMIT] if submit and role == "worker" else []),
+                  *([OVERSIGHT_TOOL] if role == "regulator" else [])]
+    return out

@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from inspect_ai.log import transcript as inspect_transcript
@@ -55,11 +56,23 @@ MODE_STRUCTURED = cb_judge.MODE_STRUCTURED
 # --------------------------------------------------------------------------
 # the spec, the model and the schema
 # --------------------------------------------------------------------------
+@contextmanager
+def no_bytecode():
+    """Load a module from a submodule's task folder without writing __pycache__ into it."""
+    before = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        yield
+    finally:
+        sys.dont_write_bytecode = before
+
+
 def judge_spec(task_root: Path, task_name: str, *, addendum: Path | None = None) -> cb_judge.JudgeSpec:
     """The task's Verdict and context. An addendum is appended to judge_schema.py, as Lucy's harness does."""
     task_root = Path(task_root)
     if addendum is None:
-        return cb_judge.load_judge_spec(task_root, task_name=task_name)
+        with no_bytecode():
+            return cb_judge.load_judge_spec(task_root, task_name=task_name)
     combined = (task_root / cb_judge.SCHEMA_MODULE).read_text() + "\n\n" + Path(addendum).read_text()
     folder = settings.BUILD / "judge" / task_name
     folder.mkdir(parents=True, exist_ok=True)

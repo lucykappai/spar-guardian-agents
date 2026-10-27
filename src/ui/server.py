@@ -62,6 +62,7 @@ DELIVERABLE_FIELDS = ("archive_in_workspace", "registered_on_main", "registered_
 SAMPLE_STORE_KEYS = (
     "EnvironmentState:turn", "EnvironmentState:last_text_by_agent",
     "DefenseLog:blocks", "DefenseLog:activity", "DefenseLog:vaccination_injections",
+    "knowledge_reviews",
 )
 ROLES = ("worker", "regulator", "disregulator")
 
@@ -443,6 +444,11 @@ class Store:
             "preset": run.get("preset"),
             "preset_inferred": run.get("preset_inferred"),
             "engagement": run.get("engagement"),
+            # written only by runs that record them (src/benchmark/export.py newer_run_facts); null otherwise
+            "split_access": run.get("split_access"),
+            "turn_budget": run.get("turn_budget"),
+            "access": run.get("access"),
+            "knowledge": run.get("knowledge"),
         }
 
     def run_detail(self, name: str) -> dict:

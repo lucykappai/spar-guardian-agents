@@ -1,0 +1,5 @@
+# CheatBench's knowledge_work image (tasks/knowledge_work/Dockerfile, built as cbkw:office), plus what its runner does
+# at episode start: the unprivileged agent user. The task's egress policy is deny; compose runs it without a network.
+FROM cbkw:office
+RUN useradd --uid 1000 --create-home --home-dir /home/user --shell /bin/bash user \
+    && chown user:user /workspace

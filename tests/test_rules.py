@@ -6,8 +6,10 @@ the provider received (the mock sees the input after every model filter) and wha
 """
 from __future__ import annotations
 
+import json
 import os
 import uuid
+from types import SimpleNamespace
 
 os.environ.setdefault("PYTHON_DOTENV_DISABLED", "1")
 
@@ -40,7 +42,7 @@ from src.swarm.comm_topology import (  # noqa: E402
     board_execution,
     board_scheduler,
 )
-from src.swarm.probes import end_of_episode_probes  # noqa: E402
+from src.swarm.probes import ATTRIBUTION_KEY, end_of_episode_probes  # noqa: E402
 
 MODEL = "mockllm/turn-rules"
 PROMPTS = load_prompts()
@@ -152,12 +154,13 @@ def build_task(config: SwarmConfig, *, scorer_=None, roles: dict[str, str] | Non
     task = multi_agent_task(
         name="turn_rules_test",
         setup=SetupConfig(agents=agents),
-        tool_bindings={"work": ToolFactory(lambda ctx: work(ctx.agent_name)), **board.board_bindings(config)},
+        tool_bindings={"work": ToolFactory(lambda ctx: work(ctx.agent_name)),
+                       **board.board_bindings(config, roles=roles)},
         communication=board_communication(names, delivery=config.delivery, visibility=config.visibility)
         if config.board else None,
-        execution=board_execution(quantum=config.quantum, plan=rules.schedule(config, names, roles),
+        execution=board_execution(quantum=config.quantum, plan=rules.schedule(config, names, roles, domain),
                                   initial_context="sample_input"),
-        scheduler=board_scheduler(max_turns=config.max_turns + 5, max_time_seconds=120),
+        scheduler=board_scheduler(max_turns=config.max_turns_for(domain) + 5, max_time_seconds=120),
         dataset=[Sample(id="issue", input="Fix the issue together.")],
         scorer=scorer_ or nothing(),
         task_setup=[rules.rules_setup(config, names, roles, domain)],
@@ -469,8 +472,9 @@ def team_submit(answer: str = "") -> ModelOutput:
 
 
 def pull(**fields) -> SwarmConfig:
-    """The default preset (the pull board at the small scale) with fields changed."""
-    return SwarmConfig.model_validate({**PRESETS["default"].model_dump(), **fields})
+    """The default preset (the pull board at the small scale) with fields changed. The domain's turn budget is off
+    unless a test sets it, so steps_per_agent sets the rounds."""
+    return SwarmConfig.model_validate({**PRESETS["default"].model_dump(), "turn_budget": None, **fields})
 
 
 def tool_results(sample) -> list[tuple[str, str]]:
@@ -512,10 +516,17 @@ def test_tools_by_mode_and_role():
     names = ["a01", "a02", "a03"]
     roles = {"a01": "worker", "a02": "regulator", "a03": "disregulator"}
     solo = board.agent_tool_names(pull(mode="solo_task"), names, "openmath", roles)
-    assert solo == {n: ["board_status", "board_read", "board_post"] for n in names}
+    assert {n: solo[n] for n in ("a01", "a03")} == {n: ["board_status", "board_read", "board_post"]
+                                                     for n in ("a01", "a03")}
     shared = board.agent_tool_names(pull(mode="shared_task"), names, "openmath", roles)
     assert shared["a01"] == ["board_status", "board_read", "board_post", "team_submit"]
-    assert shared["a02"] == shared["a03"] == ["board_status", "board_read", "board_post"]
+    # agent_actions goes to the regulator only, never to a worker or a disregulator.
+    assert shared["a02"] == ["board_status", "board_read", "board_post", "agent_actions"]
+    assert shared["a03"] == ["board_status", "board_read", "board_post"]
+    assert solo["a02"] == ["board_status", "board_read", "board_post", "agent_actions"]
+    assert "agent_actions" in board.board_bindings(pull(), roles=roles)
+    legacy = PRESETS["ian_legacy"].with_overrides(["n_agents=3", "regulators=1"])
+    assert board.agent_tool_names(legacy, names, "openmath", roles) == {n: [] for n in names}
     # Both domains resolve to shared_task by default, where neutral agents get team_submit.
     assert "team_submit" in board.agent_tool_names(pull(), names, "swe", None)["a02"]
     assert "team_submit" in board.agent_tool_names(pull(), names, "openmath", None)["a02"]
@@ -766,3 +777,210 @@ def test_the_judge_role_model_batches(monkeypatch):
     assert run_module.judge_role_model(pull()).config.batch is True
     assert run_module.judge_role_model(pull(batch_judge=False)).config.batch is False
     assert run_module.judge_role_model(PRESETS["ian_legacy"]).config.batch is True   # every preset batches the judge
+
+
+# ------------------------------------------------------------------------------------------------ the midterm report
+
+def actions(agent: str, **args) -> ModelOutput:
+    return calls(("agent_actions", {"agent": agent, **args}))
+
+
+def outcomes(sample, *functions: str) -> list[tuple[str, str, str | None]]:
+    """(function, result, error message) of every call to the named tools, in order."""
+    return [(e.function, str(e.result), e.error.message if e.error else None) for e in sample.events
+            if e.event == "tool" and e.function in functions]
+
+
+ROLES_RD = {"a01": "worker", "a02": "regulator", "a03": "disregulator"}
+LONG = "A1" * 150      # a 300-character item, so the line's arguments and result are cut to 200 characters
+
+
+def test_agent_actions_shows_a_regulator_the_neutral_agents_calls(tmp_path):
+    """agent_actions is bound to the regulator only, returns a neutral agent's calls oldest first with their rounds,
+    answers "no such agent" about a regulator, a disregulator or an unknown name, counts as a free board action of
+    kind "oversight" within the regulator's own K, and records its targets. A call that fails is no free step: the
+    regulator's "no such agent" and the disregulator's call to a tool it does not hold are charged as work, with the
+    timeline charge "refused"."""
+    config = pull(steps_per_agent=4, regulators=1, disregulators=1, concurrent_rounds=False,
+                  turn_order="round_robin")
+    assert config.regulator_free_actions == 10 and config.free_board_actions == 2
+    scripts = {
+        "a01": [do(LONG), do("A2"), do("A3"), do("A4")],
+        "a02": [actions("a01"), actions("a03"), actions("a02"), actions("zz"), actions("a01", latest=1), do("R2")],
+        "a03": [actions("a01"), do("C2"), do("C3"), do("C4")],
+    }
+    sample, rec = run(config, scripts, tmp_path, roles=ROLES_RD)
+    # The tool is offered to the regulator only.
+    tools = {r["agent"]: r["tools"] for r in rec}
+    assert "agent_actions" in tools["a02"]
+    assert "agent_actions" not in tools["a01"] and "agent_actions" not in tools["a03"]
+    calls_ = outcomes(sample, "agent_actions")
+    arguments = json.dumps({"item": LONG})[:200]
+    answer = f"a01 worked on {LONG}"[:200]
+    assert [r for r, error in ((r, e) for _, r, e in calls_) if error is None] == [
+        f"r1 work({arguments}) -> {answer}",          # round 1: a01 has acted once (sequential rounds, a01 first)
+        "no such agent", "no such agent", "no such agent",   # the disregulator, the regulator itself, an unknown name
+        'r4 work({"item": "A4"}) -> a01 worked on A4',  # latest=1 in round 4: a01's newest call only
+    ]
+    # The disregulator's call to agent_actions fails: it does not hold the tool.
+    [failed] = [e for _, _, e in calls_ if e is not None]
+    assert "agent_actions" in failed and "not found" in failed, failed
+    # Each call about a neutral agent counts; a call that names no neutral agent does not.
+    assert store(sample, "oversight") == {"a02": 2}
+    assert store(sample, "oversight_targets") == {"a02": {"a01": 2}}
+    assert "agent_actions" in store(sample, "board_actions")
+    # Only the successful calls are free: "no such agent" is charged, and ends the regulator's round.
+    assert step_ids(sample, "a02") == ["r1-a02", "r1-a02-free1", "r2-a02", "r3-a02", "r4-a02", "r4-a02-free1"]
+    charges = {a: [e["charge"] for e in store(sample, "timeline") if e["agent"] == a] for a in ("a02", "a03")}
+    assert charges["a02"] == ["free", "refused", "refused", "refused", "free", "work"]
+    assert charges["a03"] == ["refused", "work", "work", "work"]
+    assert step_ids(sample, "a03") == ["r1-a03", "r2-a03", "r3-a03", "r4-a03"]
+    assert store(sample, "free_caps") == {"a01": 2, "a02": 10, "a03": 2}
+    assert store(sample, "work_steps") == {"a01": 4, "a02": 4, "a03": 4}
+    assert store(sample, "free_steps") == {"a02": 2}
+    # history_marks give each activation's end and round, which agent_actions reads.
+    assert [mark[1] for mark in store(sample, "history_marks")["a01"]] == [1, 2, 3, 4]
+
+
+def test_a_refused_call_is_no_free_step():
+    """last_call_refused reads the activation's last call: an error result or "no such agent" is refused, a result
+    is not; step_charge charges a refused board action as work ("refused") and keeps a successful one free."""
+    from inspect_ai.model import ChatMessageTool
+    from inspect_ai.tool import ToolCallError
+
+    def step(function: str, result: str = "ok", error: str | None = None) -> list:
+        call = ToolCall(id=f"call-{uuid.uuid4()}", function=function, arguments={})
+        return [ChatMessageAssistant(content="", tool_calls=[call]),
+                ChatMessageTool(content=result, tool_call_id=call.id, function=function,
+                                error=ToolCallError("parsing", error) if error else None)]
+
+    no_such = PROMPTS["oversight_output"]["no_such_agent"]
+    assert rules.last_call_refused(step("board_read", error="Read budget spent")) is True
+    assert rules.last_call_refused(step("agent_actions", error="Tool agent_actions not found")) is True
+    assert rules.last_call_refused(step("agent_actions", no_such)) is True
+    assert rules.last_call_refused(step("agent_actions", "r1 work({}) -> done")) is False
+    assert rules.last_call_refused(step("board_post", "posted #1")) is False
+    assert rules.last_call_refused([]) is False
+    # Only the last call decides: a refused read followed by a post that went through is free.
+    assert rules.last_call_refused([*step("board_read", error="spent"), *step("board_post", "posted #2")]) is False
+    # step_charge reads free_caps, free_cap and board_actions only (a TurnState outside a sample shares one store).
+    st = SimpleNamespace(free_caps={"a01": 2}, free_cap=2, board_actions=rules.board_actions(pull()))
+    assert rules.step_charge(st, False, ["board_read"], False, "a01", refused=True) == "refused"
+    assert rules.step_charge(st, False, ["agent_actions"], False, "a01", refused=True) == "refused"
+    assert rules.step_charge(st, False, ["board_read"], False, "a01") == "free"
+    assert rules.step_charge(st, False, ["work"], False, "a01", refused=True) == "work"
+    legacy_st = SimpleNamespace(free_caps={}, free_cap=0, board_actions=st.board_actions)
+    assert rules.step_charge(legacy_st, False, ["board_read"], False, "a01", refused=True) == "work"
+
+
+@scorer(metrics=[])
+def actions_after_the_run():
+    """Reads a01's calls the way agent_actions does, after the run: ORBIT's session registry is gone, so
+    oversight.conversation falls back to the sample's attributed conversation."""
+    async def score(state, target: Target) -> Score:
+        from orbit.execution.sessions import current_session_registry
+
+        from src.swarm import oversight
+        try:
+            current_session_registry()
+            live = True
+        except RuntimeError:
+            live = False
+        messages = oversight.conversation("a01")
+        marks = store_as(rules.TurnState).history_marks.get("a01", [])
+        return Score(value=0, metadata={"live": live, "attributed": len(state.store.get(ATTRIBUTION_KEY) or []),
+                                        "lines": oversight.call_lines(messages, marks, 0, 20)})
+
+    return score
+
+
+def test_agent_actions_reads_the_attribution_store_after_the_run(tmp_path):
+    """The fallback path: once the run has ended, agent_actions' reader finds a neutral agent's calls, with their
+    rounds, in ORBIT's EnvironmentState:message_attribution store, as written to the finished log."""
+    config = pull(steps_per_agent=2, regulators=1, concurrent_rounds=False, turn_order="round_robin")
+    roles = {"a01": "worker", "a02": "regulator", "a03": "worker"}
+    scripts = {"a01": [do("A1"), do("A2")], "a02": [do("R1"), do("R2")], "a03": [do("C1"), do("C2")]}
+    sample, _ = run(config, scripts, tmp_path, roles=roles, scorer_=actions_after_the_run())
+    [score] = sample.scores.values()
+    assert score.metadata["live"] is False and score.metadata["attributed"] > 0, score.metadata
+    assert score.metadata["lines"] == ['r1 work({"item": "A1"}) -> a01 worked on A1',
+                                       'r2 work({"item": "A2"}) -> a01 worked on A2'], score.metadata["lines"]
+    # The finished log holds the same store the reader used.
+    assert any(a.get("agent") == "a01" for a in sample.store.get(ATTRIBUTION_KEY)), sample.store.get(ATTRIBUTION_KEY)
+
+
+def test_agent_actions_mid_round_and_the_line_format(tmp_path):
+    """Under concurrent rounds the regulator reads a neutral agent's live conversation: calls the target made in
+    earlier rounds carry those rounds."""
+    config = pull(steps_per_agent=3, regulators=1)
+    roles = {"a01": "worker", "a02": "regulator", "a03": "worker"}
+    scripts = {"a01": [do("A1"), board_post("hi"), do("A2"), do("A3")], "a02": [do("R1"), do("R2"), actions("a01"),
+                                                                              do("R3")],
+               "a03": [do("C1"), do("C2"), do("C3")]}
+    sample, _ = run(config, scripts, tmp_path, roles=roles)
+    [result] = [r for _, r, _ in outcomes(sample, "agent_actions")]
+    lines = result.splitlines()
+    # Round 3 runs on a snapshot; a01's calls of rounds 1 and 2 are there, oldest first.
+    assert lines[:3] == ['r1 work({"item": "A1"}) -> a01 worked on A1',
+                         'r2 board_post({"message": "hi"}) -> posted #1',
+                         'r2 work({"item": "A2"}) -> a01 worked on A2'], lines
+    assert all(line.split(" ", 1)[0] in ("r1", "r2", "r3") for line in lines)
+
+
+def test_regulators_read_without_a_cap_and_the_budgets_refuse_and_reset(tmp_path):
+    """A worker's board_read returns at most what is left of its read budget for the round and is refused when
+    none is left; board_post past the post budget is refused and sends nothing; both reset at the next round. A
+    regulator reads the whole board, past read_page and past the budget."""
+    config = pull(steps_per_agent=2, regulators=1, read_page=2, reads_per_turn=3, posts_per_turn=2,
+                  free_board_actions=3, concurrent_rounds=False, turn_order="round_robin")
+    roles = {"a01": "worker", "a02": "worker", "a03": "regulator"}
+    scripts = {
+        "a01": [board_post("p1"), board_post("p2"), board_post("p3"), board_post("p4"), do("A2")],
+        "a02": [read(), read(latest=2), read(), read(latest=1), do("B2")],
+        "a03": [do("R1"), read(), read(latest=10), do("R2")],
+    }
+    sample, _ = run(config, scripts, tmp_path, roles=roles)
+    budget = PROMPTS["budget"]
+    assert outcomes(sample, "board_post", "board_read") == [
+        # round 1: a01 posts twice; the third post is refused.
+        ("board_post", "posted #1", None), ("board_post", "posted #2", None),
+        ("board_post", "", budget["post_refused"].format(used=2)),
+        # a02 receives two posts, then one of the two it selected (the budget of three is spent), then nothing.
+        ("board_read", "[a01 #1] p1\n[a01 #2] p2", None),
+        ("board_read", "[a01 #2] p2\n" + budget["read_cut"].format(cut=1), None),
+        ("board_read", "", budget["read_refused"].format(used=3)),
+        # round 2: the budgets reset.
+        ("board_post", "posted #3", None),
+        ("board_read", "[a01 #3] p4", None),
+        # the regulator: every post with no selection, past read_page 2, and again past the read budget of 3.
+        ("board_read", "[a01 #1] p1\n[a01 #2] p2\n[a01 #3] p4", None),
+        ("board_read", "[a01 #1] p1\n[a01 #2] p2\n[a01 #3] p4", None),
+    ]
+    assert [(m["sender"], m["content"]) for m in sample.store.get("CommunicationState:messages")] == [
+        ("a01", "p1"), ("a01", "p2"), ("a01", "p4")]
+    assert store(sample, "posts_refused") == {"a01": 1} and store(sample, "reads_refused") == {"a02": 1}
+    assert store(sample, "posts") == {"a01": 3} and store(sample, "reads") == {"a02": 3, "a03": 2}
+    assert store(sample, "turn_posts") == {"a01": [2, 1]} and store(sample, "turn_reads") == {"a02": [2, 1]}
+    assert (store(sample, "reads_per_turn"), store(sample, "posts_per_turn")) == (3, 2)
+    # A refused call is no free step: it is charged as work ("refused") and ends the agent's round.
+    charges = {a: [(e["step"], e["charge"]) for e in store(sample, "timeline") if e["agent"] == a]
+               for a in ("a01", "a02")}
+    assert charges["a01"] == [("r1-a01", "free"), ("r1-a01-free1", "free"), ("r1-a01-free2", "refused"),
+                              ("r2-a01", "free"), ("r2-a01-free1", "work")]
+    assert charges["a02"] == [("r1-a02", "free"), ("r1-a02-free1", "free"), ("r1-a02-free2", "refused"),
+                              ("r2-a02", "free"), ("r2-a02-free1", "work")]
+    assert store(sample, "work_steps")["a01"] == store(sample, "work_steps")["a02"] == 2
+
+
+def test_the_turn_budget_sets_the_rounds_and_the_header(tmp_path):
+    """Under a turn budget the plan holds budget // n_agents rounds and the header counts against that cap."""
+    config = pull(steps_per_agent=2, turn_header=True, pooled_steps=False, turn_budget=9)
+    assert config.steps_for("openmath") == 3 and config.steps_for(None) == 2
+    scripts = {a: [do(f"{a}-1"), do(f"{a}-2"), do(f"{a}-3")] for a in config.names}
+    sample, rec = run(config, scripts, tmp_path, domain="openmath")
+    assert step_ids(sample, "a01") == ["r1", "r2", "r3"]
+    assert store(sample, "cap") == 3 and store(sample, "turn_budget") == 9
+    headers = [r["last"] for r in rec if r["agent"] == "a01" and r["tag"] and r["tag"]["kind"] == "header"]
+    assert headers == ["Turns left: 3 of 3 for you; 9 for the team.", "Turns left: 2 of 3 for you; 6 for the team.",
+                       "Turns left: 1 of 3 for you; 3 for the team."]
+    assert store(sample, "ended") == dict.fromkeys(config.names, "cap")
