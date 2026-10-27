@@ -111,9 +111,11 @@ def judge_role_model(config: SwarmConfig) -> Model:
     return get_model(judge_model, config=GenerateConfig(batch=config.batch_judge))
 
 
-def agent_generate_config(config: SwarmConfig) -> dict:
-    """The eval's generate config for the agents' model: batch=True with batch_agents, else nothing."""
-    return {"batch": True} if config.batch_agents else {}
+def agent_generate_config(config: SwarmConfig, model: str | None = None) -> dict:
+    """The eval's generate config for the agents' model: the registry entry's `generate` settings
+    (src/configuration/models.yaml), and batch=True with batch_agents."""
+    out = models.generate_args(model) if model else {}
+    return {**out, "batch": True} if config.batch_agents else out
 
 
 def has_incomplete_episode(episodes: Path) -> bool:
@@ -152,8 +154,10 @@ def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | No
     print(f"== eval {benchmark.name} n_agents={config.n_agents} control={config.control} -> {log_dir}", flush=True)
     task = swarm_task(benchmark, config, name=name)
     print(access_line(task), flush=True)
-    [log] = inspect_ai.eval(task, model=model, log_dir=str(log_dir), display="plain", timeout=timeout,
-                            model_roles={"judge": judge_role_model(config)}, **agent_generate_config(config))
+    model_args, generate = models.model_args(model), agent_generate_config(config, model)
+    print(f"== model {model} args {json.dumps(model_args)} generate {json.dumps(generate)}", flush=True)
+    [log] = inspect_ai.eval(task, model=model, model_args=model_args, log_dir=str(log_dir), display="plain",
+                            timeout=timeout, model_roles={"judge": judge_role_model(config)}, **generate)
     if not log.samples and not Path(log.location).exists():
         raise Refusal("no eval log written", 3)
     run_dir = export(Path(log.location), name)

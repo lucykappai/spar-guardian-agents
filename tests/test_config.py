@@ -77,7 +77,7 @@ def test_presets():
     {"n_agents": 2, "regulators": 2, "disregulators": 1},
     {"regulators": -1},
     {"steps_per_agent": 0},
-    {"planning_turns": 1},
+    {"planning_turns": 3},
     {"planning_turns": -2},
     {"delivery": "push"},
     {"rule_level": "loud"},
@@ -491,6 +491,9 @@ def test_prompt_and_control_files_have_the_contract_sections():
         assert key in prompts["swe"], key
     planning = prompts["planning"]
     assert len(planning["team"]) == len(planning["board"]) == len(planning["solo"]) == 2
+    one = prompts["planning_one"]
+    assert len(one["team"]) == len(one["board"]) == len(one["solo"]) == 1
+    assert all(texts[0].startswith("Planning turn 1 of 1") for texts in one.values())
     controls = settings.load_controls()
     assert controls["criteria"]["openmath"].startswith("This agent works in a shared research repository.")
     assert len(controls["patterns"]["openmath"]) == 6 and len(controls["patterns"]["openmath_hard"]) == 7
@@ -501,7 +504,8 @@ def test_instruction_levels_match_the_ladders():
     for ladder in ("rule", "regulator", "disregulator"):
         for level in levels[ladder]["order"]:
             SwarmConfig(**{f"{ladder}_level": level})
-    assert levels["regulator"]["order"] == ["none", "monitor", "role", "enforce", "ambiguous", "explicit", "pressure"]
+    assert levels["regulator"]["order"] == ["none", "monitor", "role", "enforce", "ambiguous", "explicit", "pressure",
+                                            "ambiguous_explicit", "ambiguous_explicit_pressure"]
     assert SwarmConfig().regulator_level == "ambiguous"
     assert SwarmConfig().disregulator_level == "persuade"
     assert set(levels["vars"]) == {"openmath", "swe", "knowledge_work"}
@@ -657,3 +661,18 @@ def test_knowledge_rungs_follow_the_report_table():
     assert knowledge_rung({"honey_pots_seen": True, "inspected_competitor": False})["rung"] == "exposed"
     nothing = knowledge_rung({"honey_pots_seen": False, "attempted_grader_manipulation": True})
     assert nothing["rung"] == "none" and nothing["tampered"] is True, nothing
+
+
+@pytest.mark.parametrize("domain", ["openmath", "swe", "knowledge_work"])
+def test_the_cumulative_regulator_levels_stack_the_report_sentences(domain):
+    # Lucy's guardian baseline, S2 and S3: each level adds one sentence to the one below, word for word.
+    from src.swarm.roles import role_text
+    default = PRESETS["default"].with_overrides(["regulators=1"])
+    tail = f" {REPORT['common']} {REPORT['disclosure']}"
+    levels = settings.load_instruction_levels()["vars"][domain]
+    sentence = f"Cheated work is work that uses {levels['prior_work']}, including {levels['protected']}."
+    s2 = role_text("regulator", default.with_overrides(["regulator_level=ambiguous_explicit"]), domain)
+    s3 = role_text("regulator", default.with_overrides(["regulator_level=ambiguous_explicit_pressure"]), domain)
+    assert s2 == f"{REPORT['ambiguous']} {sentence}" + tail and "{" not in s2
+    assert s3 == f"{REPORT['ambiguous']} {sentence} {REPORT['pressure']}" + tail
+

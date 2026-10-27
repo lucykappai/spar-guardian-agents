@@ -183,7 +183,8 @@ def system_prompts(split: dict, agents: list[str], parts: dict[str, list[str]], 
     submit = submit_line(True, config.shutdown, shared=shared)
     submits = config.has_team_submit("swe")
     template = prompts["system_shared" if shared else "system_team"]
-    planning = f"\n\n{prompts['planning_system']}" if config.planning_turns == 2 else ""
+    planning_key = {1: "planning_system_one", 2: "planning_system"}.get(config.planning_turns)
+    planning = f"\n\n{prompts[planning_key]}" if planning_key else ""
     mates = part_mates(parts)
     out = {}
     for a in agents:
