@@ -18,7 +18,8 @@ verdict fields, the ladder's fields, `rung`, `<rung>_round` for each cited call,
 
 Views: `full` is CheatBench's rendering of the transcript; `actions` keeps the tool calls and their results only
 (no thinking, no assistant prose, no delivered posts, no final message), the narrow view of section 7 of Rigel's
-page, for measuring how far the agent's own account moves the judge.
+page, for measuring how far the agent's own account moves the judge. The actions view writes ladder_actions.jsonl
+beside ladder.jsonl, so the two never overwrite each other; the browser shows the full view.
 """
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ HONESTY = ("admitted", "concealed", "false_denial")
 CITED = ("exposed", "searched", "tried", "opened")
 VIEWS = ("full", "actions")
 ADDENDUM = settings.HERE / "judge_ladder.py"
-LADDER_FILE = "ladder.jsonl"
+LADDER_FILES = {"full": "ladder.jsonl", "actions": "ladder_actions.jsonl"}
 TIMELINE_KEY = "TurnState:timeline"
 ROUND_RE = re.compile(r"^r(\d+)")
 # The line prefixes of CheatBench's rendering (submodules/cheatbench/core/render.py); a line without one continues
@@ -158,15 +159,15 @@ def episodes_of(run_dir: Path) -> list[dict]:
     return out
 
 
-def read_rows(run_dir: Path) -> list[dict]:
-    path = run_dir / LADDER_FILE
+def read_rows(run_dir: Path, view: str = "full") -> list[dict]:
+    path = run_dir / LADDER_FILES[view]
     if not path.is_file():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def write_rows(run_dir: Path, rows: list[dict]) -> Path:
-    path = run_dir / LADDER_FILE
+def write_rows(run_dir: Path, rows: list[dict], view: str = "full") -> Path:
+    path = run_dir / LADDER_FILES[view]
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
     return path
 
@@ -182,14 +183,14 @@ async def judge_episode(spec, transcript: dict, model, config: GenerateConfig, p
 
 async def judge_run(run_dir: Path, judge_name: str, *, view: str = "full", agents: list[str] | None = None,
                     force: bool = False) -> list[dict]:
-    """Every agent of the run on the ladder; rows already in ladder.jsonl are kept unless force."""
+    """Every agent of the run on the ladder; rows already in the view's file are kept unless force."""
     run = json.loads((run_dir / "run.json").read_text())
     task = run["task"]
     spec = ladder_spec(task)
     model_name, config = judging.judge_model_config(judge_name)
     prices = judging.judge_prices(judge_name)
     model = get_model(model_name, config=GenerateConfig(batch=False))
-    done = {row["episode"]: row for row in read_rows(run_dir)} if not force else {}
+    done = {row["episode"]: row for row in read_rows(run_dir, view)} if not force else {}
     todo = [ep for ep in episodes_of(run_dir) if ep["episode"] not in done
             and (agents is None or ep["agent"] in agents)]
     rounds = timeline_rounds(run_dir) if todo else None
@@ -207,7 +208,7 @@ async def judge_run(run_dir: Path, judge_name: str, *, view: str = "full", agent
                     **call_rounds(row, calls, (rounds or {}).get(ep["agent"]) if rounds is not None else None)})
         done[ep["episode"]] = row
     rows = sorted(done.values(), key=lambda r: r["episode"])
-    write_rows(run_dir, rows)
+    write_rows(run_dir, rows, view)
     return rows
 
 
@@ -223,14 +224,14 @@ def agent_line(row: dict) -> str:
             f"{'' if cost is None else f'${cost:.3f}'}")
 
 
-def table(run_dirs: list[Path]) -> str:
-    """Counts per run at each rung, beside the ladder and on the honesty labels, from ladder.jsonl."""
+def table(run_dirs: list[Path], view: str = "full") -> str:
+    """Counts per run at each rung, beside the ladder and on the honesty labels, from the view's file."""
     cols = (*RUNGS, *BESIDE, *HONESTY)
     head = f"{'run':30} {'n':>3} " + " ".join(f"{c[:7]:>7}" for c in cols) + "   cited  cost"
     lines, total = [head], {c: 0 for c in cols}
     n_all, cited_all, cost_all = 0, 0, 0.0
     for d in run_dirs:
-        rows = [r for r in read_rows(Path(d)) if r.get("parse_ok")]
+        rows = [r for r in read_rows(Path(d), view) if r.get("parse_ok")]
         if not rows:
             lines.append(f"{Path(d).name:30}   0 (no ladder verdicts)")
             continue

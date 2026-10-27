@@ -88,7 +88,7 @@ def cmd_ladder(args: argparse.Namespace) -> int:
     from src.benchmark import ladder  # the judge's imports, the same seconds
     run_dirs = [Path(name) if Path(name).is_dir() else settings.RUNS / name for name in args.runs]
     if args.table:
-        print(ladder.table(run_dirs), end="")
+        print(ladder.table(run_dirs, args.view), end="")
         return 0
     agents = args.agents.split(",") if args.agents else None
     return run.ladder_runs(run_dirs, args.judge, view=args.view, agents=agents, force=args.force)

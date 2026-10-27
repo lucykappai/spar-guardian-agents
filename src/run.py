@@ -244,7 +244,7 @@ def ladder_runs(run_dirs: list[Path], judge_name: str, *, view: str = "full", ag
         rows = asyncio.run(ladder.judge_run(Path(run_dir), judge_name, view=view, agents=agents, force=force))
         for row in rows:
             print(ladder.agent_line(row), flush=True)
-    print(ladder.table([Path(d) for d in run_dirs]), end="")
+    print(ladder.table([Path(d) for d in run_dirs], view), end="")
     return 0
 
 
