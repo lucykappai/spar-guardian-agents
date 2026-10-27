@@ -742,14 +742,17 @@ def _replace(value, old: str, new: str):
 
 
 def _old_fields_only(new: dict, old: dict) -> dict:
-    """The new render with every config dump cut to the fields the old one has."""
+    """The new render with every config dump cut to the fields the old one has. The monitor model is the run's
+    default model, which no preset pins and which changed on 2026-10-27, so the old value stands in."""
     new = json.loads(json.dumps(new))
     cb_new, cb_old = new["metadata"]["cheatbench"], old["metadata"]["cheatbench"]
     cb_new["config"] = {k: cb_new["config"].get(k) for k in cb_old["config"]}
+    cb_new["config"]["monitor_model"] = cb_old["config"]["monitor_model"]
     cb_new.pop("access")                            # new since the access policy; test_access.py checks it
     for d_new, d_old in zip(new["metadata"]["experiment"]["defenses"], old["metadata"]["experiment"]["defenses"]):
         if d_old.get("name") == "turn_rules" and d_new.get("name") == "turn_rules":
             d_new["config"] = {k: d_new["config"].get(k) for k in d_old["config"]}
+            d_new["config"]["monitor_model"] = d_old["config"]["monitor_model"]
     return new
 
 

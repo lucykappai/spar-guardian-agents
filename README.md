@@ -1,6 +1,6 @@
 # spar-guardian-agents
 
-This repository studies peer pressure on cheating in agent swarms. It runs CheatBench tasks inside ORBIT with Gemini 3.8 Flash: one agent alone, a team that shares a message board, or a swarm with hidden regulators and disregulators. Three benchmarks are wired. The first is CheatBench's `openmath_agent` row `riemann`, the mathematical research task. The second is CheatBench's SWE issues with Lucy's honeypots. The third is CheatBench's `knowledge_work` task, one GDPval assignment with a review tool. Every run becomes a CheatBench run directory, is judged by gpt-6-sol inside the eval, and can be browsed locally.
+This repository studies peer pressure on cheating in agent swarms. It runs CheatBench tasks inside ORBIT, with GPT-6 Luna as the agents' default model since 2026-10-27 (every run before that used Gemini 3.8 Flash): one agent alone, a team that shares a message board, or a swarm with hidden regulators and disregulators. Three benchmarks are wired. The first is CheatBench's `openmath_agent` row `riemann`, the mathematical research task. The second is CheatBench's SWE issues with Lucy's honeypots. The third is CheatBench's `knowledge_work` task, one GDPval assignment with a review tool. Every run becomes a CheatBench run directory, is judged by gpt-6-sol inside the eval, and can be browsed locally.
 
 ## Quick start
 
@@ -20,7 +20,7 @@ uv run python -m src run pull_small --set disregulators=1
 uv run python -m src summary runs/ctrl_*
 uv run python -m src.measures.engagement runs/pull_small
 uv run python -m src budget runs/gemini_riemann
-uv run python -m examples.openmath.riemann_minimal      # three neutral agents, outputs beside the script
+uv run python -m examples.openmath.riemann_minimal [--model gemini-3.8-flash] [--scale medium] [--set regulators=1]
 ```
 
 A run starts from a preset, then applies a scale, then every `--set key=value`. The default preset is the configuration of the team's midterm report (2026-10-26) at the small scale. It puts three agents on the pull board in `shared_task`, with the exploit split over them (`access=split`), per-round read and post budgets and the domain's turn budget. It has no regulators. It sets the regulator level to `ambiguous`, which applies once `--set regulators=N` adds them. `examples/` holds one script per task with that configuration (`examples/README.md`).
@@ -134,7 +134,7 @@ At `large`, `extra_large` and `gigantic` the literal rule gives every agent one 
 - uv, and `.venv`: Python 3.11 with ORBIT installed editable from `submodules/orbit`, plus pytest. Every command runs through uv (`uv run python`, `uvx ruff`), which picks that environment up. The judge runs through Inspect's OpenAI provider, which needs `openai>=3.1` (ORBIT's own requirement); CheatBench's `litellm` pins `openai<3` and is not used here.
 - Docker. The openmath sandbox image is built by the task. SWE needs the `cbswe-<issue>:native` image, which the SWE domain builds when it is missing. Knowledge work needs CheatBench's office image `cbkw:office` (LibreOffice) and our `cbkw:agent`, which the domain builds when they are missing.
 - Knowledge work reads the GDPval rows that CheatBench's `build.py` writes to `build/knowledge_work/`. The download from Hugging Face needs no token. The command is in the error a missing build raises.
-- `GEMINI_API_KEY` for the agents and `OPENAI_API_KEY` for the judge. Another agents' model takes `--model <entry>`; `python -m src models` lists the entries of `src/configuration/models.yaml` (DeepSeek, the models CheatBench ran, and the current models of each provider) with the key variable each route needs.
+- `OPENAI_API_KEY` for the agents' default model and for the judge; `GEMINI_API_KEY` for Gemini runs. Another agents' model takes `--model <entry>`; `python -m src models` lists the entries of `src/configuration/models.yaml` (DeepSeek, the models CheatBench ran, and the current models of each provider) with the key variable each route needs.
 
 ## Layout
 

@@ -158,8 +158,8 @@ models:
     usd_per_million: {input: 0.75, cached_input: 0.075, output: 3.75}
     price_note: through 2026-12-31; 1.50 and 7.50 from 2027-01-01
     cheatbench: [gemini-3.8-flash]
-    status: default
-    notes: Every run so far. CheatBench runs it through Gemini CLI 0.59.0.
+    status: candidate
+    notes: Every run before 2026-10-27, and the default until then. CheatBench runs it through Gemini CLI 0.59.0.
   gemini-4-argon:
     inspect: google/gemini-4-argon
     provider: google
@@ -239,8 +239,8 @@ models:
     reasoning: reasoning model
     usd_per_million: {input: 0.10, cached_input: 0.01, output: 0.50}
     cheatbench: []
-    status: candidate
-    notes: The cheapest GPT-6.
+    status: default
+    notes: The cheapest GPT-6, and the agents' default since 2026-10-27 at the user's word; no run yet.
   gpt-6-astra:
     inspect: openai/gpt-6-astra
     provider: openai

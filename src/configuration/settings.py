@@ -28,7 +28,7 @@ MODELS = HERE / "models.yaml"
 
 # The agents' model, an Inspect model string (models.yaml lists every alternative), and the judge's entry in
 # JUDGE_MODELS_CONFIG, whose model string models.yaml prices.
-DEFAULT_MODEL = "google/gemini-3.8-flash"
+DEFAULT_MODEL = "openai/gpt-6-luna"
 DEFAULT_MONITOR_MODEL = DEFAULT_MODEL
 JUDGE_MODEL = "gpt-6-sol"
 JUDGE_MODELS_CONFIG = HERE.parent / "benchmark" / "models.yaml"

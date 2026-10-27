@@ -139,7 +139,7 @@ def test_require_provider_key_reads_the_registry(monkeypatch):
     os.environ["DEEPSEEK_API_KEY"] = "k"
     require_provider_key("deepseek/deepseek-v4-pro")
     os.environ["GEMINI_API_KEY"] = "g"
-    require_provider_key(settings.DEFAULT_MODEL)
+    require_provider_key("google/gemini-3.8-flash")
     assert os.environ["GOOGLE_API_KEY"] == "g"
     os.environ["META_API_KEY"] = "m"
     require_provider_key("openai-api/meta/muse-spark-1.3")
