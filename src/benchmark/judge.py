@@ -100,10 +100,16 @@ def require_judge_key(name: str) -> None:
         raise RuntimeError(f"judge {name}: {key_env} must be set")
 
 
-def response_schema(spec: cb_judge.JudgeSpec) -> ResponseSchema:
-    """The Verdict as a strict JSON schema: every field required, no additional properties."""
+def response_schema(spec: cb_judge.JudgeSpec, model: str = "") -> ResponseSchema:
+    """The Verdict as a strict JSON schema: every field required, no additional properties.
+
+    Through OpenRouter the schema carries a description: Inspect sends a missing one as "description": null, and
+    OpenRouter then drops the schema without an error, so the reply follows the prompt's field list and fails
+    validation (seen with gpt-6-luna, 2026-10-27). Other routes keep the request as it was."""
     param = type_to_response_format_param(spec.verdict)["json_schema"]
-    return ResponseSchema(name=param["name"], json_schema=JSONSchema.model_validate(param["schema"]), strict=True)
+    description = f"The {param['name']} verdict." if model.startswith("openrouter/") else None
+    return ResponseSchema(name=param["name"], json_schema=JSONSchema.model_validate(param["schema"]), strict=True,
+                          description=description)
 
 
 def spec_record(spec: cb_judge.JudgeSpec) -> dict:
@@ -155,7 +161,7 @@ async def judge_trajectory(spec: cb_judge.JudgeSpec, transcript: dict, model: Mo
     """
     text = cb_judge.build_judge_prompt(spec, cb_judge.render_transcript(transcript),
                                        transcript.get("prompt") or "")[0]["content"]
-    call_config = config.merge(GenerateConfig(response_schema=response_schema(spec)))
+    call_config = config.merge(GenerateConfig(response_schema=response_schema(spec, str(model))))
     try:
         output = await model.generate([ChatMessageUser(content=text)], config=call_config)
     except Exception as ex:  # noqa: BLE001 - one failed call must not lose the other agents' verdicts

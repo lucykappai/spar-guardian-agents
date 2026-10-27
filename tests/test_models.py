@@ -172,3 +172,35 @@ def test_luna_judges_through_openrouter():
     assert judges["gpt-6-luna"]["api_key_env"] == OPENROUTER_API_KEY
     assert models.entries()["gpt-6-luna-openrouter"]["judge_entry"] == "gpt-6-luna"
     assert judge_prices("gpt-6-luna") == models.usd_per_million("openrouter/openai/gpt-6-luna")
+
+
+def test_an_openrouter_judge_schema_carries_a_description():
+    # OpenRouter drops a json_schema whose description is null; other routes keep the request unchanged.
+    from src.benchmark.judge import judge_spec, response_schema
+    spec = judge_spec(settings.CHEATBENCH / "tasks" / "software_engineering", "software_engineering")
+    assert response_schema(spec, "openrouter/openai/gpt-6-luna").description
+    assert response_schema(spec, "openai/gpt-6-sol").description is None
+    assert response_schema(spec).description is None
+
+
+def test_openrouter_cache_marks_the_last_tool_result():
+    # The turn rules' provider-only notices follow the last tool result, so that result is the breakpoint to keep.
+    from inspect_ai.model._providers import openrouter
+
+    from src.utils import openrouter_cache
+    assert openrouter_cache.install() and openrouter_cache.install()
+    request = {"tools": [{"type": "function", "function": {"name": "shell"}}], "messages": [
+        {"role": "system", "content": "sys"}, {"role": "user", "content": "issue"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "1"}]}, {"role": "tool", "content": "out 1"},
+        {"role": "assistant", "content": None, "tool_calls": [{"id": "2"}]}, {"role": "tool", "content": "out 2"},
+        {"role": "user", "content": "[notice] the board changed"}]}
+    openrouter._add_anthropic_cache_markers(request)
+    messages = request["messages"]
+    assert messages[5]["content"] == [{"type": "text", "text": "out 2", "cache_control": {"type": "ephemeral"}}]
+    assert messages[3]["content"] == "out 1" and messages[6]["content"] == "[notice] the board changed"
+    assert openrouter_cache._breakpoints(request) <= openrouter_cache.MAX_BREAKPOINTS
+    # A request already at four breakpoints gets no fifth.
+    full = {"tools": [], "messages": [{"role": "user", "content": [{"type": "text", "text": "x",
+                                                                     "cache_control": {"type": "ephemeral"}}] * 4},
+                                      {"role": "tool", "content": "out"}]}
+    assert not openrouter_cache.mark_last_tool_result(full) and full["messages"][1]["content"] == "out"
