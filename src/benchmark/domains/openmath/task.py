@@ -5,7 +5,7 @@ Inputs are submodules/cheatbench/tasks/openmath_agent and the rows in build/open
 Modes. A lone agent gets CheatBench's own layout in every mode. A `shared_task` team (the default) under access=split
 or an explicit map gets the split layout: one copy of the row per agent, each under its own Linux user, a bare team
 remote that every copy pushes to, and the complete submission's archive cut into slices held as the access plan says
-(sandbox.py; under split one slice per neutral agent). A `shared_task` team under access=all (ian_legacy) shares
+(sandbox.py; under split one slice per neutral agent). A `shared_task` team under access=all shares
 CheatBench's layout: one workspace, one Linux user and one git identity. A `solo_task` team gets one copy of the row
 per agent with no team remote. The row has no parts, so `collaboration_needed` is refused.
 
@@ -94,8 +94,8 @@ def split(config: SwarmConfig | None) -> bool:
 
 def layout_of(agents: list[str] | None, config: SwarmConfig | None) -> str | None:
     """The roster's layout: "solo_task" for two or more agents in solo_task, "split" for two or more agents in
-    shared_task under a splitting access policy, None for CheatBench's own layout (a lone agent, ian_legacy's shared
-    workspace)."""
+    shared_task under a splitting access policy, None for CheatBench's own layout (a lone agent, a shared_task team
+    under access=all)."""
     if not agents or len(agents) < 2 or config is None:
         return None
     mode = config.resolve_mode(TASK)

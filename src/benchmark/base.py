@@ -107,7 +107,7 @@ class Benchmark(ABC):
     @abstractmethod
     def sample(self, agents: list[str], *, instruction_suffix: str = "", config: SwarmConfig | None = None,
                roles: dict[str, str] | None = None) -> Sample:
-        """One sample for this roster under the config's mode. config None builds the layout of commit 6769c80.
+        """One sample for this roster under the config's mode. config None builds CheatBench's own layout.
 
         sample.input is the instruction plus the suffix. metadata["cheatbench"] carries the task, the variant,
         the instruction, the prompt file and the timeout. It may also carry "first_message" {agent: text} when
@@ -132,7 +132,7 @@ class Benchmark(ABC):
     def deviations(self, n_agents: int, mode: str | None = None) -> list[str]:
         """How a run with this many agents in this mode departs from CheatBench's own runner, as short labels.
 
-        mode None gives the labels of commit 6769c80's layout."""
+        mode None gives the labels of CheatBench's own layout."""
 
     def run_deviations(self, n_agents: int, *, shutdown: bool = True, mode: str | None = None) -> list[str]:
         """deviations() for a run whose agents do or do not have ORBIT's submit tool.

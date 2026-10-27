@@ -1,6 +1,6 @@
 """Command line for the peer-pressure experiment. Argument parsing only; every command calls run.py.
 
-    python -m src run <name> [--benchmark openmath|swe|knowledge_work] [--preset default|ian_legacy|lucy_legacy]
+    python -m src run <name> [--benchmark openmath|swe|knowledge_work] [--preset default]
                              [--scale small|medium|large|extra_large|gigantic] [--set key=value ...]
                              [--row R] [--issue I] [--honeypot H] [--no-grade] [--model M] [--timeout S]
     python -m src judge <eval_log> <run_name> [--judge MODEL] [--judge-errors]
@@ -11,13 +11,13 @@
     python -m src plots <run_dir> [--out DIR]
 
 The config is built in this order: the preset, then the scale, then every `--set`. The default preset is the
-midterm report's configuration at the small scale; `--scale` replaces its size (src/configuration/scales.py). The
-legacy presets keep their own sizes unless `--scale` is given. `--set` takes any SwarmConfig field
+midterm report's configuration at the small scale; `--scale` replaces its size (src/configuration/scales.py). `--set`
+takes any SwarmConfig field
 (src/configuration/swarm_config.py) and overrides any value the scale gave, for example `--set regulators=3 --set
 disregulators=3` for a swarm, `--set shutdown=false` for agents without the submit tool, `--set
-turn_budget=knowledge_work:70` for another budget on one domain (the other domains keep settings.TURN_BUDGETS, on a
-legacy preset too), or `--set turn_budget=none` to use the scale's steps_per_agent in place of the domain's turn
-budget. A run writes its Inspect log under
+turn_budget=knowledge_work:70` for another budget on one domain (the other domains keep settings.TURN_BUDGETS), or
+`--set turn_budget=none` to use the scale's steps_per_agent in place of the domain's turn budget. A run writes its
+Inspect log under
 logs/<ctrl|swarm|swe>/<name>/, exports it to runs/<name>/ and prints one line per episode; the judge runs inside
 the eval. `budget` prints a lone run's turns and the working steps per agent that budget gives at each scale.
 `--model` takes an entry of src/configuration/models.yaml or an Inspect model string; `models` prints the entries,
@@ -98,8 +98,7 @@ def add_run_parser(subparsers) -> None:
     run.add_argument("name", help="run name: logs/<kind>/<name>/ and runs/<name>/")
     run.add_argument("--benchmark", choices=("openmath", "swe", "knowledge_work"), default="openmath")
     run.add_argument("--preset", choices=sorted(PRESETS), default="default",
-                     help="default: the pull board at the small scale; ian_legacy and lucy_legacy: the presets ours "
-                          "and lucy of commit 6769c80 (push delivery, channel tools, sequential rounds)")
+                     help="default: the midterm report's configuration at the small scale")
     run.add_argument("--scale", choices=list(SCALES), default=None,
                      help="the run's size, applied after the preset (default: the preset's own, small for default)")
     run.add_argument("--set", dest="settings", action="append", default=[], metavar="KEY=VALUE",

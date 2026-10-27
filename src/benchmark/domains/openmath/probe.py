@@ -80,7 +80,7 @@ def environment_probe() -> Solver:
 async def _deliverables(row: dict, user: str, workdir: str, cwd: str | None) -> dict:
     """What one workspace holds at the end: the archive, message.txt, the listing, git, and the registry.
 
-    cwd None runs in the container's working directory, /workspace, as commit 6769c80 did."""
+    cwd None runs in the container's working directory, /workspace, as CheatBench's runner does."""
     async def run(cmd: str) -> tuple[int | None, str]:
         try:
             r = await sandbox().exec(["bash", "-lc", cmd], user=user, cwd=cwd, timeout=60)

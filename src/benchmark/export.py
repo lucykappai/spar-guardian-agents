@@ -75,7 +75,7 @@ TURN_STATE_BOARD_FIELDS = ("work_steps", "free_steps", "checks", "reads", "posts
                            "posts_refused", "history_marks")
 # Engagement counts that only runs with regulators' oversight and per-turn budgets record ({agent: value}).
 ENGAGEMENT_NEW_FIELDS = {"oversight": 0, "oversight_targets": {}, "reads_refused": 0, "posts_refused": 0}
-# Board actions by the engagement count they feed. The channel tools are the legacy presets' board.
+# Board actions by the engagement count they feed. The channel tools are the board with board_tools off.
 BOARD_ACTIONS = {"board_status": "checks", "board_read": "reads", "board_post": "posts",
                  "channel_list": "checks", "channel_read": "reads", "channel_post": "posts"}
 # The knowledge-work keys run.json keeps; the row, the evaluation file and the image ids stay in the eval log.
@@ -470,7 +470,7 @@ def engagement_record(view: SampleView, agent: str, steps: list[dict], rules: di
     """One agent's board engagement, or None for a run without a board.
 
     Every count comes from the turn rules' store when the run recorded it (posts that went through). Without it,
-    checks, reads and posts count the board tool calls in the agent's conversation (the legacy channel tools count
+    checks, reads and posts count the board tool calls in the agent's conversation (the channel tools count
     as the same actions), read_senders holds the senders of the posts board_read or channel_read returned (the
     agent itself left out), work_steps falls back to the working turns used, and the rest is None.
 
@@ -548,12 +548,15 @@ SIZE_FIELDS = set(SCALES[next(iter(SCALES))].fields()) | {"max_context_chars", "
 
 def infer_preset(config: dict | None) -> str | None:
     """The preset whose fields the config matches best, over the fields that tell the presets apart and leaving
-    out the scale's; None without a config or on a tie. A fallback for runs made before SwarmConfig.preset."""
+    out the scale's; None without a config, on a tie, or when no field tells the presets apart (one preset). A
+    fallback for runs made before SwarmConfig.preset."""
     if not config:
         return None
     dumps = {name: PRESETS[name].model_dump(mode="json") for name in PRESETS}
     telling = {k for k in set().union(*dumps.values()) - SIZE_FIELDS - {"preset"}
                if k in config and len({json.dumps(d.get(k), sort_keys=True) for d in dumps.values()}) > 1}
+    if not telling:
+        return None
     misses = {name: sum(1 for k in telling
                         if json.dumps(d.get(k), sort_keys=True) != json.dumps(config[k], sort_keys=True))
               for name, d in dumps.items()}

@@ -1,7 +1,7 @@
 """The Inspect tasks of the experiment: one benchmark under one SwarmConfig, as an ORBIT task.
 
     task = swarm_task(OpenMath("riemann"), build_config("default", "medium", ["regulators=3"]))
-    inspect eval src/tasks.py@openmath -T preset=lucy_legacy -T n_agents=3
+    inspect eval src/tasks.py@openmath -T preset=default -T regulators=1
 
 The second form skips what `python -m src run` adds: the key checks and the Gemini 402 retry
 (src/utils/provider_retry.py).
@@ -19,7 +19,7 @@ then team_submit for a neutral agent when the mode has a team to submit for, and
 
 The plan's rounds, the scheduler's turn bound and Inspect's message limit follow the domain's turn budget
 (SwarmConfig.steps_for, max_turns_for, message_limit_for). Under a budget metadata["cheatbench"]["turn_budget"] holds
-{"budget", "steps_per_agent"}; without one the key is absent, as at commit 6769c80.
+{"budget", "steps_per_agent"}; without one the key is absent.
 
 The run's facts go into the sample metadata: metadata["cheatbench"] gains the config dump, the control, the hidden
 roles and their composition, and the deviations from CheatBench's own runner. The mode and who holds team_submit

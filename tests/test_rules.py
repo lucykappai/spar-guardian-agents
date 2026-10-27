@@ -34,7 +34,7 @@ from pydantic import Field  # noqa: E402
 from src import run as run_module  # noqa: E402
 from src.benchmark.transcript import SampleView, episode_transcript  # noqa: E402
 from src.configuration.settings import load_prompts  # noqa: E402
-from src.configuration.swarm_config import LEGACY, PRESETS, SwarmConfig, Window  # noqa: E402
+from src.configuration.swarm_config import PRESETS, SwarmConfig, Window  # noqa: E402
 from src.swarm import board, rules  # noqa: E402
 from src.swarm.comm_topology import (  # noqa: E402
     BOARD_ID,
@@ -43,6 +43,7 @@ from src.swarm.comm_topology import (  # noqa: E402
     board_scheduler,
 )
 from src.swarm.probes import ATTRIBUTION_KEY, end_of_episode_probes  # noqa: E402
+from tests.boards import CHANNEL_BOARD, LUCY_RULES  # noqa: E402
 
 MODEL = "mockllm/turn-rules"
 PROMPTS = load_prompts()
@@ -202,9 +203,18 @@ def rule_infos(sample) -> list[dict]:
 
 # ------------------------------------------------------------------------------------------------ Lucy's rules
 
+def channel(**fields) -> SwarmConfig:
+    """A config on the sweep's board (sequential rounds, ORBIT's channel tools, auto delivery), then the fields."""
+    return SwarmConfig(**{**CHANNEL_BOARD, **fields})
+
+
+def lucy(**fields) -> SwarmConfig:
+    """A config on Lucy's rules over the sweep's board, then the fields."""
+    return SwarmConfig(**{**LUCY_RULES, **fields})
+
+
 # notify delivery, as in Lucy's runs, so the unread notice and its rewritten last line can be checked.
-LUCY3 = PRESETS["lucy_legacy"].with_overrides(["n_agents=3", "steps_per_agent=2", "awareness_probe=false",
-                                               "delivery=notify"])
+LUCY3 = lucy(n_agents=3, steps_per_agent=2, awareness_probe=False, delivery="notify")
 LUCY3_SCRIPTS = {
     "a01": [post("a01 plan"), post("a01 reply"), submit()],
     "a02": [post("a02 plan"), post("a02 reply"), do("B1", "B2"), do("B3", "B4")],
@@ -275,7 +285,7 @@ def test_lucy_rules_on_a_team(tmp_path):
 
 
 def test_lucy_rules_for_a_lone_agent(tmp_path):
-    config = PRESETS["lucy_legacy"].with_overrides(["steps_per_agent=2", "awareness_probe=false"])
+    config = lucy(steps_per_agent=2, awareness_probe=False)
     scripts = {"a01": [do("too early"), text("my plan, reviewed"), do("A1"), submit()]}
     sample, rec = run(config, scripts, tmp_path)
     assert [r["tools"] for r in rec[:2]] == [[], []]
@@ -290,12 +300,7 @@ def test_lucy_rules_for_a_lone_agent(tmp_path):
 
 # ------------------------------------------------------------------------------------------------ our rules
 
-def legacy(**fields) -> SwarmConfig:
-    """A config with the legacy presets' board and turns (sequential rounds, ORBIT's channel tools, auto delivery)."""
-    return SwarmConfig(**{**LEGACY, **fields})
-
-
-OURS3 = legacy(n_agents=3, steps_per_agent=2)
+OURS3 = channel(n_agents=3, steps_per_agent=2)
 
 
 def test_pooled_steps_go_to_the_team(tmp_path):
@@ -313,7 +318,7 @@ def test_pooled_steps_go_to_the_team(tmp_path):
 
 
 def test_out_of_context_ends_an_agent(tmp_path):
-    config = legacy(n_agents=2, steps_per_agent=3)
+    config = channel(n_agents=2, steps_per_agent=3)
     scripts = {"a01": [do("A")], "a02": [out_of_context()]}
     sample, _ = run(config, scripts, tmp_path)
     assert store(sample, "ended") == {"a02": "context"}
@@ -321,7 +326,7 @@ def test_out_of_context_ends_an_agent(tmp_path):
 
 
 def test_continue_prompt_after_a_model_turn(tmp_path):
-    config = legacy(steps_per_agent=3)
+    config = channel(steps_per_agent=3)
     sample, rec = run(config, {"a01": [text("first"), text("second"), submit()]}, tmp_path)
     assert rec[0]["tag"] is None and rec[0]["last"] == "Fix the issue together."
     for r in rec[1:]:
@@ -330,7 +335,7 @@ def test_continue_prompt_after_a_model_turn(tmp_path):
 
 
 def test_shutdown_off_removes_submit(tmp_path):
-    config = legacy(n_agents=2, steps_per_agent=2, shutdown=False)
+    config = channel(n_agents=2, steps_per_agent=2, shutdown=False)
     sample, rec = run(config, {"a01": [submit(), do("A")], "a02": [do("B")]}, tmp_path)
     for r in rec:
         assert "submit" not in r["tools"]
@@ -341,7 +346,7 @@ def test_shutdown_off_removes_submit(tmp_path):
 
 def test_random_order_is_seeded(tmp_path):
     names = ["a01", "a02", "a03", "a04"]
-    config = legacy(n_agents=4, steps_per_agent=6, turn_order="random", seed=7)
+    config = channel(n_agents=4, steps_per_agent=6, turn_order="random", seed=7)
 
     def ids(c):
         return [s.id for s in rules.schedule(c, names).steps]
@@ -359,7 +364,7 @@ def test_random_order_is_seeded(tmp_path):
 
 
 def test_end_of_episode_probes(tmp_path):
-    config = legacy(n_agents=2, steps_per_agent=1)
+    config = channel(n_agents=2, steps_per_agent=1)
     sample, _ = run(config, {"a01": [do("A")], "a02": [do("B")]}, tmp_path, scorer_=end_of_episode_probes())
     score = sample.scores["end_of_episode_probes"]
     assert score.value == 2
@@ -372,7 +377,7 @@ def test_end_of_episode_probes(tmp_path):
 # ------------------------------------------------------------------------------------------------ windows and reads
 
 def test_a_late_regulator_enters_at_its_start_round(tmp_path):
-    config = legacy(n_agents=3, regulators=1, steps_per_agent=4, pooled_steps=False,
+    config = channel(n_agents=3, regulators=1, steps_per_agent=4, pooled_steps=False,
                                   regulator_window=Window(start=3))
     roles = {"a01": "worker", "a02": "regulator", "a03": "worker"}
     steps = [s.id for s in rules.schedule(config, config.names, roles).steps]
@@ -390,7 +395,7 @@ def test_a_late_regulator_enters_at_its_start_round(tmp_path):
 
 
 def test_an_early_leaver_has_no_step_after_its_end_round(tmp_path):
-    config = legacy(n_agents=3, disregulators=1, steps_per_agent=4, pooled_steps=False,
+    config = channel(n_agents=3, disregulators=1, steps_per_agent=4, pooled_steps=False,
                                   planning_turns=2, disregulator_window=Window(start=1, end=2))
     roles = {"a01": "disregulator", "a02": "worker", "a03": "worker"}
     steps = [s.id for s in rules.schedule(config, config.names, roles).steps]
@@ -405,7 +410,7 @@ def test_an_early_leaver_has_no_step_after_its_end_round(tmp_path):
 
 
 def test_a_late_agent_skips_planning(tmp_path):
-    config = legacy(n_agents=2, regulators=1, steps_per_agent=3, pooled_steps=False,
+    config = channel(n_agents=2, regulators=1, steps_per_agent=3, pooled_steps=False,
                                   planning_turns=2, regulator_window=Window(start=2))
     roles = {"a01": "worker", "a02": "regulator"}
     plan = rules.schedule(config, config.names, roles).steps
@@ -417,7 +422,7 @@ def test_a_late_agent_skips_planning(tmp_path):
 
 
 def test_pooled_steps_respect_windows(tmp_path):
-    config = legacy(n_agents=3, regulators=1, steps_per_agent=2, regulator_window=Window(start=1, end=2))
+    config = channel(n_agents=3, regulators=1, steps_per_agent=2, regulator_window=Window(start=1, end=2))
     roles = {"a01": "worker", "a02": "regulator", "a03": "worker"}
     sample, _ = run(config, {"a01": [submit()], "a02": [do("B")], "a03": [do("C")]}, tmp_path, roles=roles)
     # a01's freed step falls in round 3, outside a02's window, so a03 takes it.
@@ -425,7 +430,7 @@ def test_pooled_steps_respect_windows(tmp_path):
 
 
 def test_read_tool_off_withholds_channel_read(tmp_path):
-    config = legacy(n_agents=2, steps_per_agent=1, read_tool=False)
+    config = channel(n_agents=2, steps_per_agent=1, read_tool=False)
     _, rec = run(config, {"a01": [do("A")], "a02": [do("B")]}, tmp_path)
     for r in rec:
         assert r["tools"] == ["channel_list", "channel_post", "submit", "work"]
@@ -433,9 +438,9 @@ def test_read_tool_off_withholds_channel_read(tmp_path):
 
 # ------------------------------------------------------------------------------------------------ the opening message
 
-def test_header_once_per_turn_under_legacy(tmp_path):
+def test_header_once_per_turn_under_one_call_per_turn(tmp_path):
     """Under one_call_per_turn a working turn keeps generating until a tool call; the header is sent once."""
-    config = PRESETS["lucy_legacy"].with_overrides(["steps_per_agent=1", "awareness_probe=false"])
+    config = lucy(steps_per_agent=1, awareness_probe=False)
     script = [text("plan a"), text("plan b"), text("musing 1"), text("musing 2"), do("A")]
     sample, rec = run(config, {"a01": script}, tmp_path)
     working = [r for r in rec if not (r["tag"] and r["tag"]["kind"] == "planning")]
@@ -447,7 +452,7 @@ def test_header_once_per_turn_under_legacy(tmp_path):
 
 def test_pooled_header_has_no_cap(tmp_path):
     """With pooled turns an agent may hold more turns than the cap, so the header names no cap."""
-    config = legacy(n_agents=3, steps_per_agent=2, turn_header=True)
+    config = channel(n_agents=3, steps_per_agent=2, turn_header=True)
     sample, rec = run(config, {"a01": [submit()], "a02": [do("B")], "a03": [do("C")]}, tmp_path)
     headers = [r["last"] for r in rec if r["tag"] and r["tag"]["kind"] == "header"]
     assert headers and all(h.startswith("Turns left: ") and " of " not in h for h in headers), headers
@@ -502,12 +507,11 @@ def test_concurrent_rounds_plan_shape():
     roles = {"a01": "worker", "a02": "regulator", "a03": "worker"}
     assert [sorted(s.agents) for s in rules.schedule(late, late.names, roles).steps] == [
         ["a01", "a03"], ["a01", "a03"], ["a01", "a02", "a03"]]
-    # A lone agent keeps single-agent steps; the legacy presets keep sequential rounds.
+    # A lone agent keeps single-agent steps; without concurrent_rounds a round is sequential single-agent steps.
     assert [s.id for s in rules.schedule(pull(n_agents=1, steps_per_agent=2), ["a01"]).steps] == ["r1-a01", "r2-a01"]
-    legacy_plan = rules.schedule(PRESETS["ian_legacy"].with_overrides(["n_agents=2", "steps_per_agent=2"]),
-                                 ["a01", "a02"]).steps
-    assert [(s.id, s.concurrent) for s in legacy_plan] == [("r1-a01", False), ("r1-a02", False),
-                                                          ("r2-a01", False), ("r2-a02", False)]
+    sequential = rules.schedule(channel(n_agents=2, steps_per_agent=2), ["a01", "a02"]).steps
+    assert [(s.id, s.concurrent) for s in sequential] == [("r1-a01", False), ("r1-a02", False),
+                                                         ("r2-a01", False), ("r2-a02", False)]
     # Step ids carry their round and their follow-up index.
     assert [rules.step_round(i) for i in ("r3", "r3-a01", "r3-free2", "r9-a01-v4-free1", "plan1")] == [3, 3, 3, 9, 0]
     assert [rules.free_index(i) for i in ("r3", "r3-free2", "r3-a01-free1")] == [0, 2, 1]
@@ -526,16 +530,15 @@ def test_tools_by_mode_and_role():
     assert shared["a03"] == ["board_status", "board_read", "board_post"]
     assert solo["a02"] == ["board_status", "board_read", "board_post", "agent_actions"]
     assert "agent_actions" in board.board_bindings(pull(), roles=roles)
-    legacy = PRESETS["ian_legacy"].with_overrides(["n_agents=3", "regulators=1"])
-    assert board.agent_tool_names(legacy, names, "openmath", roles) == {n: [] for n in names}
+    assert board.agent_tool_names(channel(n_agents=3, regulators=1), names, "openmath", roles) == {
+        n: [] for n in names}
     # Both domains resolve to shared_task by default, where neutral agents get team_submit.
     assert "team_submit" in board.agent_tool_names(pull(), names, "swe", None)["a02"]
     assert "team_submit" in board.agent_tool_names(pull(), names, "openmath", None)["a02"]
-    # A lone agent and the legacy presets get no board tools.
+    # A lone agent and a config with board_tools off get no board tools.
     assert board.agent_tool_names(pull(n_agents=1), ["a01"], "swe", None) == {"a01": []}
-    assert board.agent_tool_names(PRESETS["ian_legacy"].with_overrides(["n_agents=3"]), names, "swe", None) == {
-        n: [] for n in names}
-    assert board.board_bindings(PRESETS["ian_legacy"].with_overrides(["n_agents=3"])) == {}
+    assert board.agent_tool_names(channel(n_agents=3), names, "swe", None) == {n: [] for n in names}
+    assert board.board_bindings(channel(n_agents=3)) == {}
 
 
 # a01 checks, reads and posts: three free steps, the round's own and two follow-ups (K=2), then the cap. a02 posts
@@ -610,7 +613,7 @@ def test_free_board_actions_zero_gives_no_follow_up(tmp_path):
     sample, _ = run(pull(steps_per_agent=2, free_board_actions=0), DISCOVER, tmp_path)
     assert step_ids(sample, "a01") == ["r1", "r2"]
     assert store(sample, "free_steps") == {}
-    # With K=0 there are no free board actions: every step is charged, as in the legacy presets.
+    # With K=0 there are no free board actions: every step is charged.
     assert store(sample, "work_steps") == {"a01": 2, "a02": 2, "a03": 2}
 
 
@@ -777,7 +780,7 @@ def test_the_judge_role_model_batches(monkeypatch):
     monkeypatch.setattr(run_module.judging, "judge_model_config", lambda name: ("mockllm/model", GenerateConfig()))
     assert run_module.judge_role_model(pull()).config.batch is True
     assert run_module.judge_role_model(pull(batch_judge=False)).config.batch is False
-    assert run_module.judge_role_model(PRESETS["ian_legacy"]).config.batch is True   # every preset batches the judge
+    assert run_module.judge_role_model(channel()).config.batch is True   # whatever the board
 
 
 # ------------------------------------------------------------------------------------------------ the midterm report
@@ -870,8 +873,8 @@ def test_a_refused_call_is_no_free_step():
     assert rules.step_charge(st, False, ["agent_actions"], False, "a01", refused=True) == "refused"
     assert rules.step_charge(st, False, ["board_read"], False, "a01") == "free"
     assert rules.step_charge(st, False, ["work"], False, "a01", refused=True) == "work"
-    legacy_st = SimpleNamespace(free_caps={}, free_cap=0, board_actions=st.board_actions)
-    assert rules.step_charge(legacy_st, False, ["board_read"], False, "a01", refused=True) == "work"
+    charged = SimpleNamespace(free_caps={}, free_cap=0, board_actions=st.board_actions)
+    assert rules.step_charge(charged, False, ["board_read"], False, "a01", refused=True) == "work"
 
 
 @scorer(metrics=[])

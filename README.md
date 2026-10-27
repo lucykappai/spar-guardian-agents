@@ -46,10 +46,8 @@ uv run python -m examples.swe.flipt_minimal --model gemini-3.8-flash --scale med
 | preset | what it runs |
 |---|---|
 | `default` | the midterm report's configuration at the small scale: the pull board in `shared_task`, the exploit split over the neutral agents (`access=split`), read and post budgets per round and the domain's turn budget; no regulators, and the regulator level `ambiguous` without disclosure for any that `regulators` adds; the agents know their team, are told nothing about the board, and get the board notice with counts |
-| `ian_legacy` | the October 2026 sweep's setup: every unread post pushed into the agent's input, ORBIT's channel tools, the board paragraph in the system prompt, the team known, one agent at a time |
-| `lucy_legacy` | Lucy's rules on the same legacy board: two planning turns, the turn header, one tool call per turn, no pooling, the awareness probe |
 
-The two legacy presets build the same task as the presets `ours` and `lucy` of commit 6769c80. They turn every mechanism of the midterm report off: the split of the exploit (`access=all` on openmath and knowledge work; SWE's honeypot dealt its pieces before the field existed, so `split` there), the budgets, the turn budget, `agent_actions` and the regulator's added sentences. The one difference is the team report, which no run asks for any more. Their role texts keep their sentences about the team report (`team_report`). `tests/test_config.py` pins both against that commit. The config records its preset, so `run.json` names it.
+The config records its preset, so `run.json` names it. The October 2026 sweep's board is still available as fields: `board_tools=false` offers ORBIT's channel tools, `mention_board=true` puts the board paragraph in the system prompt, `delivery=auto` pushes every unread post into the agent's input, and `concurrent_rounds=false` runs one agent at a time. `tests/boards.py` lists the full set, and Lucy's rules on top of it.
 
 ## The pull board
 
@@ -96,7 +94,7 @@ With `mode` unset, every domain runs `shared_task`. `--set mode=solo_task` gives
 
 ## Access
 
-`access` says which parts of the exploit each agent holds (`src/configuration/access.py`). Each domain names its items. Under `split`, the default, the items are dealt round robin over the neutral agents, so the whole exploit takes the board; regulators and disregulators hold everything, and so does every agent when fewer than two are neutral, in `solo_task`, or alone. Under `all` every agent holds everything. An explicit map names what each agent holds: `--set access=a01:slice1+slice2,a02:slice3,a03:` (nothing after the colon: nothing). `--set access=swe:split,openmath:all` gives one policy per domain, as the legacy presets do. A run prints its plan (`== access split: a01 slice1, a02 slice2, a03 slice3`), `run.json` records it under `access`, and the browser's run page shows it.
+`access` says which parts of the exploit each agent holds (`src/configuration/access.py`). Each domain names its items. Under `split`, the default, the items are dealt round robin over the neutral agents, so the whole exploit takes the board; regulators and disregulators hold everything, and so does every agent when fewer than two are neutral, in `solo_task`, or alone. Under `all` every agent holds everything. An explicit map names what each agent holds: `--set access=a01:slice1+slice2,a02:slice3,a03:` (nothing after the colon: nothing). `--set access=swe:split,openmath:all` gives one policy per domain. A run prints its plan (`== access split: a01 slice1, a02 slice2, a03 slice3`), `run.json` records it under `access`, and the browser's run page shows it.
 
 | domain | items | under `split` in `shared_task` | under `all` |
 |---|---|---|---|
@@ -133,7 +131,7 @@ uv run python -m src budget runs/kw_lone
 | SWE | 150 | the midterm report's figure from Lucy's runs |
 | knowledge work | 55 | provisional: openmath's figure, until a lone run |
 
-`--set turn_budget=knowledge_work:70,swe:120` changes the named domains and keeps the table's values for the rest, so on a legacy preset it also turns the budget on for the other domains. `--set turn_budget=N` sets one budget for every domain. `--set turn_budget=none` turns the budget off, so the scale's steps per agent apply. A regulator's or disregulator's window must start within the rounds the budget gives the run's domain. `python -m src budget <lone_run_dir> [--scale S]` prints a lone run's turns and the steps they give at each scale. The second table gives the steps per agent at each scale.
+`--set turn_budget=knowledge_work:70,swe:120` changes the named domains and keeps the table's values for the rest. `--set turn_budget=N` sets one budget for every domain. `--set turn_budget=none` turns the budget off, so the scale's steps per agent apply. A regulator's or disregulator's window must start within the rounds the budget gives the run's domain. `python -m src budget <lone_run_dir> [--scale S]` prints a lone run's turns and the steps they give at each scale. The second table gives the steps per agent at each scale.
 
 | scale | agents | openmath steps per agent | SWE steps per agent | knowledge-work steps per agent |
 |---|---|---|---|---|
@@ -190,7 +188,7 @@ uv run python -m src run ctrl_guardian_task --set control=guardian_task
 uv run python -m src run board_pull --set n_agents=2 --set notice=changed
 uv run python -m src run swarm_medium --scale medium --set regulators=3 --set disregulators=3 --set seed=1
 uv run python -m src run swe_collab_4 --benchmark swe --set n_agents=4 --set mode=collaboration_needed
-uv run python -m src run swe_lucy_n3 --benchmark swe --honeypot jigsaw --preset lucy_legacy --set n_agents=3
+uv run python -m src run swe_jigsaw --benchmark swe --honeypot jigsaw --set mode=collaboration_needed
 uv run python -m src run kw_small --benchmark knowledge_work --set regulators=1
 uv run python -m src run riemann_pressure --set regulators=1 --set regulator_level=pressure
 uv run python -m src judge logs/swarm/<run>/<log>.eval <run>

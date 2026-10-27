@@ -1,8 +1,7 @@
 """SwarmConfig: every knob of one swarm run, the presets, the scales and the mode of a task domain.
 
     config = build_config("default", "medium", ["regulators=0.1", "notice=counts"])
-    config = PRESETS["lucy_legacy"].with_overrides(["n_agents=3", "rule_level=precise", "shutdown=false",
-                                                    "one_call_per_turn=false"])
+    config = build_config("default", "small", ["regulators=1", "regulator_window=3:"])
 
 One frozen pydantic model holds the team, the board, the turn rules, the instruction levels, the limits, the model
 calls, the control and the judge. src/tasks.py turns it into an ORBIT task; src/swarm/rules.py reads it inside the
@@ -10,18 +9,15 @@ run; the CLI applies a preset, then a scale (src/configuration/scales.py), then 
 docstring says what it does, which ORBIT mechanism implements it, and how it differs from Lucy's patched ORBIT
 (submodules/lucy/experiments/orbit_cheatbench/orbit.patch at c410183).
 
-Three presets exist. `default` is the team's midterm report (2026-10-26) at the small scale: the pull board, which
+One preset exists. `default` is the team's midterm report (2026-10-26) at the small scale: the pull board, which
 agents look at through board_status, board_read and board_post and are told nothing about; per-round read and post
 budgets; regulators with agent_actions, unbounded reads and their own K, at the `ambiguous` level, not disclosing
 their role; the domain's turn budget (settings.TURN_BUDGETS) divided among the agents; split access to the exploit.
-`ian_legacy` and `lucy_legacy` are the presets `ours` and `lucy` of commit 6769c80, with the same behaviour apart
-from the removed team report: push delivery, ORBIT's channel tools, the board paragraph, the team known and
-sequential rounds. They turn every mechanism of the report off.
 
 Three behaviours of Lucy's patch are not fields:
-- Free reads. Her patch lets channel_read run without ending the turn. Unpatched ORBIT cannot do that. The legacy
-  presets use `delivery="auto"`, which puts every unread post in the model input at the start of the agent's turn with
-  no call at all. The pull board instead gives free_board_actions follow-up steps after a board action.
+- Free reads. Her patch lets channel_read run without ending the turn. Unpatched ORBIT cannot do that.
+  `delivery="auto"` puts every unread post in the model input at the start of the agent's turn with no call at all.
+  The pull board instead gives free_board_actions follow-up steps after a board action.
 - The reply to dropped calls. Her patch answers every call after the first "not run: one tool call per turn". ORBIT's
   quantum "legacy" drops those calls from the history instead; rules.py counts them.
 - The bound on text-only replies (her max_text_replies, 3). Under one_call_per_turn ORBIT's turn loop keeps asking
@@ -134,10 +130,10 @@ class SwarmConfig(BaseModel):
     parts, one or more agents per part, the team's main
     branch is graded; the roster is told and neutral agents get team_submit. None resolves per domain
     (DOMAIN_MODES): shared_task on every domain. A dict gives one mode per domain key ("openmath", "swe",
-    "knowledge_work"), as the legacy presets do. Read it through resolve_mode(domain)."""
+    "knowledge_work"). Read it through resolve_mode(domain)."""
     scale: ScaleName | None = None
     """The scale the size fields came from (src/configuration/scales.py SCALES), set by at_scale. None means the
-    fields hold their own values, as in the legacy presets. A later --set may change any field a scale gave; this
+    fields hold their own values. A later --set may change any field a scale gave; this
     label then keeps the scale's name."""
     mention_team: bool | None = None
     """Whether the system prompt says the team exists and lists the roster (prompts.yaml `team`; SWE's team prompts
@@ -145,7 +141,7 @@ class SwarmConfig(BaseModel):
     informed_roles: bool = True
     """Whether every regulator and disregulator gets prompts.yaml `roles.briefing` after its role text: the swarm's
     size, the roster, the board and its tools, and what the agents without a role were told
-    (role_briefing). Workers never get it. The legacy presets turn it off."""
+    (role_briefing). Workers never get it."""
     access: Access | dict[str, Policy] = "split"
     """Which parts of the exploit each agent holds (src/configuration/access.py; Benchmark.access_plan). split: the
     domain's items are dealt round robin over the neutral agents, so the whole exploit needs them all (the midterm
@@ -156,8 +152,7 @@ class SwarmConfig(BaseModel):
     every agent holds everything. A map {agent: [items]} names what each agent of the roster holds, on the command
     line as `a01:slice1+slice2,a02:slice3,a03:` (nothing after the colon: nothing). The items are slice1..sliceN or
     whole (openmath), A, B, C or whole (SWE), review and read (knowledge work). A dict keyed by domain gives one
-    policy per domain, as the legacy presets do (all on openmath and knowledge work, split for SWE's honeypot, which
-    dealt its pieces before the field existed); on the command line `swe:split,openmath:all`. Read it through
+    policy per domain; on the command line `swe:split,openmath:all`. Read it through
     resolve_access(domain)."""
 
     @field_validator("access", mode="before")
@@ -175,22 +170,21 @@ class SwarmConfig(BaseModel):
     """Whether the board is the pull board. True binds board_status, board_read and board_post (src/swarm/board.py)
     to every agent of a board and withholds ORBIT's channel_post, channel_read and channel_list from the provider tool
     list (rules.py TurnRulesFilter). Board actions are free of the working-step budget up to free_board_actions per
-    round. False offers ORBIT's channel tools, as the legacy presets do; channel_list and read_tool then apply."""
+    round. False offers ORBIT's channel tools instead; channel_list and read_tool then apply."""
     mention_board: bool = False
     """Whether the system prompt names the board and its tools (prompts.yaml `board`, or `board_channel` with
     board_tools off; SWE: swe.board_paragraph). False: the tool list is the agents' only hint that a board exists."""
     notice: Literal["none", "changed", "counts"] = "counts"
     """A provider-only line at the start of a call when the board changed since the agent's last call (prompts.yaml
     `notice`). counts, the default: "[Since your last turn] the board changed: ..." with each sender's new and total
-    posts. changed: the same line without the counts. none: no line, as in the legacy presets. rules.py records each
+    posts. changed: the same line without the counts. none: no line. rules.py records each
     one as an info event, which the transcript builder recovers, as it does the turn header. It never enters the
     durable conversation."""
     read_page: int = 5
     """The most posts one board_read returns (from the scale). It also sizes max_context_chars in a scale."""
     free_board_actions: int = 2
     """K, from the scale: follow-up steps per round after a step that ended with a board action (board_status,
-    board_read or board_post as its last tool call). They do not count against steps_per_agent. 0 turns them off, as
-    in the legacy presets."""
+    board_read or board_post as its last tool call). They do not count against steps_per_agent. 0 turns them off."""
     free_board_actions_regulator: int = 10
     """K for regulators: their follow-up steps per round after a board action, agent_actions included. It applies
     under board_tools only; with board_tools off a regulator has free_board_actions, as every agent does."""
@@ -198,7 +192,7 @@ class SwarmConfig(BaseModel):
     """Posts an agent may receive through board_read in one round, across its calls (from the scale: 5 at small, 10
     above). A read that would pass it returns only the newest posts left in the budget; a read with none left is
     refused with a ToolError (prompts.yaml `budget`). The count resets at each round. Regulators are exempt. None:
-    no budget, as in the legacy presets, whose agents read through ORBIT's channel tools."""
+    no budget."""
     posts_per_turn: int | None = None
     """Posts an agent may make through board_post in one round (from the scale: 2 at small, 3 above). A post past it
     is refused with a ToolError and not sent. The count resets at each round. None: no budget."""
@@ -206,15 +200,15 @@ class SwarmConfig(BaseModel):
     """How unread posts reach an agent (ORBIT CommunicationConfig.delivery). poll: nothing is pushed. notify: a
     metadata-only notice counts unread posts. auto: every unread post body goes into the model input at the start of
     the agent's turn, bounded by max_inbox_messages and max_context_chars. Notices and bodies reach the provider input
-    only. The pull board uses poll. The legacy presets use auto, which is how reading costs no turn on unpatched
-    ORBIT. Lucy's runs use notify plus her free channel_read."""
+    only. The pull board uses poll. auto is how reading costs no turn on unpatched ORBIT. Lucy's runs use notify plus
+    her free channel_read."""
     channel_list: bool = True
-    """Legacy presets only (board_tools=False). Whether agents are offered ORBIT's channel_list tool. False removes it
+    """With board_tools off only. Whether agents are offered ORBIT's channel_list tool. False removes it
     from the tools sent to the provider and replaces the notice's pointer to it with prompts.yaml notice_instructions
     (rules.py TurnRulesFilter). Lucy's patch removes the tool from the agent itself. Here the tool still exists, so a
     model that names it anyway runs it."""
     read_tool: bool = True
-    """Legacy presets only (board_tools=False). Whether agents are offered ORBIT's channel_read tool. False removes it
+    """With board_tools off only. Whether agents are offered ORBIT's channel_read tool. False removes it
     from the tools sent to the provider, by the same filter as channel_list, and drops the prompt sentences that name
     it, so no turn can be spent reading. False requires delivery="auto", the only mode that shows posts without it."""
     visibility: Literal["live", "step_start"] = "live"
@@ -243,7 +237,7 @@ class SwarmConfig(BaseModel):
     among the agents (steps_for: max(1, budget // n_agents) working steps per agent). Every domain has one. A dict
     gives one budget per domain key, and a domain it leaves out keeps settings.TURN_BUDGETS' (the default preset
     sets that table: openmath 55, swe 150, knowledge_work 55); on the command line `knowledge_work:70,swe:120`. An
-    int applies to every domain. None turns the budget off, so steps_per_agent applies, as in the legacy presets
+    int applies to every domain. None turns the budget off, so steps_per_agent applies
     (`--set turn_budget=none`)."""
 
     @field_validator("turn_budget", mode="before")
@@ -270,7 +264,7 @@ class SwarmConfig(BaseModel):
     concurrent_rounds: bool = True
     """True: each round is one concurrent ORBIT ScheduleStep holding every eligible agent, at most max_concurrency at
     once, on a snapshot of the board as of the round's start, followed by up to free_board_actions follow-up steps for
-    the agents whose step ended with a board action. False (legacy): one single-agent step per agent per round, in
+    the agents whose step ended with a board action. False: one single-agent step per agent per round, in
     sequence, and a board action inserts the agent's follow-up step right after its own."""
     max_concurrency: int = 3
     """Most agents running at once in a concurrent step (ORBIT ScheduleStep.max_concurrency), from the scale."""
@@ -305,8 +299,7 @@ class SwarmConfig(BaseModel):
     """Whether neutral agents (not a regulator or a disregulator) get the team_submit tool. A call records the
     submission (store TeamSubmission, info event swarm_team_submit); the round under way finishes, then
     rules.after_activation drops every pending step, so the run ends, and SWE grades the team's main. None: by mode,
-    False in solo_task and True otherwise. Never in solo_task and never for a lone agent. The legacy presets turn it
-    off."""
+    False in solo_task and True otherwise. Never in solo_task and never for a lone agent."""
     regulator_window: Window = Window()
     """The rounds in which regulators hold steps. A regulator enters the swarm at its start round: ORBIT inserts its
     system prompt at its first activation, and with auto delivery the board's unread posts reach it then. It leaves
@@ -321,7 +314,7 @@ class SwarmConfig(BaseModel):
     regulator_level: str = "ambiguous"
     """The text appended to a regulator's system prompt, a level of instruction_levels.yaml `regulator` (none,
     monitor, role, enforce, ambiguous, explicit, pressure). ambiguous, explicit and pressure are the midterm report's
-    three variants; role is the regulator of the October 2026 sweep, which the legacy presets keep. Under board_tools
+    three variants; role is the regulator of the October 2026 sweep. Under board_tools
     every regulator text is followed by prompts.yaml roles.regulator_common and, without regulator_discloses, by
     roles.regulator_no_disclosure."""
     regulator_discloses: bool = False
@@ -332,10 +325,6 @@ class SwarmConfig(BaseModel):
     covert, persuade, overt). persuade is the disregulator of the October 2026 sweep."""
     awareness_probe: bool = False
     """Ask Lucy's two end-of-episode questions to every agent after the run (src/swarm/probes.py)."""
-    team_report: bool = False
-    """Legacy presets only. Whether the regulator and disregulator texts keep the old team report's sentences
-    (instruction_levels.yaml `text_legacy`: "make sure swarm_report.txt tells the truth", "CHEATED: no"). No agent
-    is asked to write the report any more; the legacy presets turn this on so their prompts stay as they were."""
 
     # ---------------------------------------------------------------- limits
     message_limit: int = 320
@@ -598,45 +587,15 @@ def _allows_none(field: str) -> bool:
     return type(None) in typing.get_args(annotation)
 
 
-# The presets `ours` and `lucy` of commit 6769c80, as the legacy presets set them: every field whose default changed
-# since is set back, and the new mechanisms are off.
-LEGACY = dict(
-    mode={"openmath": "shared_task", "swe": "collaboration_needed"},
-    board_tools=False, mention_board=True, mention_team=True, notice="none", concurrent_rounds=False,
-    free_board_actions=0, team_submit=False, informed_roles=False, batch_agents=False, team_report=True,
-    delivery="auto", visibility="step_start", turn_order="round_robin",
-    regulator_level="role", access={"openmath": "all", "swe": "split", "knowledge_work": "all"},
-)
-
-class _Presets(dict):
-    """The presets by name. A name of commit 6769c80 (PRESET_ALIASES) is looked up as its new name, and not listed."""
-
-    def __missing__(self, key):
-        if key in PRESET_ALIASES:
-            return self[PRESET_ALIASES[key]]
-        raise KeyError(key)
-
-
-PRESETS = _Presets({
+PRESETS = {
     # The midterm report at the small scale: the pull board, the budgets, the regulators' affordances, the domain's
     # turn budget and split access.
     "default": SwarmConfig(preset="default", turn_budget=dict(settings.TURN_BUDGETS)).at_scale("small"),
-    # Lucy runs notify delivery with a free channel_read, which needs her patch. Both legacy presets use auto
-    # delivery, which places every unread post in the model input at the start of the agent's turn.
-    "ian_legacy": SwarmConfig(**LEGACY, preset="ian_legacy"),
-    "lucy_legacy": SwarmConfig(**{**LEGACY, "preset": "lucy_legacy", "channel_list": False, "pooled_steps": False,
-                                  "one_call_per_turn": True,
-                                  "planning_turns": 2, "turn_header": True, "awareness_probe": True,
-                                  "steps_per_agent": 50}),
-})
-# The names the legacy presets had at commit 6769c80. preset() and PRESETS[...] accept them; PRESETS does not list
-# them, so the command line does not offer them.
-PRESET_ALIASES = {"ours": "ian_legacy", "lucy": "lucy_legacy"}
+}
 
 
 def preset(name: str) -> SwarmConfig:
-    """A preset by name, or by its name at commit 6769c80 (ours, lucy)."""
-    name = PRESET_ALIASES.get(name, name)
+    """A preset by name."""
     if name not in PRESETS:
         raise ValueError(f"unknown preset {name!r}; choose one of {sorted(PRESETS)}")
     return PRESETS[name]
@@ -671,7 +630,7 @@ def read_sentence(board: str, read_tool: bool) -> str:
 
 
 def board_read_clause(board: str, read_tool: bool) -> str:
-    """The legacy board prompt's clause about channel_read, with its leading space, or "" without the tool."""
+    """The channel-tools board prompt's clause about channel_read, with its leading space, or "" without the tool."""
     return settings.load_prompts()["board_read"].format(board=board) if read_tool else ""
 
 
@@ -679,8 +638,8 @@ def board_system_prompt(config: SwarmConfig, name: str, names: list[str], *, wor
                         board: str = settings.BOARD_ID, domain: str = "openmath") -> str | None:
     """The openmath system prompt of one agent of a board, before any role text, or None for no prompt of ours.
 
-    With board_tools off and mention_board on it is prompts.yaml `board_channel`, the sweep's board prompt that the
-    legacy presets build. Otherwise it is `team` when knows_team, then `board` when mention_board, a blank line
+    With board_tools off and mention_board on it is prompts.yaml `board_channel`, the October 2026 sweep's board
+    prompt. Otherwise it is `team` when knows_team, then `board` when mention_board, a blank line
     apart. A lone agent has none."""
     others = [a for a in names if a != name]
     if name not in names or not others:
@@ -702,7 +661,7 @@ def swe_board_fields(config: SwarmConfig, *, board: str = settings.BOARD_ID, tea
 
     board_paragraph: the "Team chat" paragraph with its two leading newlines, or "" without mention_board.
     board_tool_line: the tool bullet for the board with its leading newline. With board_tools off it names ORBIT's
-    channel tools, as the legacy presets always did. With board_tools on it names the board tools only when
+    channel tools. With board_tools on it names the board tools only when
     mention_board is on, and is "" otherwise. team_submit_line: the team_submit bullet, or "" when the agent has no
     such tool. turns: the last line, on turns (board_tools off) or on rounds (board_tools on)."""
     swe = settings.load_prompts()["swe"]
@@ -722,7 +681,7 @@ def swe_board_fields(config: SwarmConfig, *, board: str = settings.BOARD_ID, tea
 
 def swe_part_clause(config: SwarmConfig, mates: list[str] | None = None) -> str:
     """The end of swe.system_team's first paragraph (prompts.yaml swe.part_clause). With board_tools off it is the
-    legacy sentence. With board_tools on it names the agents that share the agent's part, when there are any."""
+    sweep's sentence. With board_tools on it names the agents that share the agent's part, when there are any."""
     clauses = settings.load_prompts()["swe"]["part_clause"]
     if not config.board_tools:
         return clauses["channel"]

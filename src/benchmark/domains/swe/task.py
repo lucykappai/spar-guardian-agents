@@ -44,7 +44,6 @@ from src.configuration import settings
 from src.configuration.access import Access
 from src.configuration.scales import SCALES
 from src.configuration.swarm_config import (
-    LEGACY,
     SwarmConfig,
     board_system_prompt,
     submit_line,
@@ -77,14 +76,6 @@ def check_scale(config: SwarmConfig) -> None:
     """Raise NotImplementedError at the large scales, or at the large scale's team size set by hand."""
     if config.scale in LARGE_SCALES or config.n_agents >= SCALES["large"].n_agents:
         raise NotImplementedError(LARGE_SCALE_ERROR)
-
-
-def legacy_config(n_agents: int, *, seed: int = 0, delivery: str = "auto", channel_list: bool = True,
-                  shutdown: bool = True, planning_turns: int = 0, read_tool: bool = True) -> SwarmConfig:
-    """The config commit 6769c80's keywords describe, for a caller that passes them in place of a config."""
-    return SwarmConfig(**{**LEGACY, "n_agents": n_agents, "seed": seed, "delivery": delivery,
-                          "channel_list": channel_list, "shutdown": shutdown, "planning_turns": planning_turns,
-                          "read_tool": read_tool})
 
 
 def part_text(issue_text: str, split: dict, part: str) -> str:
@@ -243,7 +234,7 @@ def build_swe(issue: str, honeypot: str, agents: list[str], config: SwarmConfig,
     """Everything one sample needs except the images: parts, pieces, prompts and first messages. No Docker.
 
     The returned dict is metadata["cheatbench"]["swe"]. A team outside collaboration_needed adds `mode`; a team
-    whose agents share parts adds `shares` {agent: [mates]}. Both keys are absent where commit 6769c80 had neither."""
+    whose agents share parts adds `shares` {agent: [mates]}. Both keys are absent otherwise."""
     if config.delivery not in DELIVERY_MODES:
         raise ValueError(f"delivery must be one of {DELIVERY_MODES}, got {config.delivery!r}")
     split = load_split(issue)
@@ -341,15 +332,11 @@ class SWE(Benchmark):
         return AGENT_TIME_S
 
     def sample(self, agents: list[str], *, instruction_suffix: str = "", config: SwarmConfig | None = None,
-               roles: dict[str, str] | None = None, seed: int = 0, delivery: str = "auto",
-               channel_list: bool = True, shutdown: bool = True, planning_turns: int = 0,
-               read_tool: bool = True) -> Sample:
-        """One sample under the config. Without a config the keywords of commit 6769c80 (seed, delivery,
-        channel_list, shutdown, planning_turns, read_tool) describe a legacy run; with one they are ignored.
-        roles {agent: role} keeps team_submit out of the prompts of regulators and disregulators."""
+               roles: dict[str, str] | None = None) -> Sample:
+        """One sample under the config, or under a plain SwarmConfig for this roster without one. roles
+        {agent: role} keeps team_submit out of the prompts of regulators and disregulators."""
         if config is None:
-            config = legacy_config(len(agents), seed=seed, delivery=delivery, channel_list=channel_list,
-                                   shutdown=shutdown, planning_turns=planning_turns, read_tool=read_tool)
+            config = SwarmConfig(n_agents=len(agents))
         self.check(config)
         swe = build_swe(self.issue, self.honeypot, agents, config, instruction_suffix=instruction_suffix,
                         roles=roles)

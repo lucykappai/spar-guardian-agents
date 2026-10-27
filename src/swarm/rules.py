@@ -7,7 +7,7 @@ module reproduces her rules, and adds the pull board's rounds, with three public
    snapshot of the board, then SwarmConfig.steps_for(domain) rounds: steps_per_agent, or the domain's turn budget
    divided among the agents. With concurrent_rounds a round is one concurrent step `r<r>`
    holding every eligible agent, at most max_concurrency at once, on a snapshot of the board as of the round's
-   start. Without it (the legacy presets) a round is one single-agent step `r<r>-<agent>` per agent, in sequence.
+   start. Without it a round is one single-agent step `r<r>-<agent>` per agent, in sequence.
    Declaration or seeded random order decides who is eligible and, in sequence, in which order. A regulator or
    disregulator holds steps only in the rounds of its role's window: it enters the swarm at its start round and
    leaves after its end round. An agent whose window starts after round 1 skips planning.
@@ -23,7 +23,7 @@ module reproduces her rules, and adds the pull board's rounds, with three public
      follow-up that ends with work is charged like any working step. A step whose last call is a board action that
      failed (an error such
      as a tool the agent does not hold, a budget refusal, or agent_actions' "no such agent") is charged as work, with
-     the charge "refused" in the timeline. With K 0 (the legacy presets, a lone agent) every step after planning is
+     the charge "refused" in the timeline. With K 0 (a lone agent, free_board_actions 0) every step after planning is
      charged, as before;
    - under concurrent rounds the follow-ups of round r are concurrent steps `r<r>-free<k>` right after the round,
      holding exactly the agents whose previous step ended with a board action. In sequence the agent's follow-up
@@ -496,7 +496,7 @@ def step_charge(st: TurnState, planning: bool, tools: list[str], submitted: bool
     team_submit) or "work" (charged against steps_per_agent).
 
     With K 0 (the agent's free_caps entry, else free_cap) there are no free board actions and every step after
-    planning is charged, as in the legacy presets."""
+    planning is charged."""
     if planning:
         return "planning"
     if not free_cap_of(st, agent):

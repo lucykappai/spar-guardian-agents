@@ -1,7 +1,7 @@
 """Mock-model smoke tests for the ORBIT <-> CheatBench seams on openmath_agent. No model spend.
 
     uv run python tests/smoke.py [--only complete,message_limit,time_limit,board,defended,swarm,rules,judge,
-                                            discover,team_submit,legacy,split_access]
+                                            discover,team_submit,channel,split_access]
 
 Every scenario starts the real sandbox (CheatBench's image plus the article mirror), drives ORBIT with Inspect's
 mockllm scripted to call tools, judges every agent with a mock judge model bound to the "judge" role, exports the log
@@ -9,12 +9,12 @@ with src.benchmark.export.write_run, and reads the run directory back the way Ch
 (core.judge.is_judgeable, core.agents.trajectory_from_transcript, core.render.render_trajectory). Each check is an
 assertion: a failing seam exits non-zero. Results go to runs/smoke/ and logs/smoke/.
 
-The lone-agent scenarios run on the field defaults. The `board`, `swarm` and `rules` scenarios test ORBIT's channel
-tools, so they run on the legacy fields (swarm_config.LEGACY). The `rules` scenario runs the lucy_legacy preset with
-three agents and the instruction levels. The `judge` scenario checks the judge scorer's verdicts and the exported
-judge.jsonl, including a reply that does not parse, on the default preset's solo_task layout. The `discover`,
-`team_submit` and `legacy` scenarios test the pull board in the default shared_task mode, team_submit and the
-ian_legacy preset at the small scale. The default preset's shared_task mode has access=split, so `discover` and
+The lone-agent scenarios run on the field defaults. The `board`, `swarm`, `rules` and `channel` scenarios test
+ORBIT's channel tools, so they run on the October 2026 sweep's board (tests/boards.py CHANNEL_BOARD); `rules` runs
+Lucy's rules (LUCY_RULES) with three agents and the instruction levels, and `channel` auto delivery with the sweep's
+board prompt. The `judge` scenario checks the judge scorer's verdicts and the exported judge.jsonl, including a
+reply that does not parse, on the default preset's solo_task layout. The `discover` and `team_submit` scenarios
+test the pull board in the default shared_task mode and team_submit. That mode has access=split, so `discover` and
 `team_submit` run in the split layout (shell and run_python per agent). The `split_access` scenario checks that
 layout itself: each neutral agent's copy holds only its own slice of the complete submission's archive and the
 regulator's the whole archive, a push to the team remote landing on main, the scorer reading the remote, and
@@ -49,11 +49,12 @@ from src.benchmark.export import write_run  # noqa: E402
 from src.benchmark.judge import judge_spec  # noqa: E402
 from src.benchmark.transcript import ATTRIBUTION_KEY, TURN_RULES_TAG  # noqa: E402
 from src.configuration import settings  # noqa: E402
-from src.configuration.swarm_config import LEGACY, PRESETS, SwarmConfig, build_config  # noqa: E402
+from src.configuration.swarm_config import SwarmConfig, build_config  # noqa: E402
 from src.measures.engagement import run_measures  # noqa: E402
 from src.swarm import rules  # noqa: E402
 from src.swarm.roles import level_text  # noqa: E402
 from src.tasks import hidden_roles, swarm_task  # noqa: E402
+from tests.boards import CHANNEL_BOARD, LUCY_RULES  # noqa: E402
 
 MODEL = "mockllm/model"
 LOGS = settings.LOGS / "smoke"
@@ -79,9 +80,9 @@ def task_for(**fields):
     return swarm_task(OpenMath(), SwarmConfig(**{"time_limit_s": 600, **fields}))
 
 
-def legacy_task_for(**fields):
-    """A task on the legacy fields: ORBIT's channel tools, the board prompt, sequential rounds."""
-    return task_for(**{**LEGACY, **fields})
+def channel_task_for(**fields):
+    """A task on the sweep's board: ORBIT's channel tools, the board prompt, sequential rounds."""
+    return task_for(**{**CHANNEL_BOARD, **fields})
 
 
 def small(*pairs: str) -> SwarmConfig:
@@ -257,7 +258,7 @@ def scenario_board() -> dict:
             call("submit", {"answer": "a02 done"}, "b3"),
         ],
     }
-    task = legacy_task_for(n_agents=2, delivery="notify")
+    task = channel_task_for(n_agents=2, delivery="notify")
     log, summary, records = run_scenario("board", task, scripted(script))
     sample = log.samples[0]
     assert log.status == "success", log.status
@@ -336,7 +337,7 @@ def scenario_defended() -> dict:
 
 
 def scenario_swarm() -> dict:
-    """Four agents with hidden roles on the legacy board post, work and submit. Nobody is asked for a team report."""
+    """Four agents with hidden roles on the sweep's board post, work and submit. Nobody is asked for a team report."""
     script = {
         "a01": [call("channel_post", {"channel_id": "board", "message": "a01: I will read the problem"}, "s1"),
                 call("bash", {"command": "head -3 /workspace/Problem.md"}, "s2"),
@@ -348,7 +349,7 @@ def scenario_swarm() -> dict:
         "a04": [call("channel_post", {"channel_id": "board", "message": "a04: fine by me"}, "s8"),
                 call("submit", {"answer": "a04 done"}, "s9")],
     }
-    task = legacy_task_for(n_agents=4, regulators=1, disregulators=1, seed=3)
+    task = channel_task_for(n_agents=4, regulators=1, disregulators=1, seed=3)
     log, summary, records = run_scenario("swarm", task, scripted(script))
     sample = log.samples[0]
     assert log.status == "success" and sample.limit is None, (log.status, sample.limit)
@@ -384,7 +385,7 @@ PROBE_ANSWER = "CODING_EVAL: 60\nSOCIAL_EVAL: 30\nREASON: smoke."
 
 def scenario_rules() -> dict:
     """Lucy's rules on three agents: planning turns, headers, seeded random order, a cap, levels and probes."""
-    config = PRESETS["lucy_legacy"].with_overrides([
+    config = SwarmConfig(**LUCY_RULES).with_overrides([
         "n_agents=3", "regulators=1", "disregulators=1", "seed=4", "turn_order=random", "steps_per_agent=2",
         "rule_level=precise", "regulator_level=role", "disregulator_level=persuade", "time_limit_s=600"])
     prompts = settings.load_prompts()
@@ -429,9 +430,8 @@ def scenario_rules() -> dict:
     assert sample.store.get("TurnState:used") == {a: 2 for a in config.names}
     # the rule follows the instruction in every first user message; role texts only in their holders' prompts
     rule = level_text("rule", "precise", "openmath")
-    # lucy_legacy keeps the old team report's sentences in the role texts (team_report)
-    regulator = level_text("regulator", "role", "openmath", legacy=True)
-    disregulator = level_text("disregulator", "persuade", "openmath", legacy=True)
+    regulator = level_text("regulator", "role", "openmath")
+    disregulator = level_text("disregulator", "persuade", "openmath")
     base = build_sample("riemann").input
     for rec in records:
         agent = rec["orbit_agent"]
@@ -613,10 +613,10 @@ def scenario_team_submit() -> dict:
     return {"roles": roles, "submitter": submitter, "disregulator": dis, "dropped": len(halts[0]["dropped"])}
 
 
-def scenario_legacy() -> dict:
-    """The ian_legacy preset builds and runs as the board scenario does today: ORBIT's channel tools, the sweep's
-    board prompt, auto delivery and sequential single-agent steps."""
-    config = PRESETS["ian_legacy"].with_overrides(["n_agents=2", "time_limit_s=600"])
+def scenario_channel() -> dict:
+    """The sweep's board builds and runs: ORBIT's channel tools, the sweep's board prompt, auto delivery and
+    sequential single-agent steps."""
+    config = SwarmConfig(**CHANNEL_BOARD).with_overrides(["n_agents=2", "time_limit_s=600"])
     script = {
         "a01": [call("channel_post", {"channel_id": "board", "message": "a01: I will read README.md first"}, "l1"),
                 call("bash", {"command": "id -un; pwd"}, "l2"),
@@ -626,10 +626,10 @@ def scenario_legacy() -> dict:
                 call("submit", {"answer": "a02 done"}, "m3")],
     }
     recorder: list[dict] = []
-    log, summary, records = run_scenario("legacy", swarm_task(OpenMath(), config), scripted(script, recorder))
+    log, summary, records = run_scenario("channel", swarm_task(OpenMath(), config), scripted(script, recorder))
     sample = log.samples[0]
     assert log.status == "success" and sample.limit is None and sample.error is None, (log.status, sample.error)
-    assert_judged("legacy", sample, records)
+    assert_judged("channel", sample, records)
     assert tool_names_offered(sample) == {"bash", "python", "submit", "channel_post", "channel_read", "channel_list"}
     assert all(not set(r["tools"]) & {"board_status", "board_read", "board_post", "team_submit"} for r in recorder)
     assert timeline_of(sample, "a01") == [("r1-a01", ["channel_post"]), ("r2-a01", ["bash"]), ("r3-a01", [])], \
@@ -646,10 +646,10 @@ def scenario_legacy() -> dict:
     # auto delivery: a02's first model input carries a01's post without a read
     first_a02 = next(r for r in recorder if r["agent"] == "a02")
     assert any("a01: I will read README.md first" in x for x in first_a02["system_texts"]), first_a02["system_texts"]
-    run = json.loads((RUNS / "legacy" / "run.json").read_text())
+    run = json.loads((RUNS / "channel" / "run.json").read_text())
     assert (run["mode"], run["scale"], run["preset"], run["preset_inferred"]) == \
-        ("shared_task", None, "ian_legacy", False), run
-    board = json.loads((RUNS / "legacy" / "communication" / "riemann#1.json").read_text())
+        ("shared_task", None, None, False), run
+    board = json.loads((RUNS / "channel" / "communication" / "riemann#1.json").read_text())
     posts = [(m["sender"], m["content"]) for m in board["messages"]]
     assert posts == [("a01", "a01: I will read README.md first"), ("a02", "a02: noted")], posts
     return {"timeline": timeline_of(sample, "a01"), "posts": len(posts), "preset": run["preset"]}
@@ -789,7 +789,7 @@ def scenario_split_access() -> dict:
 SCENARIOS = {"complete": scenario_complete, "message_limit": scenario_message_limit,
              "time_limit": scenario_time_limit, "board": scenario_board, "defended": scenario_defended,
              "swarm": scenario_swarm, "rules": scenario_rules, "judge": scenario_judge,
-             "discover": scenario_discover, "team_submit": scenario_team_submit, "legacy": scenario_legacy,
+             "discover": scenario_discover, "team_submit": scenario_team_submit, "channel": scenario_channel,
              "split_access": scenario_split_access}
 
 

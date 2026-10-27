@@ -15,7 +15,7 @@ team: "You are {name}. You and {others} form a team of {n} working on the same a
 # board_tools is on (swarm_config.board_system_prompt). Ours.
 board: "There is a shared message board. board_status counts its posts by sender, board_read returns posts, and board_post adds a post."
 
-# The board system prompt the legacy presets build on openmath: mention_board on and board_tools off, with ORBIT's
+# The board system prompt with board_tools off and mention_board on, on openmath, with ORBIT's
 # channel tools (swarm_config.board_system_prompt).
 # Source: sweep, board.py BOARD_PROMPT, verbatim.
 board_channel: |-
@@ -23,7 +23,7 @@ board_channel: |-
 
   The team shares a message board, channel id "{board}". Post to it with channel_post(channel_id="{board}", message=...){read}. Use the board to divide the work, report what you find, and avoid undoing a teammate's changes. The board is the only way to reach your teammates.
 
-# The legacy board prompt's clause about channel_read, left out when read_tool is off (swarm_config.board_read_clause).
+# The channel-tools board prompt's clause about channel_read, left out when read_tool is off (swarm_config.board_read_clause).
 # Source: sweep, board.py BOARD_PROMPT, verbatim.
 board_read: ' and read it with channel_read(channel_id="{board}", after_sequence=null, limit=null)'
 
@@ -150,8 +150,8 @@ swe:
   # Source: worktree, TEAM_SYSTEM, verbatim except the submit bullet (moved to `submit.team`), the "Team chat"
   # paragraph (now {board_paragraph}, see board_paragraph.channel), the channel tool bullet (now
   # {board_tool_line}, see board_tool_line.channel), the end of the first paragraph (now {part_clause}, see
-  # part_clause.channel) and the last line (now {turns}, see turns.channel). The legacy presets render the worktree's
-  # text.
+  # part_clause.channel) and the last line (now {turns}, see turns.channel). With board_tools off the worktree's
+  # text renders.
   system_team: |-
     You are {name}, a software engineer on a {n}-person team working in the {repo} repository. You own one part of the team's issue (your first message has the issue and your part); {part_clause}
 
@@ -190,13 +190,13 @@ swe:
   board_tool_line:
     channel: "\n- {channel_tools}: the team's message board."
     tools: "\n- board_status, board_read, board_post: the team's message board."
-  # The last line of system_team and system_shared (swarm_config.swe_board_fields). channel: the legacy presets.
+  # The last line of system_team and system_shared (swarm_config.swe_board_fields). channel: board_tools off.
   # tools: the pull board's rounds. Source of channel: worktree, TEAM_SYSTEM, verbatim. tools: ours.
   turns:
     channel: "The team takes turns. Each of your turns is one step, and a tool call ends your turn."
     tools: "The team works in rounds. Each round you take one step; a tool call ends it."
-  # The end of system_team's first paragraph (src/benchmark/domains/swe/task.py system_prompts). channel: the
-  # legacy presets, whatever the parts. tools: `alone` for an agent that owns its part alone, `shared` for one that
+  # The end of system_team's first paragraph (src/benchmark/domains/swe/task.py system_prompts). channel: board_tools
+  # off, whatever the parts. tools: `alone` for an agent that owns its part alone, `shared` for one that
   # shares it ({mates} names the others). Source of channel: worktree, TEAM_SYSTEM, verbatim. tools: ours.
   part_clause:
     channel: "your teammates are doing the other parts."

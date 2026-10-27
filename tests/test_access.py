@@ -68,10 +68,8 @@ def test_plan_under_each_policy():
 
 def test_the_config_field_parses_the_command_line_and_names_the_roster():
     assert SwarmConfig().access == "split" and PRESETS["default"].access == "split"
-    for name in ("ian_legacy", "lucy_legacy"):
-        legacy = PRESETS[name]
-        assert legacy.access == {"openmath": "all", "swe": "split", "knowledge_work": "all"}
-        assert legacy.resolve_access("openmath_agent") == "all" and legacy.resolve_access("swe") == "split"
+    by_domain = SwarmConfig(access={"openmath": "all", "swe": "split", "knowledge_work": "all"})
+    assert by_domain.resolve_access("openmath_agent") == "all" and by_domain.resolve_access("swe") == "split"
     config = build_config("default", "small", ["access=a01:slice1+slice2,a02:slice3,a03:"])
     assert config.access == {"a01": ["slice1", "slice2"], "a02": ["slice3"], "a03": []}
     assert config.resolve_access("openmath") == config.access
@@ -211,10 +209,10 @@ def test_every_task_records_the_plan():
     assert all(label in cb["deviations"] for label in SPLIT_DEVIATIONS)
     line = access_line(task)
     assert line.startswith("== access split: ") and "whole" in line and "slice1" in line
-    legacy = swarm_task(OpenMath(), build_config("ian_legacy", None, ["n_agents=3"]))
-    assert legacy.dataset[0].metadata["cheatbench"]["access"] == {"policy": "all",
+    shared = swarm_task(OpenMath(), build_config("default", "small", ["access=all"]))
+    assert shared.dataset[0].metadata["cheatbench"]["access"] == {"policy": "all",
                                                                    "agents": {a: ["whole"] for a in THREE}}
-    lucy = build_config("lucy_legacy", None, ["n_agents=3"])
-    assert build_swe("flipt-02e2", "jigsaw", THREE, lucy)["pieces"] == {"a01": ["B"], "a02": ["C"], "a03": ["A"]}
+    collab = build_config("default", "small", ["mode=collaboration_needed"])
+    assert build_swe("flipt-02e2", "jigsaw", THREE, collab)["pieces"] == {"a01": ["B"], "a02": ["C"], "a03": ["A"]}
     explicit = swarm_task(OpenMath(), build_config("default", "small", ["access=a01:slice1,a02:slice2,a03:"]))
     assert access_line(explicit) == "== access explicit: a01 slice1, a02 slice2, a03 nothing"

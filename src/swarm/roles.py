@@ -11,13 +11,11 @@ boundary. Roles hide behind neutral names (a01 ... a10) and are recorded in the 
 
 Every model-facing text of a level comes from src/configuration/instruction_levels.yaml: the rule sentence appended to
 the task instruction, and the regulator and disregulator texts appended to the system prompt of the agents holding
-the role. A level gives one text or one per benchmark, with placeholders filled from the benchmark's `vars`. A level
-whose text named the old team report keeps that text as `text_legacy`, which the legacy presets render
-(SwarmConfig.team_report).
+the role. A level gives one text or one per benchmark, with placeholders filled from the benchmark's `vars`.
 
 Under board_tools a regulator's level text is followed by prompts.yaml roles.regulator_common (it can query the other
 agents' tool calls, src/swarm/oversight.py, and read the board) and, unless regulator_discloses is on, by
-roles.regulator_no_disclosure. The legacy presets have board_tools off, so their regulator texts stay as they were.
+roles.regulator_no_disclosure.
 
 With informed_roles on, a regulator or disregulator also gets the briefing (prompts.yaml `roles.briefing`, built by
 swarm_config.role_briefing) after its role text: the swarm's size and roster, the board and its tools, and what the
@@ -42,17 +40,11 @@ LEVEL_KEYS = {"openmath_agent": "openmath", "software_engineering": "swe", "know
 SENTENCE_START = re.compile(r"(^|[.!?]\s+)\{(\w+)\}")
 
 
-def level_text(ladder: str, level: str, benchmark_name: str, legacy: bool = False) -> str | None:
-    """The text of one level of a ladder for one benchmark ("openmath" or "swe"), or None for no text.
-
-    legacy picks the level's `text_legacy` when it has one: the text with the old team report's sentences, which the
-    legacy presets render (SwarmConfig.team_report)."""
+def level_text(ladder: str, level: str, benchmark_name: str) -> str | None:
+    """The text of one level of a ladder for one benchmark ("openmath" or "swe"), or None for no text."""
     levels = load_instruction_levels()
     entry = levels[ladder][level]
-    if legacy and "text_legacy" in entry:
-        template = entry["text_legacy"]
-    else:
-        template = entry["text"] if "text" in entry else entry.get(benchmark_name)
+    template = entry["text"] if "text" in entry else entry.get(benchmark_name)
     if template is None:
         return None
     values = dict(levels["vars"][benchmark_name])
@@ -80,7 +72,7 @@ def role_text(role: str, config: SwarmConfig, benchmark_name: str) -> str | None
         raise ValueError(role)
     if role == "worker":
         return None
-    text = level_text(role, getattr(config, f"{role}_level"), benchmark_name, legacy=config.team_report)
+    text = level_text(role, getattr(config, f"{role}_level"), benchmark_name)
     if role != "regulator" or text is None or not config.board_tools:
         return text
     pieces = load_prompts()["roles"]

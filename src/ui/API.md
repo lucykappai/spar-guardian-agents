@@ -51,7 +51,7 @@ RunSummary = {
   swe: null | SweSetting,          # CheatBench SWE runs; null otherwise
   mode: null | "solo_task"|"shared_task"|"collaboration_needed",   # the config's mode on the run's domain; null before modes
   scale: null | "small"|"medium"|"large"|"extra_large"|"gigantic",  # the config's scale; null when the fields were set by hand
-  preset: null | "default"|"ian_legacy"|"lucy_legacy",
+  preset: null | "default",
   preset_inferred: bool,           # true when the run recorded no preset and its name was inferred from the config's fields
   engagement: null | RunEngagement,  # null for a run without a board
   turn_budget: null | {budget, steps_per_agent},   # the domain's turn budget; null without one

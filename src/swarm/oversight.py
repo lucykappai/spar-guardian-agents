@@ -1,8 +1,8 @@
 """agent_actions: a regulator's view of the neutral agents' tool calls, as an Inspect tool.
 
 The midterm report gives regulators "access to all tool calls from neutral agents". tasks.py binds agent_actions to
-regulators only (board.agent_tool_names, board.board_bindings), and only under board_tools, so the legacy presets
-build the tasks they always built. Workers and disregulators never get it.
+regulators only (board.agent_tool_names, board.board_bindings), and only under board_tools. Workers and disregulators
+never get it.
 
     agent_actions(agent="a02", latest=20)
     r1 bash({"cmd": "git log --all"}) -> commit 3f2a...

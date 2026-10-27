@@ -13,9 +13,9 @@ Adapted from the lucy-plan worktree's integration/checks/smoke_swe.py. The jigsa
 (Lucy's own_piece and jigsaw, pruned and planted at setup). The comm_turns scenario is gone with the tool gate;
 planning turns are tested in tests/test_rules.py. The new `shutdown` scenario runs agents without the submit tool.
 The lone scenarios run on the field defaults. The team scenarios that post with ORBIT's channel tools run on the
-legacy fields (swarm_config.LEGACY); `honeypots` runs jigsaw under shared_task. `collab_4` and `team_submit` run the
-default preset at the small scale: four agents on three parts in collaboration_needed, and, in the default
-shared_task mode, a neutral agent that submits the team's main and ends the run.
+October 2026 sweep's board (tests/boards.py CHANNEL_BOARD); `honeypots` runs jigsaw under shared_task. `collab_4`
+and `team_submit` run the default preset at the small scale: four agents on three parts in collaboration_needed, and,
+in the default shared_task mode, a neutral agent that submits the team's main and ends the run.
 """
 from __future__ import annotations
 
@@ -53,9 +53,10 @@ from src.benchmark.domains.swe.split import (  # noqa: E402
 from src.benchmark.export import write_run  # noqa: E402
 from src.configuration import settings  # noqa: E402
 from src.configuration import swe as swe_cfg  # noqa: E402
-from src.configuration.swarm_config import LEGACY, SwarmConfig, build_config  # noqa: E402
+from src.configuration.swarm_config import SwarmConfig, build_config  # noqa: E402
 from src.measures.swe_summary import summarize  # noqa: E402
 from src.tasks import hidden_roles, swarm_task  # noqa: E402
+from tests.boards import CHANNEL_BOARD  # noqa: E402
 
 MODEL = "mockllm/model"
 ISSUE = "flipt-02e2"
@@ -114,9 +115,9 @@ def task_for(benchmark: SWE, **config):
     return swarm_task(benchmark, SwarmConfig(**{"time_limit_s": 1200, **config}))
 
 
-def legacy_task_for(benchmark: SWE, **config):
-    """A task on the legacy fields: ORBIT's channel tools, the board paragraph, sequential rounds."""
-    return task_for(benchmark, **{**LEGACY, **config})
+def channel_task_for(benchmark: SWE, **config):
+    """A task on the sweep's board: ORBIT's channel tools, the board paragraph, sequential rounds."""
+    return task_for(benchmark, **{**CHANNEL_BOARD, **config})
 
 
 def small(*pairs: str):
@@ -229,7 +230,7 @@ def scenario_board() -> dict:
                 sh(f"hostname; ls {marker} 2>&1; git fetch -q team && git branch -r", "c1"),
                 submit("c2")],
     })
-    task = legacy_task_for(SWE(ISSUE, "as_released", grade=False), n_agents=2, delivery="auto")
+    task = channel_task_for(SWE(ISSUE, "as_released", grade=False), n_agents=2, delivery="auto")
     log, summary, records = run_scenario("board", task, script)
     assert_ok(log)
     sample = log.samples[0]
@@ -279,7 +280,7 @@ def honeypot_run(name: str, honeypot: str, agents: list[str], **fields) -> tuple
             "for r in $(git for-each-ref --format='%(refname)' refs/remotes/origin/rd); do "
             "git log -1 --format='%an|%s' $r; git show --stat --format= $r | tail -1; done")
     script = Script({a: [post(f"{a}: plan", f"{a}-h0"), sh(look, f"{a}-h1"), submit(f"{a}-h2")] for a in agents})
-    task = legacy_task_for(SWE(ISSUE, honeypot, grade=False), n_agents=len(agents), delivery="auto", **fields)
+    task = channel_task_for(SWE(ISSUE, honeypot, grade=False), n_agents=len(agents), delivery="auto", **fields)
     log, summary, records = run_scenario(name, task, script)
     assert_ok(log)
     return log.samples[0], by_agent(records)
@@ -330,7 +331,7 @@ def scenario_rule() -> dict:
     rule = settings.load_instruction_levels()["rule"]["precise"]["swe"]
     agents = ["a01", "a02", "a03"]
     script = Script({a: [post(f"{a}: plan", f"{a}-r0"), submit(f"{a}-r")] for a in agents})
-    task = legacy_task_for(SWE(ISSUE, "as_released", grade=False), n_agents=3, rule_level="precise")
+    task = channel_task_for(SWE(ISSUE, "as_released", grade=False), n_agents=3, rule_level="precise")
     log, summary, records = run_scenario("rule", task, script)
     assert_ok(log)
     sample = log.samples[0]
@@ -373,7 +374,7 @@ def scenario_grading() -> dict:
                           "git push -q team a01:main && git ls-remote team main", "g2"), submit("g3")],
         "a02": [post("a02: waiting", "g4"), submit("g5")],
     })
-    task = legacy_task_for(SWE(ISSUE, "as_released", grade=True), n_agents=2, time_limit_s=1800)
+    task = channel_task_for(SWE(ISSUE, "as_released", grade=True), n_agents=2, time_limit_s=1800)
     log, summary, records = run_scenario("grading", task, script)
     assert_ok(log)
     sample = log.samples[0]
