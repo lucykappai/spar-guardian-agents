@@ -36,7 +36,7 @@ from src.benchmark.transcript import (
     roster,
     transcript_dict,
 )
-from src.configuration import settings
+from src.configuration import models, settings
 from src.configuration.scales import steps_by_scale
 from src.configuration.swarm_config import SwarmConfig
 from src.measures import summary
@@ -67,18 +67,22 @@ def command(fn):
 # --------------------------------------------------------------------------
 # keys
 # --------------------------------------------------------------------------
-def require_env(name: str, message: str, code: int) -> None:
-    if not os.environ.get(name):
-        raise Refusal(message, code)
-
-
 def require_provider_key(model: str) -> None:
-    """The agents' provider key. Gemini's key is also exported as GOOGLE_API_KEY, the name Inspect reads."""
-    if model.startswith("google/"):
-        require_env("GEMINI_API_KEY", "GEMINI_API_KEY must be set", 1)
+    """One of the key variables src/configuration/models.yaml names for the model's route, and the route's base URL.
+
+    Gemini's key may be given as GEMINI_API_KEY; it is also exported as GOOGLE_API_KEY, the name Inspect reads. A
+    model outside the registry (mockllm) needs nothing."""
+    provider = models.provider_of(model)
+    if provider is None:
+        return
+    names = models.key_env(model)
+    if not any(os.environ.get(name) for name in names):
+        raise Refusal(f"{' or '.join(names)} must be set for {model}", 1)
+    if "GOOGLE_API_KEY" in names and os.environ.get("GEMINI_API_KEY"):
         os.environ.setdefault("GOOGLE_API_KEY", os.environ["GEMINI_API_KEY"])
-    elif model.startswith("openrouter/"):
-        require_env("OPENROUTER_API_KEY", "OPENROUTER_API_KEY must be set", 1)
+    route = models.providers()[provider]
+    if route["inspect_prefix"].startswith("openai-api/") and route.get("base_url"):
+        os.environ.setdefault(route["base_url_env"], route["base_url"])
 
 
 def require_judge_key(judge_name: str, code: int) -> None:
@@ -160,7 +164,7 @@ def _episode(view, agents: list[str], agent: str) -> str:
 async def _judge_views(views: list, judge_name: str) -> dict[str, dict]:
     """Every agent of every sample judged again, through the provider's batch API; verdict rows keyed by episode."""
     model_name, config = judging.judge_model_config(judge_name)
-    prices = judging.judge_prices(judge_name)
+    prices = judging.judge_prices(judge_name, batch=True)
     model = get_model(model_name, config=GenerateConfig(batch=True))
     verdicts = {}
     for view in views:

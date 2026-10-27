@@ -25,8 +25,8 @@ smoke-kw:  ## knowledge-work mock-model scenarios on the office sandbox, no mode
 check:  ## refuse unless the eleven swarm runs are complete and judged
 	$(PY) tests/check_runs.py
 
-test:  ## offline unit tests of the turn rules and the config (mock model, no Docker)
-	$(PY) -m pytest tests/test_rules.py tests/test_config.py -q
+test:  ## offline unit tests of the turn rules, the config and the model registry (mock model, no Docker)
+	$(PY) -m pytest tests/test_rules.py tests/test_config.py tests/test_models.py -q
 
 lint:  ## ruff over src and tests (ruff.toml: 120 columns, sorted imports)
 	uvx ruff check src tests

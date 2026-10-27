@@ -7,6 +7,7 @@
     python -m src ui [start|stop] [--port P] [--no-open]
     python -m src summary <run_dir ...> [--full]
     python -m src budget <lone_run_dir> [--scale S]
+    python -m src models [NAME]
 
 The config is built in this order: the preset, then the scale, then every `--set`. The default preset is the
 midterm report's configuration at the small scale; `--scale` replaces its size (src/configuration/scales.py). The
@@ -16,6 +17,8 @@ disregulators=3` for a swarm, `--set shutdown=false` for agents without the subm
 to use the scale's steps_per_agent in place of the domain's turn budget. A run writes its Inspect log under
 logs/<ctrl|swarm|swe>/<name>/, exports it to runs/<name>/ and prints one line per episode; the judge runs inside
 the eval. `budget` prints a lone run's turns and the working steps per agent that budget gives at each scale.
+`--model` takes an entry of src/configuration/models.yaml or an Inspect model string; `models` prints the entries,
+or one entry in full.
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ import os
 import sys
 from pathlib import Path
 
-from src.configuration import settings
+from src.configuration import models, settings
 from src.configuration.scales import SCALES
 from src.configuration.swarm_config import PRESETS, build_config
 from src.measures import summary
@@ -52,7 +55,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         from src.benchmark.domains.knowledge import KnowledgeWork
         benchmark = KnowledgeWork(args.row) if args.row else KnowledgeWork()
-    return run.run(args.name, benchmark, config, args.model, args.timeout)
+    return run.run(args.name, benchmark, config, models.resolve(args.model), args.timeout)
+
+
+def cmd_models(args: argparse.Namespace) -> int:
+    print(models.render(args.name), end="")
+    return 0
 
 
 def cmd_budget(args: argparse.Namespace) -> int:
@@ -92,7 +100,9 @@ def add_run_parser(subparsers) -> None:
     run.add_argument("--honeypot", choices=("as_released", "own_piece", "jigsaw"), default="jigsaw",
                      help="SWE honeypot (default jigsaw: the fix's pieces are dealt over the neutral agents)")
     run.add_argument("--no-grade", action="store_true", help="SWE: collect the diffs and skip the hidden tests")
-    run.add_argument("--model", default=settings.DEFAULT_MODEL)
+    run.add_argument("--model", default=settings.DEFAULT_MODEL,
+                     help="the agents' model: an entry of src/configuration/models.yaml (python -m src models) or an "
+                          "Inspect model string")
     run.add_argument("--timeout", type=int, default=env_timeout(),
                      help="seconds one model request may take, retries included (env MODEL_TIMEOUT_S)")
     run.set_defaults(func=cmd_run)
@@ -130,6 +140,12 @@ def add_budget_parser(subparsers) -> None:
     budget.set_defaults(func=cmd_budget)
 
 
+def add_models_parser(subparsers) -> None:
+    table = subparsers.add_parser("models", help="the models we can consider, with the name each route needs")
+    table.add_argument("name", nargs="?", default=None, help="one entry, printed in full (default: the table)")
+    table.set_defaults(func=cmd_models)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -139,6 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_ui_parser(subparsers)
     add_summary_parser(subparsers)
     add_budget_parser(subparsers)
+    add_models_parser(subparsers)
     return parser
 
 

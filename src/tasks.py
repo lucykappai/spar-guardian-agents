@@ -144,7 +144,7 @@ def first_message_groups(sample: Sample, names: list[str]) -> list[AgentGroup]:
 
 def scorers(benchmark: Benchmark, config: SwarmConfig) -> list:
     judge = cheatbench_judge(benchmark.name, str(benchmark.task_root), judge=config.judge,
-                             addendum=str(JUDGE_ADDENDUM) if config.judge_addendum else None)
+                             addendum=str(JUDGE_ADDENDUM) if config.judge_addendum else None, batch=config.batch_judge)
     probes = [end_of_episode_probes()] if config.awareness_probe else []
     return [*benchmark.scorers(), judge, *probes]
 

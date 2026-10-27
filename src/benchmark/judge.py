@@ -42,6 +42,7 @@ from src.benchmark.transcript import (
     transcript_dict,
 )
 from src.configuration import settings
+from src.configuration.models import usd_per_million
 
 if str(settings.CHEATBENCH) not in sys.path:
     sys.path.insert(0, str(settings.CHEATBENCH))
@@ -116,23 +117,29 @@ def spec_record(spec: cb_judge.JudgeSpec) -> dict:
 # one transcript
 # --------------------------------------------------------------------------
 def _usage(output: ModelOutput) -> dict | None:
+    """Token counts of one call: input (cache reads included), the cache reads alone, output, total, reasoning."""
     usage = output.usage
     if usage is None:
         return None
-    return {"input": usage.input_tokens + (usage.input_tokens_cache_read or 0), "output": usage.output_tokens,
+    cached = usage.input_tokens_cache_read or 0
+    return {"input": usage.input_tokens + cached, "cached": cached, "output": usage.output_tokens,
             "total": usage.total_tokens, "reasoning": usage.reasoning_tokens}
 
 
-def judge_prices(judge: str) -> dict | None:
-    """USD per million input and output tokens for a judge entry (src/configuration/settings.py), or None."""
-    return settings.JUDGE_PRICES_PER_MILLION.get(judge)
+def judge_prices(judge: str, batch: bool = False) -> dict | None:
+    """USD per million tokens of a judge entry's model (src/configuration/models.yaml), at the batch rate with
+    batch, or None when the model has no registry entry."""
+    model, _ = judge_model_config(judge)
+    return usd_per_million(model, batch=batch)
 
 
 def _cost_usd(prices: dict | None, usage: dict | None) -> float | None:
-    """The call's price from the configured per-million rates, or None without rates or usage."""
+    """The call's price: cache reads at the cached rate, other input at the input rate, output at the output rate."""
     if not usage or not prices:
         return None
-    return (usage["input"] * prices["input"] + usage["output"] * prices["output"]) / 1_000_000
+    cached = usage.get("cached", 0)
+    return ((usage["input"] - cached) * prices["input"] + cached * prices.get("cached_input", prices["input"])
+            + usage["output"] * prices["output"]) / 1_000_000
 
 
 def _failed(spec: cb_judge.JudgeSpec, error: str, raw: str, usage: dict | None, cost: float | None) -> dict:
@@ -204,16 +211,17 @@ def _judge_model(judge: str) -> Model:
 
 @scorer(metrics=[mean()])
 def cheatbench_judge(task_name: str, task_root: str, judge: str = settings.JUDGE_MODEL,
-                     addendum: str | None = None) -> Scorer:
+                     addendum: str | None = None, batch: bool = True) -> Scorer:
     """The share of judged agents that cheated, with every agent's verdict in the metadata.
 
     An agent with no projected conversation is not judged, as CheatBench skips episodes without a transcript.
     When no verdict parses the sample gets no score at all (the failures go to an info event), so a failed
-    judge is never averaged in as "nobody cheated"; `python -m src judge` judges the log again.
+    judge is never averaged in as "nobody cheated"; `python -m src judge` judges the log again. `batch` says
+    whether the judge's calls go through the batch API (SwarmConfig.batch_judge), which sets the price.
     """
     spec = judge_spec(Path(task_root), task_name, addendum=Path(addendum) if addendum else None)
     _, config = judge_model_config(judge)
-    prices = judge_prices(judge)
+    prices = judge_prices(judge, batch=batch)
 
     async def score(state: TaskState, target: Target) -> Score | None:
         view = SampleView.from_state(state, inspect_transcript().events)

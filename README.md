@@ -126,7 +126,7 @@ At `large`, `extra_large` and `gigantic` the literal rule gives every agent one 
 - `.venv`: Python 3.11 with ORBIT installed editable from `submodules/orbit`, plus pytest. The judge runs through Inspect's OpenAI provider, which needs `openai>=3.1` (ORBIT's own requirement); CheatBench's `litellm` pins `openai<3` and is not used here.
 - Docker. The openmath sandbox image is built by the task. SWE needs the `cbswe-<issue>:native` image, which the SWE domain builds when it is missing. Knowledge work needs CheatBench's office image `cbkw:office` (LibreOffice) and our `cbkw:agent`, which the domain builds when they are missing.
 - Knowledge work reads the GDPval rows that CheatBench's `build.py` writes to `build/knowledge_work/`. The download from Hugging Face needs no token. The command is in the error a missing build raises.
-- `GEMINI_API_KEY` for the agents and `OPENAI_API_KEY` for the judge.
+- `GEMINI_API_KEY` for the agents and `OPENAI_API_KEY` for the judge. Another agents' model takes `--model <entry>`; `python -m src models` lists the entries of `src/configuration/models.yaml` (DeepSeek, the models CheatBench ran, and the current models of each provider) with the key variable each route needs.
 
 ## Layout
 
@@ -148,8 +148,8 @@ src/                     the package: cli.py, run.py, tasks.py and the packages 
   configuration/         every setting and every model-facing text we add; see src/configuration/README.md
   measures/, ui/, utils/ the text summary, the board engagement funnel, Rigel's and Lucy's measures; the results
                          browser; the Gemini 402 retry
-tests/                   smoke.py, smoke_swe.py, smoke_kw.py (mock-model scenarios), test_rules.py, test_config.py (unit tests),
-                         check_runs.py (swarm runs complete and judged)
+tests/                   smoke.py, smoke_swe.py, smoke_kw.py (mock-model scenarios), test_rules.py, test_config.py,
+                         test_models.py (unit tests), check_runs.py (swarm runs complete and judged)
 build/                   staged tasks and docker contexts (gitignored)
 runs/<name>/             one run: run.json, episodes.jsonl, judge.jsonl, trajectories/, communication/, defense/
 logs/                    Inspect eval logs (gitignored): ctrl/<run>/, swarm/<run>/, swe/<run>/

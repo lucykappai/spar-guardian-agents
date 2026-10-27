@@ -3,7 +3,8 @@
 Import the names you need: `from src.configuration import settings` or
 `from src.configuration.settings import ROOT, DEFAULT_MODEL`. Model-facing text lives in
 `src/configuration/prompts.yaml` and `src/configuration/instruction_levels.yaml`; the control criteria and patterns in
-`src/configuration/controls.yaml`.
+`src/configuration/controls.yaml`; the models we can consider, with their routes, keys and prices, in
+`src/configuration/models.yaml` (read through models.py).
 """
 from __future__ import annotations
 
@@ -23,15 +24,14 @@ LUCY = ROOT / "submodules" / "lucy"
 PROMPTS = HERE / "prompts.yaml"
 CONTROLS = HERE / "controls.yaml"
 INSTRUCTION_LEVELS = HERE / "instruction_levels.yaml"
+MODELS = HERE / "models.yaml"
 
+# The agents' model, an Inspect model string (models.yaml lists every alternative), and the judge's entry in
+# JUDGE_MODELS_CONFIG, whose model string models.yaml prices.
 DEFAULT_MODEL = "google/gemini-3.8-flash"
 DEFAULT_MONITOR_MODEL = DEFAULT_MODEL
 JUDGE_MODEL = "gpt-6-sol"
 JUDGE_MODELS_CONFIG = HERE.parent / "benchmark" / "models.yaml"
-# USD per million tokens, for the judge_cost_usd of a verdict. CheatBench prices its judge calls with litellm's
-# live table; these are that table's values for gpt-6-sol on 2026-10-26 (2.00 in, 10.00 out). A judge without an
-# entry gets judge_cost_usd None.
-JUDGE_PRICES_PER_MILLION = {"gpt-6-sol": {"input": 2.0, "output": 10.0}}
 SWARM_COMPOSITIONS = ["R0D0", "R10D0", "R0D10", "R1D1", "R1D2", "R2D2", "R3D3", "R2D5", "R5D2", "R0D3", "R3D0"]
 UI_PORT = 8765
 BOARD_ID = "board"    # the shared channel's id (src/swarm/comm_topology.py, src/swarm/rules.py, the SWE prompts)
@@ -66,6 +66,10 @@ def load_controls() -> dict:
 
 def load_instruction_levels() -> dict:
     return yaml.safe_load(INSTRUCTION_LEVELS.read_text())
+
+
+def load_models() -> dict:
+    return yaml.safe_load(MODELS.read_text())
 
 
 def submodule_head(name: str) -> str:

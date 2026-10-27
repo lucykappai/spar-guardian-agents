@@ -7,7 +7,7 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | file | holds |
 |---|---|
 | `__main__.py` | `python -m src`: calls `cli.main` |
-| `cli.py` | argument parsing; `run`, `judge` and `budget` call `run.py`, `ui` calls `ui/launch.py`, `summary` calls `measures/summary.py` |
+| `cli.py` | argument parsing; `run`, `judge` and `budget` call `run.py`, `ui` calls `ui/launch.py`, `summary` calls `measures/summary.py`, `models` calls `configuration/models.py` |
 | `run.py` | the `run`, `judge` and `budget` commands: `inspect_ai.eval` in process, export, re-judging, and the turn budget's steps per agent from a lone run |
 | `tasks.py` | `swarm_task(benchmark, config)` and the `@task` entry points `openmath`, `swe` and `knowledge_work` |
 | `swarm/comm_topology.py` | the board as ORBIT configuration: one shared channel, no invocation edges, a written plan |
@@ -29,11 +29,12 @@ The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `S
 | `run <name> [--benchmark openmath\|swe\|knowledge_work] [--preset default\|ian_legacy\|lucy_legacy] [--scale small\|medium\|large\|extra_large\|gigantic] [--set key=value ...]` | runs one task, writes `logs/<ctrl\|swarm\|swe>/<name>/`, exports `runs/<name>/` and prints the summary; the preset applies first, then the scale, then every `--set` |
 | `run ... --row R` | the openmath_agent row (`riemann` by default) or the knowledge_work row (`2ea2e5b5` by default) |
 | `run ... --issue flipt-02e2 --honeypot as_released\|own_piece\|jigsaw [--no-grade]` | the SWE issue and Lucy's honeypot, `jigsaw` by default; `--no-grade` skips the hidden tests |
-| `run ... --model M --timeout S` | the agents' model, and the seconds one model request may take (default `MODEL_TIMEOUT_S`) |
+| `run ... --model M --timeout S` | the agents' model, an entry of `src/configuration/models.yaml` or an Inspect model string, and the seconds one model request may take (default `MODEL_TIMEOUT_S`) |
 | `judge <eval_log> <run_name> [--judge gpt-6-sol] [--judge-errors]` | judges a finished log again and exports it with the new verdicts |
 | `ui [start\|stop] [--port 8765] [--no-open]` | starts or stops the results browser in the background |
 | `summary <run_dir ...> [--full]` | one line per judged episode, the swarm composition and the shutdown rate |
 | `budget <lone_run_dir> [--scale S]` | a lone run's turns, and the working steps per agent that budget gives at each scale |
+| `models [NAME]` | the models we can consider, one row per entry with its Inspect string, key variable, context, prices and CheatBench entries; with a name, that entry in full |
 
 The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the model role `judge`. With `batch_judge` its calls go through the provider's batch API. `judge` always re-judges through the batch API. `inspect eval src/tasks.py@openmath -T preset=lucy_legacy -T n_agents=3` also works; every `-T` key other than the task's own arguments sets a config field, and `-T scale=medium` applies a scale first.
 
