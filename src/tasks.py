@@ -3,7 +3,8 @@
     task = swarm_task(OpenMath("riemann"), build_config("default", "medium", ["regulators=3"]))
     inspect eval src/tasks.py@openmath -T preset=lucy_legacy -T n_agents=3
 
-The second form skips what `python -m src run` adds: the key checks and the Gemini 402 retry (src/utils/provider_retry.py).
+The second form skips what `python -m src run` adds: the key checks and the Gemini 402 retry
+(src/utils/provider_retry.py).
 
 What comes from where:
   * the sample, its tools, its setup solver and its graders come from the benchmark (src/benchmark/domains/openmath/,
@@ -43,6 +44,7 @@ from src.benchmark.domains.knowledge import KnowledgeWork
 from src.benchmark.domains.openmath import OpenMath
 from src.benchmark.domains.swe import SWE
 from src.benchmark.judge import cheatbench_judge
+from src.configuration import access as access_policy
 from src.configuration import settings
 from src.configuration.openmath import TOKEN_LIMIT
 from src.configuration.swarm_config import SwarmConfig, board_system_prompt, preset
@@ -117,7 +119,7 @@ def team_tools(benchmark: Benchmark, config: SwarmConfig, tools: AgentTools,
     """(each agent's AgentSpec.tools, ORBIT tool_bindings): the benchmark's tools (its per_agent names when it has
     them), then the board tools and team_submit (src/swarm/board.py)."""
     extra = agent_tool_names(config, config.names, level_key(benchmark), roles)
-    own = getattr(tools, "per_agent", None) or {}   # KnowledgeTools: the review tool differs under split_access
+    own = getattr(tools, "per_agent", None) or {}   # KnowledgeTools: the review tool follows the access plan
     names = {n: [*own.get(n, tools.names), *extra[n]] for n in config.names}
     return names, {**tools.bindings, **board_bindings(config, roles=roles)}
 
@@ -184,6 +186,8 @@ def record_run(task_: Task, benchmark: Benchmark, config: SwarmConfig, roles: di
         cb["control"] = config.control if config.control not in BASELINE else "baseline"
         cb["monitor_model"] = config.monitor_model if control else None
         cb["config"] = config.model_dump(mode="json")
+        cb["access"] = {"policy": access_policy.policy_name(benchmark.applied_access(config.names, config, roles)),
+                        "agents": benchmark.access_plan(config.names, config, roles)}
         cb["deviations"] = benchmark.run_deviations(config.n_agents, shutdown=config.shutdown,
                                                     mode=config.resolve_mode(benchmark.name))
         budget = config.turn_budget_for(level_key(benchmark))

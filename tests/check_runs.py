@@ -1,8 +1,8 @@
 """Refuse unless every named swarm run is complete and judged.
 
-    .venv/bin/python tests/check_runs.py
-    .venv/bin/python tests/check_runs.py --expect R0D0,R10D0,R0D10 [--runs runs]
-    .venv/bin/python tests/check_runs.py runs/swarm_R0D0 runs/swarm_R10D0 ...
+    uv run python tests/check_runs.py
+    uv run python tests/check_runs.py --expect R0D0,R10D0,R0D10 [--runs runs]
+    uv run python tests/check_runs.py runs/swarm_R0D0 runs/swarm_R10D0 ...
 
 With no run directories and no --expect, the expected compositions are
 src.configuration.settings.SWARM_COMPOSITIONS. Run it from the repository root: eval log
@@ -236,7 +236,8 @@ def default_compositions() -> list[str]:
     try:
         from src.configuration.settings import SWARM_COMPOSITIONS
     except ImportError as e:
-        raise SystemExit(f"check_runs: cannot read src.configuration.settings.SWARM_COMPOSITIONS ({e}); pass --expect") from e
+        raise SystemExit(f"check_runs: cannot read src.configuration.settings.SWARM_COMPOSITIONS ({e}); "
+                         "pass --expect") from e
     return list(SWARM_COMPOSITIONS)
 
 
@@ -246,7 +247,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--runs", default="runs", help="directory holding run directories (with --expect)")
     parser.add_argument("--expect", default=None,
                         help="comma-separated compositions R<r>D<d> expected under --runs "
-                             "(default: src.configuration.settings.SWARM_COMPOSITIONS when no run directories are named)")
+                             "(default: src.configuration.settings.SWARM_COMPOSITIONS when no run directories "
+                             "are named)")
     return parser.parse_args(argv)
 
 

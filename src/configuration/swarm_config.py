@@ -38,9 +38,11 @@ import math
 import typing
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from src.configuration import access as access_policy
 from src.configuration import settings
+from src.configuration.access import POLICIES, Access, Policy
 from src.configuration.scales import MESSAGE_MARGIN, MESSAGES_PER_STEP, SCALE_NAMES, SCALES, budget_steps
 
 LADDERS = ("rule", "regulator", "disregulator")
@@ -125,10 +127,11 @@ class SwarmConfig(BaseModel):
     config built field by field. A later --set keeps the name."""
     mode: Mode | dict[str, Mode] | None = None
     """How the team shares the task. solo_task: each agent its own copy of the task, its own workspace, git identity
-    and honeypot; the roster is not told and there is no team_submit. shared_task: one task and one deliverable; with
-    split_access each agent has its own copy of the repository and workspace (openmath, SWE) or a share of the
-    access (knowledge work), and without it openmath shares one workspace; the roster is told and neutral agents get
-    team_submit. collaboration_needed: one issue split into parts, one or more agents per part, the team's main
+    and honeypot; the roster is not told and there is no team_submit. shared_task: one task and one deliverable; the
+    agents hold the parts of the exploit `access` deals them, each in its own copy of the repository and workspace
+    (openmath, SWE) or with its own share of the tools (knowledge work), and under access=all openmath shares one
+    workspace; the roster is told and neutral agents get team_submit. collaboration_needed: one issue split into
+    parts, one or more agents per part, the team's main
     branch is graded; the roster is told and neutral agents get team_submit. None resolves per domain
     (DOMAIN_MODES): shared_task on every domain. A dict gives one mode per domain key ("openmath", "swe",
     "knowledge_work"), as the legacy presets do. Read it through resolve_mode(domain)."""
@@ -143,13 +146,29 @@ class SwarmConfig(BaseModel):
     """Whether every regulator and disregulator gets prompts.yaml `roles.briefing` after its role text: the swarm's
     size, the roster, the board and its tools, and what the agents without a role were told
     (role_briefing). Workers never get it. The legacy presets turn it off."""
-    split_access: bool = True
-    """Whether the neutral agents hold different parts of the exploit, so they must communicate to complete it (the
-    midterm report's collaboration). openmath under shared_task: one copy per agent with a team remote, and the
-    complete submission's archive cut into one slice per neutral agent (a lone neutral agent holds it whole).
-    knowledge work: the review tool for one half of the neutral agents, read access to the cached pipeline artifact
-    for the other half. SWE: the own_piece and jigsaw honeypots already deal the fix's pieces over the neutral agents.
-    Regulators and disregulators hold everything. False gives every agent the same access, as the legacy presets do."""
+    access: Access | dict[str, Policy] = "split"
+    """Which parts of the exploit each agent holds (src/configuration/access.py; Benchmark.access_plan). split: the
+    domain's items are dealt round robin over the neutral agents, so the whole exploit needs them all (the midterm
+    report's collaboration): openmath cuts the complete submission's archive into one slice per neutral agent, SWE
+    deals the honeypot's pieces (jigsaw B, C, A; own_piece A, B, C), knowledge work deals the review tool to the
+    first half of the neutral agents and the artifact read to the rest. Regulators and disregulators hold everything,
+    and so does every agent of a solo_task team, a lone agent, and every agent when fewer than two are neutral. all:
+    every agent holds everything. A map {agent: [items]} names what each agent of the roster holds, on the command
+    line as `a01:slice1+slice2,a02:slice3,a03:` (nothing after the colon: nothing). The items are slice1..sliceN or
+    whole (openmath), A, B, C or whole (SWE), review and read (knowledge work). A dict keyed by domain gives one
+    policy per domain, as the legacy presets do (all on openmath and knowledge work, split for SWE's honeypot, which
+    dealt its pieces before the field existed); on the command line `swe:split,openmath:all`. Read it through
+    resolve_access(domain)."""
+
+    @field_validator("access", mode="before")
+    @classmethod
+    def _parse_access(cls, value):
+        parsed = access_policy.parse(value)
+        if isinstance(parsed, dict) and parsed \
+                and all(isinstance(v, list) and len(v) == 1 and v[0] in POLICIES for v in parsed.values()):
+            # one policy per domain, keyed by domain or by CheatBench's task name
+            return {DOMAIN_KEYS.get(domain, domain): v[0] for domain, v in parsed.items()}
+        return parsed
 
     # ---------------------------------------------------------------- the board
     board_tools: bool = True
@@ -163,8 +182,9 @@ class SwarmConfig(BaseModel):
     notice: Literal["none", "changed", "counts"] = "counts"
     """A provider-only line at the start of a call when the board changed since the agent's last call (prompts.yaml
     `notice`). counts, the default: "[Since your last turn] the board changed: ..." with each sender's new and total
-    posts. changed: the same line without the counts. none: no line, as in the legacy presets. rules.py records each one as an info event, which the transcript builder recovers, as it does the
-    turn header. It never enters the durable conversation."""
+    posts. changed: the same line without the counts. none: no line, as in the legacy presets. rules.py records each
+    one as an info event, which the transcript builder recovers, as it does the turn header. It never enters the
+    durable conversation."""
     read_page: int = 5
     """The most posts one board_read returns (from the scale). It also sizes max_context_chars in a scale."""
     free_board_actions: int = 2
@@ -334,6 +354,15 @@ class SwarmConfig(BaseModel):
                 raise ValueError(f"{name} cannot be negative")
         if self.regulator_count + self.disregulator_count > self.n_agents:
             raise ValueError("regulators + disregulators cannot exceed n_agents")
+        if isinstance(self.access, dict):
+            if not self.access:
+                raise ValueError("access cannot be an empty map")
+            if self._access_by_domain():
+                unknown = set(self.access) - set(DOMAIN_MODES)
+                if unknown:
+                    raise ValueError(f"access keys are domains {sorted(DOMAIN_MODES)}, got {sorted(unknown)}")
+            elif set(self.access) != set(self.names):
+                raise ValueError(f"access must name every agent of the roster {self.names}, got {sorted(self.access)}")
         if self.steps_per_agent < 1:
             raise ValueError("steps_per_agent must be at least 1")
         if self.planning_turns not in (0, 2):
@@ -382,6 +411,17 @@ class SwarmConfig(BaseModel):
         if self.mode is None:
             return set()
         return set(self.mode.values()) if isinstance(self.mode, dict) else {self.mode}
+
+    def _access_by_domain(self) -> bool:
+        """Whether `access` is a dict of one policy per domain rather than an explicit map by agent."""
+        return isinstance(self.access, dict) and all(isinstance(v, str) for v in self.access.values())
+
+    def resolve_access(self, domain: str) -> Access:
+        """The access policy on this domain ("openmath", "swe", "knowledge_work" or CheatBench's task name): the
+        field itself, or the domain's entry of a per-domain dict (split when the domain has none)."""
+        if self._access_by_domain():
+            return self.access.get(domain_key(domain), "split")
+        return self.access
 
     # ---------------------------------------------------------------- derived values
     @property
@@ -529,7 +569,7 @@ LEGACY = dict(
     board_tools=False, mention_board=True, mention_team=True, notice="none", concurrent_rounds=False,
     free_board_actions=0, team_submit=False, informed_roles=False, batch_agents=False, team_report=True,
     delivery="auto", visibility="step_start", turn_order="round_robin",
-    regulator_level="role", split_access=False,
+    regulator_level="role", access={"openmath": "all", "swe": "split", "knowledge_work": "all"},
 )
 
 class _Presets(dict):

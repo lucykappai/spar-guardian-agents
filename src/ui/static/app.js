@@ -1070,10 +1070,8 @@ async function viewRun({ run }, view) {
     ['mode', d.mode],
     ['scale', d.scale],
     ['preset', d.preset ? (d.preset_inferred ? `${d.preset} (inferred from the config)` : d.preset) : null],
-    // split access and the turn budget: shown only for runs that recorded them
-    ['split access', d.split_access == null ? undefined
-      : (d.access ? `${d.split_access ? 'on' : 'off'}; ${d.access.applied ? 'applied' : 'not applied to this roster'}`
-        : (d.split_access ? 'on' : 'off'))],
+    // the access policy and the turn budget: shown only for runs that recorded them
+    ['access', d.access && d.access.policy ? d.access.policy : undefined],
     ['turn budget', d.turn_budget ? `${d.turn_budget.budget} turns, ${d.turn_budget.steps_per_agent} working steps per agent` : undefined],
     ['eval id', rj.eval_id ? mono(rj.eval_id) : null],
     ['run id', rj.run_id],
@@ -1100,38 +1098,40 @@ async function viewRun({ run }, view) {
   const configSection = d.config ? section('Configuration', configKv(d.config)) : null;
   const rulesSection = d.rules ? section('Turn rules', rulesTable(d.rules)) : null;
   const engagementSection = d.engagement ? section('Board engagement', engagementView(d.engagement, eps)) : null;
-  const accessSection = d.access ? section('Split access', accessView(d.access, eps)) : null;
+  const accessSection = d.access ? section('Access', accessView(d.access, eps)) : null;
   const knowledgeSection = d.knowledge ? section('Knowledge work', knowledgeView(d.knowledge)) : null;
 
   return h('div', { class: 'page' }, head, meta, configSection, defSection, sweSection, knowledgeSection, swarmSection,
     accessSection, rulesSection, engagementSection, epSection, boardSection, evidence);
 }
 
-// What each agent held (run.json "access"): its honeypot branches and archive slice on openmath, the review tool and
-// the read permission on the pipeline artifact on knowledge work.
+// The access policy and what each agent held (run.json "access"): its items, and on openmath its honeypot branches
+// and archive slices, on knowledge work the review tool and the read permission on the pipeline artifact.
 function accessView(access, eps) {
   const agents = Object.keys(access.agents || {}).sort();
   const roleOf = a => (eps.find(e => e.orbit_agent === a) || {}).role;
   const branchy = agents.some(a => (access.agents[a] || {}).branches !== undefined);
-  const sliced = agents.some(a => 'archive_part' in (access.agents[a] || {}));
+  const sliced = agents.some(a => 'slices' in (access.agents[a] || {}));
+  const kw = agents.some(a => 'review' in (access.agents[a] || {}));
   const archive = access.archive ? access.archive.name : 'archive';
-  const cols = ['agent', 'role', ...(branchy ? ['honeypot branches held'] : ['review tool', 'artifact read']),
-    ...(sliced ? [archive + ' held'] : [])];
+  const cols = ['agent', 'role', 'holds', ...(branchy ? ['honeypot branches held'] : []),
+    ...(sliced ? [archive + ' held'] : []), ...(kw ? ['review tool', 'artifact read'] : [])];
   const table = h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
     h('thead', null, h('tr', null, cols.map(c => h('th', null, c)))),
     h('tbody', null, agents.map(a => {
       const x = access.agents[a] || {};
-      const cells = branchy
-        ? [h('td', null, (x.branches || []).length ? mono(x.branches.join(', ')) : muted('none'))]
-        : [h('td', null, yn(x.review, 'plain', 'plain')), h('td', null, yn(x.cache_read, 'plain', 'plain'))];
+      const cells = [h('td', null, x.holds == null ? muted(DASH) : (x.holds.length ? mono(x.holds.join(' + ')) : muted('nothing')))];
+      if (branchy) cells.push(h('td', null, (x.branches || []).length ? mono(x.branches.join(', ')) : muted('none')));
       if (sliced) {
-        cells.push(h('td', null, x.archive_part == null ? 'whole'
-          : mono(`${archive}.part${x.archive_part} of ${access.archive ? access.archive.parts : '?'}`)));
+        cells.push(h('td', null, x.slices == null ? 'whole' : (x.slices.length
+          ? mono(x.slices.map(k => `${archive}.part${k}`).join(', ') + ` of ${access.archive ? access.archive.parts : '?'}`)
+          : muted('none'))));
       }
+      if (kw) cells.push(h('td', null, yn(x.review, 'plain', 'plain')), h('td', null, yn(x.read, 'plain', 'plain')));
       return h('tr', null, h('td', null, a), h('td', null, roleOf(a) || muted(DASH)), ...cells);
     }))));
   return h('div', null, kv([
-    ['applied', yn(access.applied, 'plain', 'plain')],
+    ['policy', access.policy || undefined],
     ['team remote', access.remote ? mono(access.remote) : undefined],
     ['honeypot branches', access.honeypot_branches ? mono(access.honeypot_branches.join(', ')) : undefined],
     ['split archive', access.archive && access.archive.parts

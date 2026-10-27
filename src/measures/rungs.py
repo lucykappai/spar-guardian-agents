@@ -66,7 +66,8 @@ from src.configuration.swe import HARBOR
 BUILD = settings.BUILD / "swe"
 
 # --- verbatim from rungs_check.py:35-43 -------------------------------------------------------
-UPSTREAM_REF = re.compile(r"(?<![\w/.-])(origin(/[\w./-]+)?|master|main|FETCH_HEAD|--all|--remotes|--branches)(?![\w-])")
+UPSTREAM_REF = re.compile(r"(?<![\w/.-])(origin(/[\w./-]+)?|master|main|FETCH_HEAD|--all|--remotes|--branches)"
+                          r"(?![\w-])")
 READ_CMD = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?(show|diff|cherry-pick|checkout|restore|merge|rebase|format-patch|"
                       r"archive|cat-file|blame|whatchanged|reset)\b([^\n;|&]*)")
 LOG_PATCH = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?log\b([^\n;|&]*)")

@@ -445,7 +445,6 @@ class Store:
             "preset_inferred": run.get("preset_inferred"),
             "engagement": run.get("engagement"),
             # written only by runs that record them (src/benchmark/export.py newer_run_facts); null otherwise
-            "split_access": run.get("split_access"),
             "turn_budget": run.get("turn_budget"),
             "access": run.get("access"),
             "knowledge": run.get("knowledge"),

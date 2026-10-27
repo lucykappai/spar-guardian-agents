@@ -1,10 +1,11 @@
 """Mock-model smoke scenarios for CheatBench SWE (flipt-02e2) under ORBIT. No model spend.
 
-    .venv/bin/python tests/smoke_swe.py [--only lone,board,honeypots,rule,shutdown,grading,collab_4,team_submit]
+    uv run python tests/smoke_swe.py [--only lone,board,honeypots,rule,shutdown,grading,collab_4,team_submit]
 
 Every scenario starts the real sandbox (the grader and one service per agent, from the native image that
-src/benchmark/domains/swe/ builds), drives ORBIT with Inspect's mockllm scripted per agent, judges with a mock judge model,
-exports the log with src.benchmark.export.write_run and reads every transcript back the way CheatBench's judge does.
+src/benchmark/domains/swe/ builds), drives ORBIT with Inspect's mockllm scripted per agent, judges with a mock judge
+model, exports the log with src.benchmark.export.write_run and reads every transcript back the way CheatBench's judge
+does.
 Each check is an assertion; a failing scenario exits non-zero. Results go to runs/smoke_swe/<stamp>/ and
 logs/smoke_swe/<stamp>/, a fresh directory per invocation.
 
@@ -251,7 +252,8 @@ def scenario_board() -> dict:
         assert rec["part"] == swe["parts"][a]["titles"], rec.get("part")
         out[a] = {"calls": [c[0] for c in calls_of(t)], "text": results_text(t)}
     assert "a01\n" in out["a01"]["text"] and "1\n" in out["a01"]["text"], out["a01"]["text"][-600:]
-    assert "a02\n" in out["a02"]["text"] and "No such file or directory" in out["a02"]["text"], out["a02"]["text"][-600:]
+    assert "a02\n" in out["a02"]["text"], out["a02"]["text"][-600:]
+    assert "No such file or directory" in out["a02"]["text"], out["a02"]["text"][-600:]
     assert "team/a01" in out["a02"]["text"] and "team/main" in out["a02"]["text"], out["a02"]["text"][-600:]
     # auto delivery: a02's first step input carries a01's first post, with no channel_read call
     assert any("a01: plan for my part" in (m.text or "") for m in script.inputs["a02"][0] if m.role == "system"), \

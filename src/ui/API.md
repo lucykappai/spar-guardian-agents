@@ -1,7 +1,7 @@
 # Results browser API
 
-Start: `make ui`, or `.venv/bin/python -m src ui [--port 8765] [--no-open]` from the repository root. The
-foreground server alone is `.venv/bin/python -m src.ui [--runs runs] [--port 8765] [--open]`. The UI is served
+Start: `make ui`, or `uv run python -m src ui [--port 8765] [--no-open]` from the repository root. The
+foreground server alone is `uv run python -m src.ui [--runs runs] [--port 8765] [--open]`. The UI is served
 at `/` and its assets at `/static/<file>` from `src/ui/static/` (`index.html`, `app.js`, `style.css`). All API
 responses are JSON.
 
@@ -54,20 +54,20 @@ RunSummary = {
   preset: null | "default"|"ian_legacy"|"lucy_legacy",
   preset_inferred: bool,           # true when the run recorded no preset and its name was inferred from the config's fields
   engagement: null | RunEngagement,  # null for a run without a board
-  split_access: null | bool,       # the config's split_access; null for runs before the field
   turn_budget: null | {budget, steps_per_agent},   # the domain's turn budget; null without one
-  access: null | Access,           # what each agent held; null when the domain recorded nothing
+  access: null | Access,           # the access policy and what each agent held; null for runs before the field
   knowledge: null | Knowledge,     # knowledge-work runs only
   episodes: [Episode]
 }
-Access = {applied: bool, agents: {<agent>: {branches: [str], archive_part?: int|null} | {review: bool, cache_read: bool}},
-          remote?, honeypot_branches?, archive?: {branch, commit, name, parts}}
-          # openmath split access: the team remote, the honeypot branches every copy keeps, and the complete
-          # submission's archive cut into `parts` slices; archive_part is the slice an agent's copy held (null: the
-          # whole archive). Runs recorded before the archive split have neither archive nor archive_part.
-Knowledge = {layout ("lone"|"shared"|"solo"), mode, split_access, row_id, meta: {task_id, sector, occupation, gold_name},
+Access = {policy: "split"|"all"|"explicit", agents: {<agent>: {holds: [str], branches?: [str], slices?: [int]|null,
+          review?: bool, read?: bool}}, remote?, honeypot_branches?, archive?: {branch, commit, name, parts}}
+          # holds: the agent's access items (openmath slice<k>/whole, SWE A/B/C/whole, knowledge work review/read).
+          # openmath split layout: the team remote, the honeypot branches every copy keeps, the complete submission's
+          # archive cut into `parts` slices, and `slices`: the slice numbers an agent's copy held (null: the whole
+          # archive). Knowledge work: whether the agent holds the review tool and the read permission.
+Knowledge = {layout ("lone"|"shared"|"solo"), mode, split, row_id, meta: {task_id, sector, occupation, gold_name},
              comparator (the pipeline artifact path), seats: {<agent>: {user, uid, home, root, contract, candidate, review,
-             cache_read}}, contracts: {<contract>: {root, candidate, files: [{path, bytes, sha256}], skipped?: [{path, kind}],
+             read}}, contracts: {<contract>: {root, candidate, files: [{path, bytes, sha256}], skipped?: [{path, kind}],
              copied_reference, error}},   # skipped: symlinks and other non-regular entries of to_send/, never followed
              grader_state: {<agent>: {agent_id, calls, errors, verdicts, similarities, submitted_reference}},
              last_verdict, access, share_delivered, reviews}
@@ -97,7 +97,7 @@ Episode = {                       # one row of episodes.jsonl plus:
                       team_submitted: bool, notices,
                       reads_refused?, posts_refused?, oversight?, oversight_targets?: {target: count}},
                                    # null for a run without a board; the last four only for runs that record them
-  access?: {branches, archive_part?} | {review, cache_read},   # this agent's entry of Access
+  access?: {holds, branches?, slices?, review?, read?},   # this agent's entry of Access
   review?: {agent_id, calls, errors, verdicts, similarities, submitted_reference}   # knowledge work: its grader state
 }
 Verdict = every key of the episode's judge.jsonl row except the bookkeeping keys (id, episode, replicate, task, model,
@@ -134,7 +134,7 @@ exactly `I cannot provide that response under the configured defense policy.` is
           # openmath solo_task: value is the share of copies holding the archive, answer is null, and metadata is
           # {agents: {name: {archive, message, listing, git, agent_evals, agent_evals_main}}, probe}; under split
           # access metadata also has remote: {archive_on_main, message_on_main, agent_evals_main, branches, git} and
-          # archive_parts: {agent: k}, the archive slice each neutral agent's copy held
+          # archive_parts: {agent: [k, ...]}, the archive slices each copy held in place of the archive
           # knowledge work: knowledge_deliverables: {value (share of contracts whose to_send/ holds a file),
           # answer (last verdict), metadata: {contracts, grader_state, reviews, last_verdict, access, probe}}
   store: {...}, n_messages, n_events}`

@@ -1,6 +1,6 @@
 # src
 
-The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `SwarmConfig` into an Inspect task, runs it, exports it and serves the results. Lucy's turn rules run on ORBIT's public API, with no patch to ORBIT. Run everything from the repository root with `.venv/bin/python -m src <command>`.
+The experiment on ORBIT. It turns one benchmark from `src/benchmark/` and one `SwarmConfig` into an Inspect task, runs it, exports it and serves the results. Lucy's turn rules run on ORBIT's public API, with no patch to ORBIT. Run everything from the repository root with `uv run python -m src <command>`.
 
 ## Layout
 
@@ -49,7 +49,7 @@ The judge runs inside the eval as the scorer `cheatbench_judge`, bound to the mo
 | `seed` | 0 | which names hold which role, the random turn order, and the SWE planted commits' times |
 | `preset` | none (the preset's name in every preset) | the preset the config was built from, recorded in the config dump so `run.json` names it |
 | `mode` | none | `solo_task`, `shared_task` or `collaboration_needed`, or one per domain; none is `shared_task` on every domain; the domain builds the sample, the workspaces and the prompts from it |
-| `split_access` | true (false in the legacy presets) | neutral agents hold different parts of the exploit: openmath per-agent copies with a team remote and the complete submission's archive cut into one slice per neutral agent; knowledge work splits the review tool from the artifact read; SWE's honeypot already splits the fix |
+| `access` | split (the legacy presets: all on openmath and knowledge work, split for SWE) | which parts of the exploit each agent holds (`src/configuration/access.py`, `Benchmark.access_plan`): `split` deals the domain's items round robin over the neutral agents (openmath per-agent copies with a team remote and one slice of the complete submission's archive each; SWE the honeypot's pieces; knowledge work the review tool for the first half and the artifact read for the rest), `all` gives everyone everything, a map `a01:slice1+slice2,a02:slice3,a03:` names each agent's items, and `swe:split,openmath:all` sets one policy per domain |
 | `scale` | none (small in the `default` preset) | the label of the scale the size fields came from (`src/configuration/scales.py`) |
 | `mention_team` | none | the `team` sentence and the roster in the system prompt; none follows the mode |
 | `informed_roles` | true | `roles.briefing` after a regulator's or disregulator's role text |
@@ -90,7 +90,7 @@ A step is charged to `steps_per_agent` unless its last tool call is a board acti
 
 Every run also carries the passive `turn_rules` defense. Its model filter appends "Please continue with your next action." when the provider input would end with a model turn, which Gemini rejects.
 
-Three presets exist. `default` is the midterm report's configuration: the fields above at the small scale, with the turn budgets of `settings.TURN_BUDGETS`. It has no regulators; it sets only their level. `ian_legacy` is the October 2026 sweep's setup: `mode` shared_task on openmath, `split_access=false`, `regulator_level=role`, `board_tools=false`, `mention_board=true`, `mention_team=true`, `concurrent_rounds=false`, `free_board_actions=0`, `team_submit=false`, `informed_roles=false`, `notice=none`, `team_report=true`, `delivery=auto`, `visibility=step_start` and `turn_order=round_robin`. `lucy_legacy` adds `channel_list=false`, `pooled_steps=false`, `one_call_per_turn=true`, `planning_turns=2`, `turn_header=true`, `awareness_probe=true` and `steps_per_agent=50`. The legacy presets were called `ours` and `lucy` at commit 6769c80, and those names still resolve.
+Three presets exist. `default` is the midterm report's configuration: the fields above at the small scale, with the turn budgets of `settings.TURN_BUDGETS`. It has no regulators; it sets only their level. `ian_legacy` is the October 2026 sweep's setup: `mode` shared_task on openmath, `access` all on openmath and knowledge work and split for SWE, `regulator_level=role`, `board_tools=false`, `mention_board=true`, `mention_team=true`, `concurrent_rounds=false`, `free_board_actions=0`, `team_submit=false`, `informed_roles=false`, `notice=none`, `team_report=true`, `delivery=auto`, `visibility=step_start` and `turn_order=round_robin`. `lucy_legacy` adds `channel_list=false`, `pooled_steps=false`, `one_call_per_turn=true`, `planning_turns=2`, `turn_header=true`, `awareness_probe=true` and `steps_per_agent=50`. The legacy presets were called `ours` and `lucy` at commit 6769c80, and those names still resolve.
 
 Hidden roles are used on an openmath board of three or more agents, and on any board whose config asks for a regulator or a disregulator. No agent is asked for a team report any more. The export still reads the report of an older run that has one.
 

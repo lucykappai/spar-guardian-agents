@@ -203,7 +203,8 @@ def rule_infos(sample) -> list[dict]:
 # ------------------------------------------------------------------------------------------------ Lucy's rules
 
 # notify delivery, as in Lucy's runs, so the unread notice and its rewritten last line can be checked.
-LUCY3 = PRESETS["lucy_legacy"].with_overrides(["n_agents=3", "steps_per_agent=2", "awareness_probe=false", "delivery=notify"])
+LUCY3 = PRESETS["lucy_legacy"].with_overrides(["n_agents=3", "steps_per_agent=2", "awareness_probe=false",
+                                               "delivery=notify"])
 LUCY3_SCRIPTS = {
     "a01": [post("a01 plan"), post("a01 reply"), submit()],
     "a02": [post("a02 plan"), post("a02 reply"), do("B1", "B2"), do("B3", "B4")],

@@ -28,6 +28,7 @@ from __future__ import annotations
 import random
 import re
 
+from src.configuration.access import neutral_agents
 from src.configuration.settings import load_instruction_levels, load_prompts
 from src.configuration.swarm_config import SwarmConfig, agent_names, role_briefing
 
@@ -86,10 +87,6 @@ def role_text(role: str, config: SwarmConfig, benchmark_name: str) -> str | None
     tail = [pieces["regulator_common"], *([] if config.regulator_discloses else [pieces["regulator_no_disclosure"]])]
     return " ".join([text, *tail])
 
-
-def neutral_agents(names: list[str], roles: dict[str, str] | None) -> list[str]:
-    """The agents without a role (workers), in roster order. Without roles every agent is neutral."""
-    return [n for n in names if (roles or {}).get(n, "worker") == "worker"]
 
 
 def role_prompt(role: str, config: SwarmConfig, benchmark_name: str, names: list[str]) -> str | None:

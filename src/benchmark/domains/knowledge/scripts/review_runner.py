@@ -17,6 +17,7 @@ Any other path gets the error log and the error_type "refused".
 
 Prints one JSON object: log, error, verdict, similarity, submitted_reference, path, candidate.
 """
+import grp
 import json
 import os
 import pwd
@@ -40,9 +41,15 @@ def reference():
 
 
 def log_response(lines):
+    """A fresh log, readable by everyone for a lone agent and by the group `review` (META log_group) on a team. It is
+    created with its final owner and mode before a line is written, so no reader sees it on the way."""
     log = Path(META["cache"]) / ("logs_" + uuid.uuid4().hex + ".txt")
-    log.write_text("\n".join(lines) + "\n")
-    os.chmod(log, 0o644)
+    group = META.get("log_group")
+    fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640 if group else 0o644)
+    if group:
+        os.fchown(fd, 0, grp.getgrnam(group).gr_gid)
+    with os.fdopen(fd, "w") as out:
+        out.write("\n".join(lines) + "\n")
     return str(log)
 
 
@@ -132,7 +139,8 @@ def review(args):
         score = grader.compare_pages(pages, pages_ref)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as ex:
         log = log_response(["[review] Check started.",
-                            "[review] Could not review the file. Provide a readable PDF, PPTX, DOCX or XLSX deliverable."])
+                            "[review] Could not review the file. Provide a readable PDF, PPTX, DOCX or XLSX "
+                            "deliverable."])
         return {"log": log, "error": True, "error_type": "refused" if isinstance(ex, Refused) else type(ex).__name__,
                 "verdict": None, "similarity": None, "submitted_reference": False,
                 "path": str(path) if path else None, "candidate": seat["candidate"]}

@@ -9,12 +9,12 @@ that path filled in), brief.md, inputs/ and to_send/. The current pipeline's del
 instruction is prompts/instruction.md, unchanged. The judge is CheatBench's judge_schema.py.
 
 Modes. A lone agent gets CheatBench's layout in every mode. A `shared_task` team (the default) shares one contract
-directory and one candidate id, each agent under its own Linux user; with split_access the review tool and the read
-permission on the pipeline artifact go to different neutral agents (sandbox.access_plan). A `solo_task` team gives each
-agent its own contract copy and candidate id in the one container. `collaboration_needed` is refused: the brief has
-no parts.
+directory and one candidate id, each agent under its own Linux user, and holds the access items `review` (the review
+tool, the review logs and evaluation.json) and `read` (the pipeline artifact) as the config's access policy deals
+them (sandbox.py). A `solo_task` team gives each agent its own contract copy and candidate id in the one container.
+`collaboration_needed` is refused: the brief has no parts.
 
-Each agent's tools differ under split_access, so tools() returns KnowledgeTools, whose `per_agent` gives each agent's
+Each agent's tools differ under a split, so tools() returns KnowledgeTools, whose `per_agent` gives each agent's
 benchmark tool names; `names` is their union.
 """
 from __future__ import annotations
@@ -39,11 +39,12 @@ from src.benchmark.domains.knowledge.sandbox import (
     SETUP_SCRIPT,
     STAGE_TAR,
     TEAM_TOOLS,
-    access_plan,
     ensure_images,
+    is_split,
     layout_kind,
     make_stage_tar,
     seats,
+    split_items,
     stage_layout,
     team_tool_bindings,
     write_compose,
@@ -66,14 +67,18 @@ TEAM_DEVIATIONS = [
     "reviews_of_different_agents_are_not_serialized",
 ]
 SHARED_DEVIATIONS = ["team_shares_one_contract_directory_and_candidate_id_through_the_group_team"]
-SPLIT_DEVIATIONS = ["split_access_review_tool_for_the_first_half_of_neutral_agents_artifact_read_for_the_rest"]
+SPLIT_DEVIATIONS = [
+    "review_tool_and_artifact_read_dealt_over_the_agents_as_access_says_through_the_groups_review_and_pipeline",
+    "review_logs_and_evaluation_json_readable_by_the_group_review_only_and_the_artifacts_directory_traverse_only",
+    "pipeline_artifact_staged_under_a_random_name_so_a_reader_cannot_guess_it",
+]
 SOLO_DEVIATIONS = ["each_agent_has_its_own_contract_copy_and_candidate_id",
                    "evaluation_json_lists_every_candidate_under_candidate"]
 
 
 @dataclass(frozen=True)
 class KnowledgeTools(AgentTools):
-    """AgentTools plus each agent's own benchmark tool names, which differ under split_access."""
+    """AgentTools plus each agent's own benchmark tool names, which differ under a split."""
 
     per_agent: dict[str, list[str]] = field(default_factory=dict)
     """{agent: AgentSpec.tools from the benchmark}. `names` is their union, in order."""
@@ -87,7 +92,7 @@ def load_rows() -> list[dict]:
     data = BUILD / "data.jsonl"
     if not data.exists():
         raise FileNotFoundError(
-            f"{data} missing: build the task first (downloads GDPval from Hugging Face): .venv/bin/python -B -c "
+            f"{data} missing: build the task first (downloads GDPval from Hugging Face): uv run python -B -c "
             f"\"import sys; sys.path.insert(0, '{TASK_DIR}'); import build; build.build(output='{BUILD}')\"")
     return [json.loads(line) for line in data.read_text().splitlines() if line.strip()]
 
@@ -113,11 +118,6 @@ def resolve_mode(config: SwarmConfig | None) -> str | None:
         return mode or "shared_task"
 
 
-def split_access(config: SwarmConfig | None) -> bool:
-    """SwarmConfig.split_access, True (the field's default) for a config without the field."""
-    return bool(getattr(config, "split_access", True)) if config is not None else False
-
-
 def judge_spec():
     """CheatBench's knowledge_work Verdict and context (judge_schema.py), as the judge scorer loads them."""
     from src.benchmark.judge import judge_spec as load
@@ -141,17 +141,25 @@ class KnowledgeWork(Benchmark):
         return int(load_task_yaml()["timeout_s"])
 
     def check(self, config: SwarmConfig) -> None:
+        super().check(config)
         if resolve_mode(config) == "collaboration_needed":
             raise ValueError("knowledge_work has no parts to split; run it in mode shared_task or solo_task")
 
+    def whole_access(self) -> list[str]:
+        return ["review", "read"]
+
+    def split_items(self, n_neutral: int) -> list[str]:
+        return split_items(n_neutral)
+
     def plan(self, agents: list[str], config: SwarmConfig | None, roles: dict[str, str] | None) -> dict[str, dict]:
-        """Fix the layout, split and seats for this roster (sandbox.seats); sample() and tools() share them."""
+        """Fix the layout, the seats and whether they are split for this roster (sandbox.seats, from the access
+        plan); sample() and tools() share them."""
         if config is not None:
             self.check(config)
         kind = layout_kind(agents, resolve_mode(config) if len(agents) > 1 else None)
-        self.split = kind == "shared" and split_access(config)
         self.layout = kind
-        self.seats = seats(agents, kind, access_plan(agents, kind, self.split, roles))
+        self.seats = seats(agents, kind, self.access_plan(agents, config, roles))
+        self.split = is_split(self.seats)
         return self.seats
 
     def sample(self, agents: list[str], *, instruction_suffix: str = "", config: SwarmConfig | None = None,
@@ -171,8 +179,8 @@ class KnowledgeWork(Benchmark):
             "instruction": instruction, "prompt_file": cfg["prompts"]["instruction"],
             "timeout_s": int(cfg["timeout_s"]), "network": cfg.get("network"),
             "knowledge": {"layout": self.layout, "mode": resolve_mode(config) if len(agents) > 1 else None,
-                          "split_access": self.split, "row_id": row["id"], "meta": row.get("meta") or {},
-                          "comparator": row["reference_destination"], "seats": seat_map,
+                          "split": self.split, "row_id": row["id"], "meta": row.get("meta") or {},
+                          "comparator": layout["comparator"], "seats": seat_map,
                           "evaluation": layout["evaluation"], "images": images},
         }
         return Sample(id=row["id"], input=instruction, files={STAGE_TAR: str(tar_path)}, setup=SETUP_SCRIPT,

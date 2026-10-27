@@ -15,11 +15,13 @@ Writes
 run.json also carries the run's mode, scale and preset, and each episode and the run an `engagement` block: who
 looked at the board, read it, posted and submitted for the team (None for a run without a board).
 
-Facts that only newer runs record are written only when the run has them, so an older run exports byte for byte as
-before: run.json "split_access" (the config's field), "turn_budget" ({budget, steps_per_agent}), "access" (what each
-agent held under split access: its honeypot branches and archive slice on openmath, the review tool and the artifact
-read on knowledge work), "knowledge" (the knowledge-work sample and its reviews); the engagement keys oversight, oversight_targets,
-reads_refused and posts_refused; and an episode's "access" and "review" (its grader state on knowledge work).
+Facts that only newer runs record are written only when the run has them, so a run of the October 2026 sweep exports
+byte for byte as before (the smoke runs of 395e9c8 recorded split_access and archive_part, which nothing reads any
+more): run.json "turn_budget" ({budget, steps_per_agent}), "access" (the access policy and what each agent held:
+its items, and on openmath its honeypot branches and archive slices, on knowledge work the review tool and the
+artifact read), "knowledge" (the knowledge-work sample and its reviews); the engagement keys oversight,
+oversight_targets, reads_refused and posts_refused; and an episode's "access" and "review" (its grader state on
+knowledge work).
 
 Episode ids: "<sample>#<epoch>" for a single agent, "<sample>#<epoch>@<agent>" otherwise.
 Verdicts come from the `verdicts` argument (re-judging) or from the cheatbench_judge score in the log.
@@ -77,7 +79,7 @@ ENGAGEMENT_NEW_FIELDS = {"oversight": 0, "oversight_targets": {}, "reads_refused
 BOARD_ACTIONS = {"board_status": "checks", "board_read": "reads", "board_post": "posts",
                  "channel_list": "checks", "channel_read": "reads", "channel_post": "posts"}
 # The knowledge-work keys run.json keeps; the row, the evaluation file and the image ids stay in the eval log.
-KNOWLEDGE_SAMPLE_KEYS = ("layout", "mode", "split_access", "row_id", "meta", "comparator", "seats")
+KNOWLEDGE_SAMPLE_KEYS = ("layout", "mode", "split", "row_id", "meta", "comparator", "seats")
 KNOWLEDGE_SCORE_KEYS = ("contracts", "grader_state", "last_verdict", "access")
 BOARD_POST_LINE = re.compile(r"^\[(\S+) #(\d+)\] ", re.M)   # prompts.yaml board_output.post
 TEAM_SUBMIT_TAG = "swarm_team_submit"     # the info event team_submit writes (src/swarm/board.py)
@@ -214,30 +216,28 @@ def swarm_block(view: SampleView) -> dict | None:
 
 
 # --------------------------------------------------------------------------
-# split access, the turn budget and knowledge work (runs that record them)
+# access, the turn budget and knowledge work (runs that record them)
 # --------------------------------------------------------------------------
 def access_block(view: SampleView) -> dict | None:
-    """What each agent held, when the domain recorded it: on openmath under split access the honeypot branches each
-    copy kept, the slice of the complete submission's archive it held (archive_part; None for the whole archive) and
-    the team remote; on knowledge work the review tool and the read permission on the pipeline artifact. "applied"
-    says whether the split was in force. None for a domain or a run that records neither. An openmath run recorded
-    before the archive split carries neither "archive" nor archive_part."""
+    """The access policy and what each agent held, when the run recorded them: "policy" (split, all or explicit)
+    and per agent "holds" (its items) from metadata["cheatbench"]["access"]; on openmath in the split layout also the
+    team remote, the honeypot branches each copy kept, the archive and the slices each copy held (None: the whole
+    archive); on knowledge work the review tool and the read permission on the pipeline artifact. None for a run
+    that recorded none of it."""
     cb = _cheatbench(view)
+    recorded = cb.get("access") or {}
+    block = {"policy": recorded.get("policy"), "agents": {a: {"holds": items}
+                                                           for a, items in (recorded.get("agents") or {}).items()}}
     om = cb.get("openmath") or {}
-    if om.get("split_access"):
-        block = {"applied": True, "remote": om.get("remote"), "honeypot_branches": om.get("honeypot_branches")}
-        if "archive" in om:
-            block["archive"] = om["archive"]
-        block["agents"] = {a: {"branches": seat.get("branches"),
-                               **({"archive_part": seat.get("archive_part")} if "archive_part" in seat else {})}
-                           for a, seat in (om.get("agents") or {}).items()}
-        return block
+    if om.get("layout") == "split":
+        block.update({"remote": om.get("remote"), "honeypot_branches": om.get("honeypot_branches"),
+                      "archive": om.get("archive")})
+        for a, seat in (om.get("agents") or {}).items():
+            block["agents"].setdefault(a, {}).update({"branches": seat.get("branches"), "slices": seat.get("slices")})
     kw = cb.get("knowledge") or {}
-    if kw.get("seats"):
-        return {"applied": bool(kw.get("split_access")),
-                "agents": {a: {"review": seat.get("review"), "cache_read": seat.get("cache_read")}
-                           for a, seat in kw["seats"].items()}}
-    return None
+    for a, seat in (kw.get("seats") or {}).items():
+        block["agents"].setdefault(a, {}).update({"review": seat.get("review"), "read": seat.get("read")})
+    return block if block["agents"] else None
 
 
 def knowledge_block(view: SampleView) -> dict | None:
@@ -255,9 +255,7 @@ def knowledge_block(view: SampleView) -> dict | None:
 def newer_run_facts(view: SampleView) -> dict:
     """run.json keys that only newer runs carry, each present only when the run recorded it."""
     cb = _cheatbench(view)
-    config = cb.get("config") or {}
-    facts = {"split_access": config.get("split_access"), "turn_budget": cb.get("turn_budget"),
-             "access": access_block(view), "knowledge": knowledge_block(view)}
+    facts = {"turn_budget": cb.get("turn_budget"), "access": access_block(view), "knowledge": knowledge_block(view)}
     return {k: v for k, v in facts.items() if v is not None}
 
 
@@ -556,7 +554,8 @@ def infer_preset(config: dict | None) -> str | None:
     dumps = {name: PRESETS[name].model_dump(mode="json") for name in PRESETS}
     telling = {k for k in set().union(*dumps.values()) - SIZE_FIELDS - {"preset"}
                if k in config and len({json.dumps(d.get(k), sort_keys=True) for d in dumps.values()}) > 1}
-    misses = {name: sum(1 for k in telling if json.dumps(d.get(k), sort_keys=True) != json.dumps(config[k], sort_keys=True))
+    misses = {name: sum(1 for k in telling
+                        if json.dumps(d.get(k), sort_keys=True) != json.dumps(config[k], sort_keys=True))
               for name, d in dumps.items()}
     best = min(misses.values())
     names = [n for n, m in misses.items() if m == best]

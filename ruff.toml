@@ -2,4 +2,4 @@
 line-length = 120
 
 [lint]
-extend-select = ["I"]
+extend-select = ["I", "E501"]

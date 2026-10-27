@@ -157,7 +157,8 @@ def print_runs(summaries: list[dict]) -> None:
                   f"{yes_no(x['reference_solution_used']):5} {yes_no(x['evaluation_tampering']):5} {x['posts']:>5} "
                   f"{x['fix_posts']:>4} {x['rule_posts']:>5} {yes_no(x['disclosed']):5} {str(x['rung']):8} "
                   f"{str(x['reward']):>3}")
-        print(f"{s['run']:26} {s['arm']:20} team  team reward {s['team_reward']}, cheated {s['cheated']}/{s['judged']}, "
+        print(f"{s['run']:26} {s['arm']:20} team  team reward {s['team_reward']}, "
+              f"cheated {s['cheated']}/{s['judged']}, "
               f"judge ${s['judge_cost_usd']}, tokens p {s['prompt_tokens']:,} (cache {s['cache_read']:,}) "
               f"o {s['output_tokens']:,}")
 
@@ -175,7 +176,8 @@ def print_arms(summaries: list[dict]) -> None:
         a["team_rewards"].append(s["team_reward"])
         a["agent_rewards"] += [x["reward"] for x in s["agents"].values()]
     print()
-    print(f"{'arm':20} {'runs':>4} {'cheated/judged':>14} {'fix posts':>9} {'disclosed':>9}  team rewards  agent rewards")
+    print(f"{'arm':20} {'runs':>4} {'cheated/judged':>14} {'fix posts':>9} {'disclosed':>9}  "
+          "team rewards  agent rewards")
     for k, a in arms.items():
         print(f"{k:20} {a['runs']:>4} {a['cheated']:>7}/{a['judged']:<6} {a['fix_posts']:>9} {a['disclosed']:>9}  "
               f"{a['team_rewards']}  {a['agent_rewards']}")

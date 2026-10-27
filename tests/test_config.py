@@ -47,7 +47,7 @@ def test_defaults_and_properties():
         (True, False, None, "counts", True)
     assert (c.informed_roles, c.team_submit, c.batch_judge, c.mode, c.scale) == (True, None, True, None, None)
     assert (c.rule_level, c.regulator_level, c.disregulator_level) == ("none", "ambiguous", "persuade")
-    assert (c.regulator_discloses, c.split_access, c.free_board_actions_regulator) == (False, True, 10)
+    assert (c.regulator_discloses, c.access, c.free_board_actions_regulator) == (False, "split", 10)
     assert (c.reads_per_turn, c.posts_per_turn, c.turn_budget) == (None, None, None)
     assert (c.max_message_chars, c.max_context_chars, c.max_inbox_messages, c.read_tool) == (4000, 16000, 10, True)
     assert not c.board and c.names == ["a01"] and c.max_turns == 60 * 3
@@ -66,7 +66,7 @@ def test_presets():
     assert PRESETS["default"].notice == "counts" and PRESETS["default"].team_report is False
     # The default preset is the midterm report: the ambiguous regulator, not disclosing, split access, budgets.
     default = PRESETS["default"]
-    assert (default.regulator_level, default.regulator_discloses, default.split_access) == ("ambiguous", False, True)
+    assert (default.regulator_level, default.regulator_discloses, default.access) == ("ambiguous", False, "split")
     assert (default.reads_per_turn, default.posts_per_turn, default.free_board_actions_regulator) == (5, 2, 10)
     assert default.turn_budget == {"openmath": 55, "swe": 150, "knowledge_work": None} == settings.TURN_BUDGETS
     # Each preset records its name, and build_config keeps it through the scale and every --set.
@@ -85,7 +85,8 @@ def test_presets():
         assert legacy.resolve_mode("swe") == "collaboration_needed"
         assert legacy.team_report is True
         # Every mechanism of the midterm report is off: the role level, no split access, no budgets.
-        assert (legacy.regulator_level, legacy.split_access, legacy.turn_budget) == ("role", False, None)
+        assert (legacy.regulator_level, legacy.turn_budget) == ("role", None)
+        assert [legacy.resolve_access(d) for d in ("openmath", "swe", "knowledge_work")] == ["all", "split", "all"]
         assert (legacy.reads_per_turn, legacy.posts_per_turn, legacy.regulator_free_actions) == (None, None, 0)
     lucy = PRESETS["lucy_legacy"]
     board = (lucy.delivery, lucy.channel_list, lucy.pooled_steps, lucy.one_call_per_turn)
@@ -515,7 +516,8 @@ def test_prompt_and_control_files_have_the_contract_sections():
     for key in ("system_team", "system_shared", "board_paragraph", "board_tool_line", "team_submit_line",
                 "part_shared_with", "roster_line_shared"):
         assert key in prompts["swe"], key
-    assert len(prompts["planning"]["team"]) == len(prompts["planning"]["board"]) == len(prompts["planning"]["solo"]) == 2
+    planning = prompts["planning"]
+    assert len(planning["team"]) == len(planning["board"]) == len(planning["solo"]) == 2
     controls = settings.load_controls()
     assert controls["criteria"]["openmath"].startswith("This agent works in a shared research repository.")
     assert len(controls["patterns"]["openmath"]) == 6 and len(controls["patterns"]["openmath_hard"]) == 7
@@ -718,6 +720,7 @@ def _old_fields_only(new: dict, old: dict) -> dict:
     new = json.loads(json.dumps(new))
     cb_new, cb_old = new["metadata"]["cheatbench"], old["metadata"]["cheatbench"]
     cb_new["config"] = {k: cb_new["config"].get(k) for k in cb_old["config"]}
+    cb_new.pop("access")                            # new since the access policy; test_access.py checks it
     for d_new, d_old in zip(new["metadata"]["experiment"]["defenses"], old["metadata"]["experiment"]["defenses"]):
         if d_old.get("name") == "turn_rules" and d_new.get("name") == "turn_rules":
             d_new["config"] = {k: d_new["config"].get(k) for k in d_old["config"]}

@@ -8,9 +8,9 @@ budget's steps per agent from a lone run.
 A run calls inspect_ai.eval with the task from tasks.py, writes its log under logs/<kind>/<name>/, exports it to
 runs/<name>/ with src/benchmark/export.py and prints one line per episode. CheatBench's judge runs inside the eval as a
 scorer, bound to the model role "judge". With batch_judge the judge's calls use the provider's batch API, and with
-batch_agents so do the agents' calls (Inspect GenerateConfig.batch). Re-judging reads a finished log, judges every agent again with
-src/benchmark/judge.py and exports the log with the new verdicts. A refused precondition prints its reason to stderr,
-and the command returns the exit code the command line passes on.
+batch_agents so do the agents' calls (Inspect GenerateConfig.batch). Re-judging reads a finished log, judges every agent
+again with src/benchmark/judge.py and exports the log with the new verdicts. A refused precondition prints its reason
+to stderr, and the command returns the exit code the command line passes on.
 """
 from __future__ import annotations
 
@@ -123,9 +123,10 @@ def has_incomplete_episode(episodes: Path) -> bool:
     return False
 
 
-def export(eval_log: Path, run_name: str, verdicts: dict | None = None) -> Path:
-    """Write runs/<run_name>/ from the log and print what was written."""
-    run_dir = settings.RUNS / run_name
+def export(eval_log: Path, run_name: str, verdicts: dict | None = None, run_dir: Path | None = None) -> Path:
+    """Write the run directory (runs/<run_name>/ unless run_dir names another) from the log and print what was
+    written."""
+    run_dir = run_dir or settings.RUNS / run_name
     print(f"== export {eval_log} -> {run_dir}", flush=True)
     print(json.dumps(write_run(eval_log, run_dir, verdicts=verdicts), indent=1), flush=True)
     episodes = run_dir / "episodes.jsonl"
@@ -134,9 +135,18 @@ def export(eval_log: Path, run_name: str, verdicts: dict | None = None) -> Path:
     return run_dir
 
 
+def access_line(task) -> str:
+    """One line on what each agent holds, from the sample's recorded access plan."""
+    access = task.dataset[0].metadata["cheatbench"]["access"]
+    held = ", ".join(f"{agent} {'+'.join(items) or 'nothing'}" for agent, items in access["agents"].items())
+    return f"== access {access['policy']}: {held}"
+
+
 @command
-def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | None) -> int:
-    """Run one task, export it to runs/<name>/ and print the summary. Returns 0, or 3 when the eval did not succeed."""
+def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | None,
+        run_dir: Path | None = None) -> int:
+    """Run one task, export it to run_dir (runs/<name>/ by default) and print the summary. Returns 0, or 3 when the
+    eval did not succeed."""
     require_provider_key(model)
     require_judge_key(config.judge, 1)
     provider_retry.install()
@@ -144,11 +154,12 @@ def run(name: str, benchmark, config: SwarmConfig, model: str, timeout: int | No
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"== eval {benchmark.name} n_agents={config.n_agents} control={config.control} -> {log_dir}", flush=True)
     task = swarm_task(benchmark, config, name=name)
+    print(access_line(task), flush=True)
     [log] = inspect_ai.eval(task, model=model, log_dir=str(log_dir), display="plain", timeout=timeout,
                             model_roles={"judge": judge_role_model(config)}, **agent_generate_config(config))
     if not log.samples and not Path(log.location).exists():
         raise Refusal("no eval log written", 3)
-    run_dir = export(Path(log.location), name)
+    run_dir = export(Path(log.location), name, run_dir=run_dir)
     summary.main([str(run_dir)])
     return 0 if log.status == "success" else 3
 

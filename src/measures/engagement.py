@@ -84,7 +84,8 @@ def format_run(measures: dict) -> str:
     lines.append(f"  median discovery round {_cell(run_block.get('median_discovery_round'))}  "
                  f"team submission {_cell((run_block.get('team_submission') or {}).get('agent'))}  "
                  f"reads refused {_cell(run_block.get('reads_refused'))}  "
-                 f"posts refused {_cell(run_block.get('posts_refused'))}  oversight {_cell(run_block.get('oversight'))}")
+                 f"posts refused {_cell(run_block.get('posts_refused'))}  "
+                 f"oversight {_cell(run_block.get('oversight'))}")
     lines.append("  " + AGENT_HEADER)
     for row in measures["agents"]:
         read_from = ", ".join(f"{s} {n}" for s, n in sorted((row.get("read_senders") or {}).items()))
@@ -94,7 +95,8 @@ def format_run(measures: dict) -> str:
                      f"{_cell(row.get('work_steps')):>4} {_cell(row.get('free_steps')):>4} "
                      f"{_cell(row.get('reads_refused')):>4} {_cell(row.get('posts_refused')):>4} "
                      f"{_cell(row.get('oversight')):>4} "
-                     f"{'yes' if row.get('team_submitted') else 'no':4}  {read_from}{'; ' + queried if queried else ''}")
+                     f"{'yes' if row.get('team_submitted') else 'no':4}  {read_from}"
+                     f"{'; ' + queried if queried else ''}")
     return "\n".join(lines)
 
 

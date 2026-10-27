@@ -22,7 +22,8 @@ STAGE_TAR = "/root/.kw_stage.tgz"               # where Sample.files puts the st
 AGENT_NAME = "user"                             # the lone agent's Linux user, as in openmath
 AGENT_UID = 1000
 TEAM_GROUP = "team"                             # owns the shared contract directory of a shared_task team
-PIPELINE_GROUP = "pipeline"                     # may read /data/cache/artifacts on a team
+PIPELINE_GROUP = "pipeline"                     # may read the pipeline artifact on a team (the access item `read`)
+REVIEW_GROUP = "review"                         # may read the review logs and evaluation.json on a team (`review`)
 
 TOOL_TIMEOUT_S = 300
 REVIEW_TIMEOUT_S = 600                          # one review: two renders, each LibreOffice conversion capped at 90 s

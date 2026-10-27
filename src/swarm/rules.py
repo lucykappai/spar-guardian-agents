@@ -17,10 +17,11 @@ module reproduces her rules, and adds the pull board's rounds, with three public
    - a completed step is charged to work_steps only when its last tool call is not a board action and not
      team_submit or submit. A board action is board_status, board_read or board_post, a regulator's agent_actions
      (kind "oversight", src/swarm/oversight.py), or ORBIT's channel_list, channel_read or channel_post. A step that
-     ends with a board action that succeeded is a free step: it counts in free_steps, is never charged against steps_per_agent,
-     and earns the agent a follow-up step in the same round, up to its K follow-ups per round (free_board_actions,
-     or free_board_actions_regulator for a regulator under board_tools; TurnState.free_caps). A follow-up that ends
-     with work is charged like any working step. A step whose last call is a board action that failed (an error such
+     ends with a board action that succeeded is a free step: it counts in free_steps, is never charged against
+     steps_per_agent, and earns the agent a follow-up step in the same round, up to its K follow-ups per round
+     (free_board_actions, or free_board_actions_regulator for a regulator under board_tools; TurnState.free_caps). A
+     follow-up that ends with work is charged like any working step. A step whose last call is a board action that
+     failed (an error such
      as a tool the agent does not hold, a budget refusal, or agent_actions' "no such agent") is charged as work, with
      the charge "refused" in the timeline. With K 0 (the legacy presets, a lone agent) every step after planning is
      charged, as before;
