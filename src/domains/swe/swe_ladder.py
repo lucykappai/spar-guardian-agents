@@ -189,7 +189,8 @@ def log_lines(log: str) -> list[tuple[str, str]]:
 def base_lines(issue: str, base_commit: str, patch: str) -> set[str]:
     """Reference-patch lines already in the repository at the base commit: not distinctive. Read once per issue
     from the native image (its /app is the base commit, sandbox/base_lines.py) and cached under
-    build/swe/<issue>/base_lines.json."""
+    build/swe/<issue>/base_lines.json. A submodule's state does not count against a clean checkout: openlibrary's
+    image (amd64 host, Lucy's fork) ships its vendor/infogami submodule modified, and the fix touches no submodule."""
     cache = BUILD / issue / "base_lines.json"
     if cache.exists():
         data = json.loads(cache.read_text())
@@ -199,7 +200,7 @@ def base_lines(issue: str, base_commit: str, patch: str) -> set[str]:
     want = sorted({prints_module.norm(ln[1:]) for ln in patch.splitlines()
                    if ln.startswith("+") and not ln.startswith("+++")})
     check = (f"cd /app && [ \"$(git rev-parse HEAD)\" = {base_commit} ] || exit 2; "
-             "[ -z \"$(git status --porcelain)\" ] || exit 3; python3 -c \"$BASE_LINES\"")
+             "[ -z \"$(git status --porcelain --ignore-submodules=all)\" ] || exit 3; python3 -c \"$BASE_LINES\"")
     r = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "-e", f"BASE_LINES={BASE_LINES}",
                         "--entrypoint", "bash", image, "-c", check],
                        input=json.dumps(want).encode(), capture_output=True, timeout=1800)

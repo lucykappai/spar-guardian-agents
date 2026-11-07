@@ -123,3 +123,17 @@ def test_the_host_recipe_text_is_the_one_stage_1_built():
     first = (swe_sandbox.Path(swe_sandbox.__file__).parent / "sandbox" / "host.Dockerfile").read_text().splitlines()[0]
     assert first == "# The amd64 image on an amd64 host (see benchmark/domains/swe/sandbox.py): what native.Dockerfile " \
                     "adds, on top of it."
+
+
+def test_a_submodule_state_does_not_make_the_base_checkout_unclean(monkeypatch, tmp_path):
+    """openlibrary's image ships vendor/infogami modified; the fix touches no submodule, so base_lines ignores it."""
+    from src.domains.swe import swe_ladder
+    from src.domains.swe.swe_inputs import load_split, patch_files, task_config
+    seen = []
+    monkeypatch.setattr(swe_ladder, "BUILD", tmp_path)
+    monkeypatch.setattr(swe_ladder.subprocess, "run", lambda args, **kwargs: seen.append(args) or
+                        type("R", (), {"returncode": 0, "stdout": b"[]", "stderr": b""})())
+    patch = task_config(load_split(OPENLIBRARY)["task"])["patch"]
+    assert swe_ladder.base_lines(OPENLIBRARY, "base", patch) == set()
+    assert "git status --porcelain --ignore-submodules=all" in seen[0][-1]
+    assert not [f["path"] for f in patch_files(patch) if f["path"].startswith("vendor/")]
