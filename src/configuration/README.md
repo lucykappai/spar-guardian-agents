@@ -69,6 +69,6 @@ The models we can consider for the agents and the judge live in `src/models/mode
 | `batch_agents`, `batch_judge` | false, true | `GenerateConfig(batch=True)` for the agents' model (from the scale) and for the model bound to the judge role |
 | `reasoning_effort`, `tool_output_bytes` | none, none | the agents' `GenerateConfig` `reasoning_effort` and `max_tool_output`; none takes the provider's default effort and Inspect's 16 KiB |
 | `worker_model`, `regulator_model`, `disregulator_model` | none | a role's own model as `AgentSpec.model` `swarm/<model>`, stored as an Inspect string; none runs the eval's model |
-| `judge`, `judge_addendum` | gpt-6-luna, false | the judge entry in `src/judging/judge_models.yaml` (`gpt-6-sol` is the reference judge, `claude-haiku-5-5` the cheapest of another family; none: no judge), and Lucy's judge addendum appended to the schema |
+| `judge`, `judge_addendum` | gpt-6-luna, false | the judge entry in `src/judging/judge_models.yaml` (`gpt-6-sol` is the reference judge, `claude-haiku-5-5` the cheapest of another family; none: no judge), and Lucy's judge addendum appended to the schema (`orbit` or true, `guardian`; `gpt-6-luna-openrouter` judges through OpenRouter with batch_judge off) |
 
 The top-level README's sections on the pull board and on submit say how a step is charged and how a run ends.

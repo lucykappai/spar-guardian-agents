@@ -270,7 +270,7 @@ async def _judge_views(views: list[SampleView], judge: judging.Judge) -> dict[st
     verdicts = {}
     for view in views:
         cb = view.metadata["cheatbench"]
-        addendum = judging.JUDGE_ADDENDUM if (cb.get("config") or {}).get("judge_addendum") else None
+        addendum = judging.judge_addendum_path((cb.get("config") or {}).get("judge_addendum"))
         spec = judging.judge_spec(BY_TASK[cb["task"]].task_dir, cb["task"], addendum=addendum)
         by_agent = await judging.judge_sample(view, spec, judge)
         verdicts |= {episode_id(view, agent): verdict for agent, verdict in by_agent.items()}

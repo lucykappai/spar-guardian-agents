@@ -17,3 +17,12 @@ claude-haiku-5-5:
   model: anthropic/claude-haiku-5-5
   api_key_env: ANTHROPIC_API_KEY
   generation_config: {}
+# Luna through OpenRouter, for Lucy's guardian baseline, whose one key is OpenRouter's: the same model and effort as
+# gpt-6-luna (Lucy's fork named it gpt-6-luna; her CheatBench and ORBIT runs judge with it). Judge with batch_judge off
+# (--set judge=gpt-6-luna-openrouter --set batch_judge=false): OpenRouter has no batch API behind Inspect's batch
+# setting. response_schema gives its schema a description, which OpenRouter needs.
+gpt-6-luna-openrouter:
+  model: openrouter/openai/gpt-6-luna
+  api_key_env: OPENROUTER_API_KEY
+  generation_config:
+    reasoning_effort: high

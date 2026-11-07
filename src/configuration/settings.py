@@ -56,7 +56,9 @@ HARD_TIME_GRACE_S = 600
 INCOMPLETE_FAILURES = ("harness", "connection_closed")
 
 # The submodule commits this code was written against. Task construction refuses any other head.
-EXPECTED_SUBMODULE_HEADS = {"cheatbench": "4d1a825", "orbit": "588b303", "lucy": "68a1199"}
+# lucy moved from 68a1199 to 9dcd0ec on Lucy's fork (guardian4): experiments/orbit_cheatbench (splits, pieces, ORBIT
+# addendum) and experiments/guardian_baseline/judge_addendum.py are byte for byte the same in both.
+EXPECTED_SUBMODULE_HEADS = {"cheatbench": "4d1a825", "orbit": "588b303", "lucy": "9dcd0ec"}
 
 
 @functools.cache

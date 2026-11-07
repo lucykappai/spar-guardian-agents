@@ -398,8 +398,10 @@ def test_a_vuls_sample_builds_on_its_own_issue(config, monkeypatch, tmp_path):
 
 
 def test_the_native_recipe_takes_vuls_from_its_own_image(monkeypatch, tmp_path):
-    """The recipe is the same text as flipt's, filled from the image; what the image holds stays unread here."""
+    """The recipe is the same text as flipt's, filled from the image; what the image holds stays unread here. On an
+    arm64 host, as this test asserts the arm64 rebuild (an amd64 host layers host.Dockerfile instead)."""
     monkeypatch.setattr(swe_sandbox, "BUILD", tmp_path)
+    monkeypatch.setattr(swe_sandbox, "AMD64_HOST", False)
     built = []
     monkeypatch.setattr(swe_sandbox, "image_id", lambda tag: f"id-{tag}")
     monkeypatch.setattr(swe_sandbox, "image_labels", lambda tag: {})

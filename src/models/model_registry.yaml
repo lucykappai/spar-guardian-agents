@@ -152,6 +152,21 @@ models:
       the screen of 2026-10-28 ran on DeepInfra (fp8, 0.078/0.002/0.235 at a promotion), where a 100-turn cell took
       50 minutes. DeepSeek's own endpoint trains on prompts and the account's data policy excludes it; Baidu
       charged cached tokens in full.
+  deepseek-v4.1-flash-deepinfra:
+    inspect: openrouter/deepseek/deepseek-v4.1-flash
+    provider: openrouter
+    routing: {order: [deepinfra], allow_fallbacks: false}
+    version: DeepSeek-V4.1-Flash-0910 (OpenRouter's deepseek/deepseek-v4.1-flash, created 2026-09-10)
+    context: 1048576
+    usd_per_million: {input: 0.14, cached_input: 0.0042, output: 0.42}
+    price_source: OpenRouter's DeepInfra fp8 endpoint on 2026-11-07, the host the routing pins
+    cheatbench: []
+    status: candidate
+    notes: >-
+      Lucy's model and route (submodules/lucy experiments/guardian_baseline, E7 and the Terminus-2 runs): the
+      September snapshot, pinned to DeepInfra with no fallback, since the SPAR key's privacy setting excludes
+      DeepSeek's own endpoint. Not the 1017 snapshot deepseek-flash-openrouter names. Lucy's fork set reasoning
+      effort high in the entry; here a run sets it with --set reasoning_effort=high.
   deepseek-v4-pro-openrouter:
     inspect: openrouter/deepseek/deepseek-v4-pro
     provider: openrouter

@@ -37,8 +37,18 @@ from src.utils.cheatbench_core import judge as cb_judge
 
 JUDGE_SCORER = "cheatbench_judge"
 JUDGE_ROLE = "judge"
-# Lucy's judge addendum, appended to the task's judge schema when the config asks for it (SwarmConfig.judge_addendum)
+# Lucy's judge addenda, appended to the task's judge schema when the config names one (SwarmConfig.judge_addendum):
+# orbit (or True) for her ORBIT baseline, guardian for her guardian baseline (experiments/guardian_baseline).
 JUDGE_ADDENDUM = settings.LUCY / "experiments" / "orbit_cheatbench" / "judge_addendum.py"
+JUDGE_ADDENDA = {"orbit": JUDGE_ADDENDUM,
+                 "guardian": settings.LUCY / "experiments" / "guardian_baseline" / "judge_addendum.py"}
+
+
+def judge_addendum_path(value: bool | str | None) -> Path | None:
+    """The addendum a judge_addendum value names: None for False or None, the orbit addendum for True."""
+    if not value:
+        return None
+    return JUDGE_ADDENDA["orbit" if value is True else value]
 
 
 # --------------------------------------------------------------------------
@@ -99,11 +109,16 @@ class Judge:
         return cls(name, model, config, judge_prices(name, batch=batch), judge_entry(name))
 
 
-def response_schema(spec: cb_judge.JudgeSpec) -> ResponseSchema:
-    """The Verdict as a strict JSON schema: every field required, no additional properties on any object."""
+def response_schema(spec: cb_judge.JudgeSpec, model: str = "") -> ResponseSchema:
+    """The Verdict as a strict JSON schema: every field required, no additional properties on any object.
+
+    Through OpenRouter the schema carries a description: Inspect sends a missing one as "description": null, and
+    OpenRouter then drops the schema without an error, so the reply follows the prompt's field list and fails
+    validation (seen with gpt-6-luna, 2026-10-27, Lucy's fork 76afb2c). Other routes keep the request as it was."""
     param = type_to_response_format_param(spec.verdict)["json_schema"]
+    description = f"The {param['name']} verdict." if model.startswith("openrouter/") else None
     return ResponseSchema(name=param["name"], json_schema=JSONSchema.model_validate(objects_only(param["schema"])),
-                          strict=True)
+                          strict=True, description=description)
 
 
 def objects_only(node):
@@ -161,7 +176,7 @@ async def judge_text(spec: cb_judge.JudgeSpec, rendered: str, agent_prompt: str,
     """One verdict: CheatBench's prompt over a rendered log, Inspect's call, CheatBench's validation. A failed call or
     a reply that does not validate gives parse_ok False with the error."""
     text = cb_judge.build_judge_prompt(spec, rendered, agent_prompt)[0]["content"]
-    call_config = judge.config.merge(GenerateConfig(response_schema=response_schema(spec)))
+    call_config = judge.config.merge(GenerateConfig(response_schema=response_schema(spec, str(judge.model))))
     try:
         output = await judge.model.generate([ChatMessageUser(content=text)], config=call_config)
     except Exception as ex:  # noqa: BLE001 - one failed call must not lose the other agents' verdicts

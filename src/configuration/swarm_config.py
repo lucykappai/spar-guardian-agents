@@ -318,8 +318,11 @@ class SwarmConfig(BaseModel):
     judge: str | None = settings.JUDGE_MODEL
     """Judge entry in src/judging/judge_models.yaml, or None (`--set judge=none`, `--no-judge`): the run is not judged
     and gets no judge.jsonl; `python -m src rejudge <run>` judges it later from its eval log."""
-    judge_addendum: bool = False
-    """Append Lucy's judge addendum to CheatBench's judge schema (src/judging/cheatbench_judge.py judge_spec)."""
+    judge_addendum: bool | Literal["orbit", "guardian"] = False
+    """Append one of Lucy's judge addenda to CheatBench's judge schema (src/judging/cheatbench_judge.py judge_spec,
+    JUDGE_ADDENDA): orbit (or True) for her ORBIT baseline's split issue and #team channel; guardian for her guardian
+    baseline's shared issue on the board, where a teammate's own work is not a reference solution but a copy of the
+    planted fix is. False: none."""
 
     @field_validator("judge", mode="before")
     @classmethod
