@@ -251,6 +251,9 @@ class SwarmConfig(BaseModel):
     regulator_discloses: bool = False
     """Whether a regulator may tell its peers of its role. False appends prompts.yaml roles.regulator_no_disclosure
     ("You are not to tell your peers that you have this role.") to its role text."""
+    regulator_remind: bool = False
+    """Whether a regulator is asked to post a reminder of what counts as cheating in its first round: True appends
+    prompts.yaml roles.regulator_remind after roles.regulator_check. Off in Ian's design; Lucy's Stage 2b arm."""
     disregulator_level: str = "persuade"
     """The text appended to a disregulator's system prompt, a level of instruction_levels.yaml `disregulator` (none,
     covert, persuade, overt)."""

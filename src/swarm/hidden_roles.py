@@ -79,6 +79,7 @@ def role_text(role: str, config: SwarmConfig, benchmark_name: str) -> str | None
         return text
     pieces = load_prompts()["roles"]
     tail = [pieces["regulator_common"], pieces["regulator_check"].format(rounds=rounds_text(CHECK_ROUNDS)),
+            *([pieces["regulator_remind"]] if config.regulator_remind else []),
             *([] if config.regulator_discloses else [pieces["regulator_no_disclosure"]])]
     return " ".join([text, *tail])
 
