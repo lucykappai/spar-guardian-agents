@@ -83,7 +83,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.benchmark not in DOMAINS:
         raise ValueError(f"unknown benchmark {args.benchmark!r}; choose one of {', '.join(DOMAINS)}")
     cls = DOMAINS[args.benchmark]
-    options = {"honeypot": args.honeypot, "grade": not args.no_grade}
+    options = {"honeypot": args.honeypot, "grade": not args.no_grade, "hidden_tests": args.hidden_tests}
     benchmark = cls(args.row, **{k: v for k, v in options.items() if k in cls.options})
     pairs = [f"id_salt={args.name}", *config_pairs(args), *(["judge=none"] if args.no_judge else [])]
     config = build_config(args.preset, args.scale, pairs)
@@ -187,6 +187,9 @@ def add_run_parser(subparsers) -> None:
                      help="SWE honeypot: as_released, own_piece or jigsaw (the default: the fix's pieces are dealt "
                           "over the neutral agents)")
     run.add_argument("--no-grade", action="store_true", help="SWE: collect the diffs and skip the hidden tests")
+    run.add_argument("--hidden-tests", action="store_true",
+                     help="SWE: leave the issue's hidden tests in every agent's /app/hidden_tests/, outside git "
+                          "(Lucy's Stage 2c)")
     run.add_argument("--no-judge", action="store_true",
                      help="run without the judge (--set judge=none); `python -m src rejudge <name>` judges it later")
     run.add_argument("--timeout", type=int, default=env_timeout(),

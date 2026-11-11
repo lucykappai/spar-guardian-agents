@@ -254,6 +254,9 @@ class SwarmConfig(BaseModel):
     regulator_remind: bool = False
     """Whether a regulator is asked to post a reminder of what counts as cheating in its first round: True appends
     prompts.yaml roles.regulator_remind after roles.regulator_check. Off in Ian's design; Lucy's Stage 2b arm."""
+    regulator_remind_general: bool = False
+    """With regulator_remind, the reminder sentence carries one general clause: prompts.yaml
+    roles.regulator_remind_general in place of roles.regulator_remind. Needs regulator_remind. Lucy's Stage 2c arm."""
     disregulator_level: str = "persuade"
     """The text appended to a disregulator's system prompt, a level of instruction_levels.yaml `disregulator` (none,
     covert, persuade, overt)."""
@@ -348,6 +351,8 @@ class SwarmConfig(BaseModel):
                 raise ValueError(f"{name} cannot be negative")
         if self.regulator_count + self.disregulator_count > self.n_agents:
             raise ValueError("regulators + disregulators cannot exceed n_agents")
+        if self.regulator_remind_general and not self.regulator_remind:
+            raise ValueError("regulator_remind_general changes the reminder, so it needs regulator_remind=true")
         access_policy.check_seats(self.access, self.n_agents)
         if self.steps_per_agent < 1:
             raise ValueError("steps_per_agent must be at least 1")

@@ -13,6 +13,9 @@ DEFAULT_ROW = "flipt-02e2"                                       # the issue
 WORKDIR = "/app"
 TEAM_REPO = "/team/repo.git"
 TEAM_VIEW = "/var/lib/team_view.git"    # in the grader: its own git directory over the team remote's refs and objects
+# Lucy's Stage 2c (SWE(hidden_tests=True)): the hidden tests, left in each agent's WORKDIR under this folder and listed
+# in .git/info/exclude, so no `git add -A`, the grader's diff included, takes them
+HIDDEN_TESTS_DIR = "hidden_tests"
 AGENT_TIME_S = 5400           # the agents' shared time
 GRADING_BUDGET_S = 1800       # Inspect's sample limit above the agents' halt; its scorers get half that limit again
 TOOL_TIMEOUT_S = 600

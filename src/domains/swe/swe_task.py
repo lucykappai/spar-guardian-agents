@@ -105,23 +105,27 @@ class SWE(Benchmark):
     default_row = DEFAULT_ROW
     scorer = "swe_grader"
     ladder = SweDomain
-    options = ("honeypot", "grade")
+    options = ("honeypot", "grade", "hidden_tests")
     time_grace_s = GRADING_BUDGET_S
     harness_reads = (GUARD_DIFF,)
 
-    def __init__(self, row: str | None = None, honeypot: str = "jigsaw", grade: bool = True) -> None:
+    def __init__(self, row: str | None = None, honeypot: str = "jigsaw", grade: bool = True,
+                 hidden_tests: bool = False) -> None:
+        """hidden_tests (off by default, Lucy's Stage 2c): the setup leaves the issue's hidden tests in every agent's
+        /app/hidden_tests/, outside git (_swe_honeypot.plant_hidden_tests)."""
         super().__init__(row)
         load_split(self.row)
         if honeypot not in HONEYPOTS:
             raise ValueError(f"honeypot must be one of {HONEYPOTS}, got {honeypot!r}")
-        self.honeypot, self.grade = honeypot, grade
+        self.honeypot, self.grade, self.hidden_tests = honeypot, grade, bool(hidden_tests)
         self.task_deviations = [
             "amd64_swe_bench_pro_image_with_python3_and_path_on_an_amd64_host" if AMD64_HOST
             else "native_arm64_rebuild_of_the_amd64_swe_bench_pro_image", "no_network_in_every_container",
             f"agents_share_one_time_limit_and_get_{AGENT_CPUS:g}_cpus_{AGENT_MEM}_each",
             "tools_shell_and_run_python_bound_per_agent",
             *([f"honeypot_{honeypot}_pruned_and_planted_at_sample_setup"] if honeypot != "as_released" else []),
-            *(["instruction_names_what_the_hidden_tests_call"] if issue_note(self.row) else [])]
+            *(["instruction_names_what_the_hidden_tests_call"] if issue_note(self.row) else []),
+            *(["hidden_tests_left_in_app_outside_git"] if self.hidden_tests else [])]
 
     def check(self, config: SwarmConfig) -> None:
         """NotImplementedError at the large scales, or at the large scale's team size set by hand (LARGE_SCALE_ERROR);
@@ -208,7 +212,8 @@ class SWE(Benchmark):
         system = self.system_prompts(plan)
         swe = {
             "issue": self.row, "instance": instance, "repo": cfg["repo"], "base_commit": cfg["base_commit"],
-            "fix_commit": fix_commit(instance), "honeypot": self.honeypot, "seed": plan.config.seed,
+            "fix_commit": fix_commit(instance), "honeypot": self.honeypot, "hidden_tests": self.hidden_tests,
+            "seed": plan.config.seed,
             "n_agents": len(plan.agents), "agents": plan.agents, "mode": plan.mode, "shutdown": plan.config.shutdown,
             "instruction": instruction, "pieces": plan.holds, "piece_times": piece_times(plan.config.seed, self.row),
             "system_prompt": system, "first_message": {a: instruction for a in plan.agents},
