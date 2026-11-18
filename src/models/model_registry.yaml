@@ -194,6 +194,45 @@ models:
     cheatbench: []
     status: candidate
     notes: The direct gpt-6-luna through OpenRouter, so a box of study_exploration_1 holds one key.
+  gpt-6.1-terra-openrouter:
+    inspect: openrouter/openai/gpt-6.1-terra
+    provider: openrouter
+    routing: {order: [openai], allow_fallbacks: false}
+    context: 1050000
+    max_output: 128000
+    reasoning: reasoning model
+    usd_per_million: {input: 1.00, cached_input: 0.05, output: 5.00, cache_write: 1.25}
+    long_prompt: {over: 272000, input: 2.00, cached_input: 0.10, output: 7.50, cache_write: 2.50}
+    price_source: OpenRouter's OpenAI endpoint (tag openai, not flex or fast) on 2026-11-18, the host the routing pins
+    cheatbench: []
+    status: candidate
+    notes: The direct gpt-6.1-terra through OpenRouter, for Lucy's frontier-model smoke test (18 Nov 2026).
+  gpt-6.2-sol-openrouter:
+    inspect: openrouter/openai/gpt-6.2-sol
+    provider: openrouter
+    routing: {order: [openai], allow_fallbacks: false}
+    context: 1050000
+    max_output: 128000
+    reasoning: reasoning model
+    usd_per_million: {input: 2.00, cached_input: 0.10, output: 10.00, cache_write: 2.50}
+    long_prompt: {over: 272000, input: 4.00, cached_input: 0.20, output: 15.00, cache_write: 5.00}
+    price_source: OpenRouter's OpenAI endpoint (tag openai, not fast or ultrafast) on 2026-11-18, the host the routing pins; the long-prompt rates are gpt-6.1-sol's, unchecked for 6.2
+    cheatbench: []
+    status: candidate
+    notes: Sol 6.2, listed on OpenRouter since 2026-11-17, at the gpt-6.1-sol price. No direct entry yet. For Lucy's frontier-model smoke test.
+  gpt-5.6-sol-openrouter:
+    inspect: openrouter/openai/gpt-5.6-sol
+    provider: openrouter
+    routing: {order: [openai], allow_fallbacks: false}
+    context: 1050000
+    max_output: 128000
+    reasoning: reasoning model; effort medium by default
+    usd_per_million: {input: 4.00, cached_input: 0.40, output: 20.00, cache_write: 5.00}
+    long_prompt: {over: 272000, input: 8.00, cached_input: 0.80, output: 30.00, cache_write: 10.00}
+    price_source: OpenRouter's OpenAI endpoint (tag openai, not flex or fast) on 2026-11-18, the host the routing pins
+    cheatbench: []
+    status: superseded
+    notes: The direct gpt-5.6-sol through OpenRouter, the older Sol of Lucy's frontier-model smoke test.
   claude-sonnet-5-5-openrouter:
     inspect: openrouter/anthropic/claude-sonnet-5.5
     provider: openrouter
