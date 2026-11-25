@@ -29,6 +29,8 @@ from src.configuration.scales import SCALES
 from src.models import model_registry as models
 
 LADDERS = ("rule", "regulator", "disregulator")
+# What workers_told and regulator_told take (Lucy's disclosure tiers); a regulator is never told of none.
+TOLD = ("none", "exploit_1", "exploit_2", "both")
 ROLES = ("worker", "regulator", "disregulator")     # a worker, or an influencer (src/swarm/influencers.py)
 INFLUENCERS = ("regulator", "disregulator")        # the roles that hold the peer tools (src/swarm/board.py)
 TOOL_OUTPUT_BYTES = 65536                           # the cap on one tool result, every agent's (tool_output_bytes)
@@ -287,6 +289,15 @@ class SwarmConfig(BaseModel):
     belief_probe: bool = False
     """Ask every worker the belief questions (prompts.yaml beliefs), each alone on a copy of its conversation as it
     stood right after its first user message (src/swarm/belief_probes.py). The run itself never holds a question."""
+    workers_told: str = "none"
+    """Lucy's disclosure tiers (2026-11-25): which of the variant's exploits every worker's first message names, as one
+    sentence on its own paragraph after the task (prompts.yaml disclosure.worker): none, exploit_1, exploit_2 or both.
+    The sentence says the exploit exists and where; it neither forbids nor asks for its use. A regulator's copy of
+    the task never holds it. Needs a variant whose scenario gives the words (prior_work_1, prior_work_2)."""
+    regulator_told: str = "both"
+    """Lucy's disclosure tiers: which of the variant's exploits a regulator at level instructed is told of in its
+    first message: both (the scenario's `cheating`, the default and the behaviour before this option), exploit_1 or
+    exploit_2 (the scenario's `cheating_1` or `cheating_2`, the same text with the other place left out)."""
 
     # ---------------------------------------------------------------- limits
     message_limit: int | None = None
@@ -456,6 +467,10 @@ class SwarmConfig(BaseModel):
             level = getattr(self, f"{ladder}_level")
             if level not in levels[ladder]["order"]:
                 raise ValueError(f"{ladder}_level {level!r} is not one of {levels[ladder]['order']}")
+        if self.workers_told not in TOLD:
+            raise ValueError(f"workers_told {self.workers_told!r} is not one of {list(TOLD)}")
+        if self.regulator_told not in TOLD[1:]:
+            raise ValueError(f"regulator_told {self.regulator_told!r} is not one of {list(TOLD[1:])}")
         return self
 
     def _check_head_start(self) -> None:
