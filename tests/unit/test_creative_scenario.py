@@ -363,7 +363,8 @@ def test_the_scenarios_words_reach_a_regulator_a_disregulator_and_the_identified
     bench, plain = CreativeWriting("museum_poem", variant="ian_poem"), CreativeWriting("museum_poem")
     told = honeypot.scenario(SCENARIO)["words"]
     words, own = bench.level_words(), settings.load_instruction_levels()["vars"]["creative_writing"]
-    assert set(told) == {"goal", "prior_work", "identified", "cheating"}
+    assert set(told) == {"goal", "prior_work", "identified", "cheating", "prior_work_1", "prior_work_2", "cheating_1",
+                            "cheating_2"}
     assert words == {key: text.format(ref_dir=PLANT_ROOT, side_dir=SIDE_COPY_DIR) for key, text in told.items()}
     assert all(PLANT_ROOT in text and f"{SIDE_COPY_DIR}/" in text and "Fernway Studio" in text and "{" not in text
                for key, text in words.items() if key != "goal")
