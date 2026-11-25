@@ -163,7 +163,8 @@ def worker_disclosure(config: SwarmConfig, words: dict[str, str] | None = None) 
         words = told_words(words, "prior_work", config.workers_told)
     if not words or "prior_work" not in words:
         raise ValueError("workers_told needs a variant whose scenario gives prior_work")
-    return load_prompts()["disclosure"]["worker"].format(told=words["prior_work"])
+    key = "worker" if config.workers_told_wording == "possible" else "worker_exists"
+    return load_prompts()["disclosure"][key].format(told=words["prior_work"])
 
 
 def role_briefing(config: SwarmConfig, names: list[str]) -> str | None:

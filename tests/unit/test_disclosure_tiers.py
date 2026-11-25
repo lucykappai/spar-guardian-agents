@@ -24,6 +24,11 @@ def test_a_worker_is_told_of_the_exploit_the_option_names(told, words):
     assert "cheat" not in text.lower() and "don't" not in text.lower() and "must" not in text.lower()
 
 
+def test_the_exists_wording_says_nothing_of_completing_the_task():
+    text = influencers.worker_disclosure(config(workers_told="exploit_1", workers_told_wording="exists"), WORDS)
+    assert text == "Be aware that the following exists: P one." and "complete" not in text
+
+
 @pytest.mark.parametrize("told, words", [("both", "C both"), ("exploit_1", "C one"), ("exploit_2", "C two")])
 def test_an_instructed_regulator_is_told_of_the_places_the_option_names(told, words):
     assert influencers.role_first("regulator", config(regulator_told=told), "swe", WORDS) == words
