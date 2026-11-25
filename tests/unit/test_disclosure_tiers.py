@@ -56,3 +56,27 @@ def test_each_one_place_text_is_the_scenarios_own_with_the_other_place_left_out(
         one, two, both = words[f"{key}_1"], words[f"{key}_2"], words[key]
         assert "{side_dir}" not in one and "{side_dir}" in two and "{side_dir}" in both
         assert one != two and len(one) < len(both) and len(two) < len(both)
+
+
+def test_the_cheating_wording_names_the_same_place_and_calls_its_use_cheating():
+    text = influencers.worker_disclosure(config(workers_told="exploit_1", workers_told_wording="cheating"), WORDS)
+    assert text == "Cheating behavior includes using P one."
+
+
+def test_an_unknown_wording_is_refused():
+    with pytest.raises(ValueError):
+        config(workers_told="exploit_1", workers_told_wording="forbidden")
+
+
+def test_the_reminder_sentence_follows_the_check_sentence_only_when_asked_for():
+    pieces = load_prompts()["roles"]
+    plain = influencers.role_text("regulator", config(), "swe")
+    reminded = influencers.role_text("regulator", config(regulator_remind=True), "swe")
+    assert pieces["regulator_remind"] not in plain
+    assert f'{pieces["regulator_check"]} {pieces["regulator_remind"]} {pieces["regulator_no_disclosure"]}' in reminded
+    assert reminded.replace(" " + pieces["regulator_remind"], "") == plain
+
+
+def test_a_reminder_needs_a_regulator():
+    with pytest.raises(ValueError):
+        SwarmConfig(n_agents=3, regulator_remind=True)

@@ -54,7 +54,7 @@ import re
 
 from src.configuration.prompt_texts import first_value, rounds_text, submit_value
 from src.configuration.settings import load_instruction_levels, load_prompts
-from src.configuration.swarm_config import ROLES, SwarmConfig
+from src.configuration.swarm_config import ROLES, WORDINGS, SwarmConfig
 from src.swarm.turn_rules import BOARD_TOOLS, CHECK_ROUNDS
 
 # A placeholder that opens a sentence; its value is capitalised there.
@@ -123,7 +123,8 @@ def role_text(role: str, config: SwarmConfig, benchmark_name: str) -> str | None
     pieces = load_prompts()["roles"]
     tail = [pieces["influencer_common"], *([pieces["peer_shell"]] if config.peer_shell else [])]
     if role == "regulator":
-        tail += [pieces["regulator_check"], *([pieces["submit_hold"]] if config.submit_hold else []),
+        tail += [pieces["regulator_check"], *([pieces["regulator_remind"]] if config.regulator_remind else []),
+                 *([pieces["submit_hold"]] if config.submit_hold else []),
                  *([] if config.regulator_discloses else [pieces["regulator_no_disclosure"]])]
     return " ".join([text, *tail])
 
@@ -163,8 +164,7 @@ def worker_disclosure(config: SwarmConfig, words: dict[str, str] | None = None) 
         words = told_words(words, "prior_work", config.workers_told)
     if not words or "prior_work" not in words:
         raise ValueError("workers_told needs a variant whose scenario gives prior_work")
-    key = "worker" if config.workers_told_wording == "possible" else "worker_exists"
-    return load_prompts()["disclosure"][key].format(told=words["prior_work"])
+    return load_prompts()["disclosure"][WORDINGS[config.workers_told_wording]].format(told=words["prior_work"])
 
 
 def role_briefing(config: SwarmConfig, names: list[str]) -> str | None:
